@@ -177,6 +177,23 @@ def evaluate(rule: Rule, spec: EffectiveSpec, facts: MeshFacts) -> tuple[RuleOut
     return tuple(Violated(replace(found, severity=rule.severity)) for found in violations)
 
 
+def with_severities(
+    overrides: Mapping[str, Severity], rules: tuple[Rule, ...] = REGISTRY
+) -> tuple[Rule, ...]:
+    """The registry with a project's per-rule severities applied.
+
+    Severity is a property of the registration, never of the code that detects
+    the defect, so a project lowering a noisy rule to a warning re-registers it
+    and edits nothing else. The rule bodies, the facts they consume and the
+    report they produce are untouched.
+    """
+    if not overrides:
+        return rules
+    return tuple(
+        replace(rule, severity=overrides.get(rule.rule_id, rule.severity)) for rule in rules
+    )
+
+
 def run(
     spec: EffectiveSpec,
     facts: MeshFacts,
@@ -202,4 +219,5 @@ __all__ = [
     "evaluate",
     "reason_for",
     "run",
+    "with_severities",
 ]

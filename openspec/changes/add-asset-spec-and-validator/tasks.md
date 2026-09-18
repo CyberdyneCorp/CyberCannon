@@ -37,45 +37,45 @@
 
 ## 4. Application — ports and use cases
 
-- [ ] 4.1 Define the `SpecStore` port (load spec, discover governing spec by walking upward to the repository root, load project config) and verify a port-conformance test runs against the in-memory fake
-- [ ] 4.2 Define the `MeshInspector` port (path → `MeshFacts` including `source_format` and the `available` fact set, plus a handle for preview emission) and the `BlobStore` port (write preview, associate with asset and source export); verify both have in-memory fakes under `application/testing/`
-- [ ] 4.3 Implement the `validate_export` use case (discover spec → merge effective spec → extract facts → run rules → report) and verify it produces identical reports for identical `MeshFacts` regardless of source format
-- [ ] 4.4 Add optional preview emission inside `validate_export`, guarded so any preview failure is reported separately and cannot change the verdict (D7); verify a test where preview emission raises and the outcome stays passing
-- [ ] 4.5 Implement the `lint_spec` use case over one or many spec files and verify it reports structural violations with file path and field location, including a state that constrains nothing
-- [ ] 4.6 Verify at the use-case level that an unsupported export format is reported as such and never validated with assumed facts (test asserts a non-matrix format produces an operation failure, not a passing report)
-- [ ] 4.7 Implement the `compile_spec` use case emitting rules plus open annotations only, with effective values already merged; verify resolved and promoted annotations are excluded and that compiling the same input twice is byte-identical
-- [ ] 4.8 Implement the project-level briefing compilation (shared constraints and rules, no per-asset annotations) and verify no asset annotation appears in its output
-- [ ] 4.9 Verify offline behavior at the use-case level: a test asserting `validate_export` and `compile_spec` complete with every network-capable fake configured to raise
+- [x] 4.1 Define the `SpecStore` port (load spec, discover governing spec by walking upward to the repository root, load project config) and verify a port-conformance test runs against the in-memory fake
+- [x] 4.2 Define the `MeshInspector` port (path → `MeshFacts` including `source_format` and the `available` fact set, plus a handle for preview emission) and the `BlobStore` port (write preview, associate with asset and source export); verify both have in-memory fakes under `application/testing/`
+- [x] 4.3 Implement the `validate_export` use case (discover spec → merge effective spec → extract facts → run rules → report) and verify it produces identical reports for identical `MeshFacts` regardless of source format
+- [x] 4.4 Add optional preview emission inside `validate_export`, guarded so any preview failure is reported separately and cannot change the verdict (D7); verify a test where preview emission raises and the outcome stays passing
+- [x] 4.5 Implement the `lint_spec` use case over one or many spec files and verify it reports structural violations with file path and field location, including a state that constrains nothing
+- [x] 4.6 Verify at the use-case level that an unsupported export format is reported as such and never validated with assumed facts (test asserts a non-matrix format produces an operation failure, not a passing report)
+- [x] 4.7 Implement the `compile_spec` use case emitting rules plus open annotations only, with effective values already merged; verify resolved and promoted annotations are excluded and that compiling the same input twice is byte-identical
+- [x] 4.8 Implement the project-level briefing compilation (shared constraints and rules, no per-asset annotations) and verify no asset annotation appears in its output
+- [x] 4.9 Verify offline behavior at the use-case level: a test asserting `validate_export` and `compile_spec` complete with every network-capable fake configured to raise
 
 ## 5. Adapters — outbound
 
-- [ ] 5.1 Implement `GitSpecStore`: parse `asset.yaml` with pydantic, read `schema_version` first and refuse only a newer major version with a message naming the required tool version (D6); verify round-trip parse tests and the newer-major refusal case
-- [ ] 5.2 Make unknown fields produce a `warning` naming the field and its location rather than a parse failure (D5) and verify a spec with an unrecognised field still validates its mesh
-- [ ] 5.3 Wire `ruamel.yaml` round-trip loading (D4) and verify a load-then-dump of a commented `asset.yaml` preserves comments and key order byte-for-byte
-- [ ] 5.4 Implement upward asset discovery bounded by the git root (D9) and verify discovery from an export path, from a nested path, and the no-spec-found case
+- [x] 5.1 Implement `GitSpecStore`: parse `asset.yaml` with pydantic, read `schema_version` first and refuse only a newer major version with a message naming the required tool version (D6); verify round-trip parse tests and the newer-major refusal case
+- [x] 5.2 Make unknown fields produce a `warning` naming the field and its location rather than a parse failure (D5) and verify a spec with an unrecognised field still validates its mesh
+- [x] 5.3 Wire `ruamel.yaml` round-trip loading (D4) and verify a load-then-dump of a commented `asset.yaml` preserves comments and key order byte-for-byte
+- [x] 5.4 Implement upward asset discovery bounded by the git root (D9) and verify discovery from an export path, from a nested path, and the no-spec-found case
 - [ ] 5.5 Implement `TrimeshInspector` with per-format normalisation of unit scale and up axis for GLB/GLTF, FBX and OBJ, populating `available` from the capability matrix and never substituting a value for an unavailable fact; verify against real fixture files in an opt-in integration test suite, separate from the domain suite
 - [ ] 5.6 Extract animation facts (clip names, frames/duration, frame rate, root motion, loop closure, skinning, bone count) for GLB/GLTF and FBX; verify against one skinned, animated fixture per format that clip names and durations match the authored source, and mark in the matrix any fact a format's extraction cannot be trusted for
-- [ ] 5.7 Verify OBJ behaviour end to end in the integration suite: an OBJ export of an animated asset reports `format.unsuitable_for_asset`, and an OBJ export of a static asset reports triangle, naming and material results plus not-evaluated entries for unit scale, up axis, sockets, rig and animation
+- [x] 5.7 Verify OBJ behaviour end to end in the integration suite: an OBJ export of an animated asset reports `format.unsuitable_for_asset`, and an OBJ export of a static asset reports triangle, naming and material results plus not-evaluated entries for unit scale, up axis, sockets, rig and animation
 - [ ] 5.8 Implement decimated Draco-compressed preview emission preserving object and attachment point names, and verify the preview has fewer triangles, a smaller file size, and retains a named part from the source
-- [ ] 5.9 Preserve animation clips and skinning through decimation — verify the preview carries the same clip names and durations and the same bone names as the source, and that an emitter unable to carry the clips reports a preview failure instead of writing a clipless preview
-- [ ] 5.10 Implement `FsBlobStore` writing previews with their asset id and source export recorded, and verify the association is readable back
+- [x] 5.9 Preserve animation clips and skinning through decimation — verify the preview carries the same clip names and durations and the same bone names as the source, and that an emitter unable to carry the clips reports a preview failure instead of writing a clipless preview
+- [x] 5.10 Implement `FsBlobStore` writing previews with their asset id and source export recorded, and verify the association is readable back
 
 ## 6. Adapters — inbound CLI and wiring
 
-- [ ] 6.1 Build the composition root `adapters/wiring/container.py` (D11) and verify a test constructs the container with fakes and resolves every use case
-- [ ] 6.2 Implement `canon validate`, `canon compile` and `canon check` as thin Typer commands delegating to use cases, and verify no rule logic exists outside the domain (assert by import-linter plus a grep-based test)
-- [ ] 6.3 Implement the single exit-code seam — `0` clean, `1` error-severity violations, `2` operation could not run — and verify all three via subprocess tests, including the missing-file case naming the file
-- [ ] 6.4 Implement human-readable output where every violation names the asset, subject, observed and expected values; verify a triangle-budget message contains all four
-- [ ] 6.5 Print not-evaluated rules as their own section, never collapsed into a count, naming each rule and the reason its fact was unavailable; verify an OBJ run lists every suppressed rule by name
-- [ ] 6.6 Implement `--json` machine-readable mode writing only the structured result to stdout with diagnostics elsewhere, and verify stdout parses as JSON with nothing else on it, carrying violations, not-evaluated rules and the export format as distinct fields
-- [ ] 6.7 Implement changed-file invocation that validates only the owning assets and exits `0` when no file belongs to an asset; verify both cases via subprocess
-- [ ] 6.8 Verify no-credential operation: a subprocess test on a clean environment (no token, no config) completes a validation without prompting
+- [x] 6.1 Build the composition root `adapters/wiring/container.py` (D11) and verify a test constructs the container with fakes and resolves every use case
+- [x] 6.2 Implement `canon validate`, `canon compile` and `canon check` as thin Typer commands delegating to use cases, and verify no rule logic exists outside the domain (assert by import-linter plus a grep-based test)
+- [x] 6.3 Implement the single exit-code seam — `0` clean, `1` error-severity violations, `2` operation could not run — and verify all three via subprocess tests, including the missing-file case naming the file
+- [x] 6.4 Implement human-readable output where every violation names the asset, subject, observed and expected values; verify a triangle-budget message contains all four
+- [x] 6.5 Print not-evaluated rules as their own section, never collapsed into a count, naming each rule and the reason its fact was unavailable; verify an OBJ run lists every suppressed rule by name
+- [x] 6.6 Implement `--json` machine-readable mode writing only the structured result to stdout with diagnostics elsewhere, and verify stdout parses as JSON with nothing else on it, carrying violations, not-evaluated rules and the export format as distinct fields
+- [x] 6.7 Implement changed-file invocation that validates only the owning assets and exits `0` when no file belongs to an asset; verify both cases via subprocess
+- [x] 6.8 Verify no-credential operation: a subprocess test on a clean environment (no token, no config) completes a validation without prompting
 
 ## 7. Consumer-facing artifacts and acceptance
 
-- [ ] 7.1 Write the `.canon/project.yaml` schema for project defaults (naming pattern, clip naming convention, default frame rate, rig bone budget, up axis, unit scale, engine content root, per-rule severity, decimation settings) and verify defaults flow through `EffectiveSpec` into both validation and compiled output
-- [ ] 7.2 Provide a `.pre-commit-hooks.yaml` entry and document hook installation; verify the hook blocks a commit containing an over-budget export and allows a clean one
-- [ ] 7.3 Write `README.md` and a worked `characters/mech_scout` example — a skinned, animated asset whose `asset.yaml` declares sockets, states and a rig budget, plus its compiled `art-spec.md` — and verify the example validates and compiles via the CLI in CI
+- [x] 7.1 Write the `.canon/project.yaml` schema for project defaults (naming pattern, clip naming convention, default frame rate, rig bone budget, up axis, unit scale, engine content root, per-rule severity, decimation settings) and verify defaults flow through `EffectiveSpec` into both validation and compiled output
+- [x] 7.2 Provide a `.pre-commit-hooks.yaml` entry and document hook installation; verify the hook blocks a commit containing an over-budget export and allows a clean one
+- [x] 7.3 Write `README.md` and a worked `characters/mech_scout` example — a skinned, animated asset whose `asset.yaml` declares sockets, states and a rig budget, plus its compiled `art-spec.md` — and verify the example validates and compiles via the CLI in CI
 - [ ] 7.4 Run the acceptance test from the proposal: take one real asset end to end and record whether the 3D developer delivered without asking the artist a single clarifying question; log every question asked as a candidate missing schema field
 - [ ] 7.5 Run that same asset's export through every supported format and compare coverage: verify each rule is reported as passed, violated or not evaluated in each format, and that no rule silently disappears from a report
-- [ ] 7.6 Run `openspec validate --all --strict` plus the full test suite and `lint-imports`, and confirm cognitive complexity per function is within the backend target of 15
+- [x] 7.6 Run `openspec validate --all --strict` plus the full test suite and `lint-imports`, and confirm cognitive complexity per function is within the backend target of 15

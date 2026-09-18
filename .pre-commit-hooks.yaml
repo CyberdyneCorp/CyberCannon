@@ -1,0 +1,45 @@
+# The pre-commit hook this repository publishes.
+#
+# `canon changed` receives the staged files and validates only the assets they
+# belong to, so the hook costs nothing in a repository where nothing relevant
+# moved: given no file governed by an `asset.yaml`, it exits 0 without work.
+#
+# Exit codes are the contract (`canon-cli`): 0 clean, 1 an error-severity
+# violation, 2 the run could not happen at all. pre-commit blocks the commit on
+# any non-zero code, which is what makes an over-budget export a conversation
+# before the push rather than after the integration.
+#
+# Install it in a game repository with:
+#
+#     repos:
+#       - repo: https://github.com/cyberdynecorp/cybercanon
+#         rev: v0.1.0
+#         hooks:
+#           - id: canon
+#
+# It needs no login, no token and no network.
+- id: canon
+  name: canon — validate the assets the staged files belong to
+  description: >-
+    Validate every asset touched by this commit against its asset.yaml:
+    triangle budgets, naming, unit scale, up axis, required attachment points,
+    required animation clips and the rig budget.
+  entry: canon changed
+  language: python
+  types: [file]
+  pass_filenames: true
+  require_serial: true
+
+# The same checks over the specification files alone — cheap, and the half that
+# catches a spec that constrains nothing. Useful in CI or as a manual stage.
+- id: canon-check
+  name: canon — check the specification files themselves
+  description: >-
+    Check that every asset.yaml is structurally valid: descending LODs, a first
+    LOD within the triangle budget, no duplicate ids, and no design state that
+    resolves to neither a clip nor an explicit `animated: false`.
+  entry: canon check
+  language: python
+  files: (^|/)asset\.yaml$
+  pass_filenames: false
+  require_serial: true

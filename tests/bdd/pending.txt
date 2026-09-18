@@ -173,12 +173,8 @@ asset-preview :: A source without clips is not a failure
 asset-preview :: Clips cannot be preserved
 asset-preview :: Clips survive decimation
 asset-preview :: Named parts survive decimation
-asset-preview :: Preview emission fails
-asset-preview :: Preview emitted during validation
 asset-preview :: Preview is smaller than the source
-asset-preview :: Preview traceable to its export
 asset-preview :: Skinning is preserved
-asset-preview :: Unreadable export produces no preview
 asset-requests :: A reader may ask
 asset-requests :: A request is not a constraint
 asset-requests :: A request states what is needed and why
@@ -208,14 +204,7 @@ asset-spec :: Derived index is disposable
 asset-spec :: Missing part yields an orphan, not a wrong placement
 asset-spec :: Promotion retires the annotation
 asset-spec :: Resolution does not become permanent context
-asset-spec :: Spec read directly from a working copy
-asset-spec :: Unknown field reported
-asset-validation :: Both renderings agree
-asset-validation :: Command line and application agree
 asset-validation :: Reporting a result is separable and non-blocking
-asset-validation :: Unparseable export
-asset-validation :: Unsupported format is refused, not assumed
-asset-validation :: Validation succeeds while services are down
 auth-integration :: A role-less actor is resolved, not rejected
 auth-integration :: Adding a mapping requires no code change
 auth-integration :: Authorization code without proof is refused
@@ -253,18 +242,6 @@ blob-storage :: Re-mirroring is a no-op
 blob-storage :: Renaming does not change the key
 blob-storage :: Repository decides which blobs matter
 blob-storage :: Upload without a repository source is refused
-canon-cli :: Actionable message
-canon-cli :: Check specification files
-canon-cli :: Clean run
-canon-cli :: First run on a fresh machine
-canon-cli :: Machine mode output is parseable
-canon-cli :: No governing spec found
-canon-cli :: Nothing relevant changed
-canon-cli :: Only touched assets are validated
-canon-cli :: Operation could not run
-canon-cli :: Spec found from an export path
-canon-cli :: Validate an export
-canon-cli :: Violations found
 concept-ingestion :: A first view does not promote an asset
 concept-ingestion :: A late concept view does not demote an asset
 concept-ingestion :: A newly exported render appears
@@ -563,15 +540,6 @@ semantic-search-delegation :: Service credential is never end-user authority
 semantic-search-delegation :: Slow service does not hold the response
 semantic-search-delegation :: Two people get different results
 semantic-search-delegation :: Unreachable service degrades the response, not the search
-spec-compilation :: Compiled file edited by hand
-spec-compilation :: Compiles while offline
-spec-compilation :: Defaults merged into output
-spec-compilation :: Output does not grow with usage
-spec-compilation :: Project briefing excludes per-asset content
-spec-compilation :: Promoted content appears as a rule, not as history
-spec-compilation :: Read cold
-spec-compilation :: Repeated compilation is identical
-spec-compilation :: Resolved annotation is excluded
 spec-lenses :: Lens cannot reveal an inaccessible asset
 spec-lenses :: Lens choice is unrestricted
 spec-lenses :: Modeling lens returns constraints

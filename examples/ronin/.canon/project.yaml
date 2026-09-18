@@ -1,0 +1,43 @@
+# The project's half of every asset's contract (D3).
+#
+# Everything under `defaults:` is an ordinary `constraints:` block, in exactly
+# the vocabulary an `asset.yaml` uses, and an asset overrides any of it field by
+# field. Everything outside `defaults:` is a project knob no asset overrides.
+schema_version: 1
+name: Ronin
+
+# Where the engine keeps its content, for the people and agents who have to find
+# the imported asset rather than the export.
+engine_content_root: Content/Ronin
+
+# Standing rules, compiled into the project briefing and nothing else.
+golden_rules:
+  - The silhouette reads at 25 m before any detail does.
+  - An attachment point declared by design is a gate, not a suggestion.
+
+defaults:
+  up_axis: Y
+  unit_scale: 1.0
+  pivot: feet centre, origin at world zero
+  # Templates, never regexes: artists author this file (D8).
+  naming: "SM_{asset}_LOD{n}"
+  animation:
+    frame_rate: 30
+    clip_naming: "A_{asset}_{state}"
+  rig:
+    max_bones: 64
+  texture:
+    size: 2048
+    sets: 1
+    channels: [base_color, normal, orm]
+
+# Severity is a property of the registration, so a project tunes a noisy rule
+# without anybody editing the rule (design: "default new rules to warning;
+# promote to error once the team has seen the noise").
+severity:
+  naming.pattern_mismatch: warning
+
+# What preview emission aims for. Deliberately dumb numbers (D7).
+preview:
+  ratio: 0.25
+  ceiling: 20000

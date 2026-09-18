@@ -1,0 +1,93 @@
+# The worked example: one skinned, animated asset whose specification is the
+# whole contract between art, design and code.
+#
+# Read it top to bottom — that is the order the disciplines author it in, and
+# the order the compiled `art-spec.md` prints it in.
+schema_version: 1
+
+id: mech_scout
+name: Scout Mech
+status: modeling
+aliases: [scout walker, mech scout]
+
+owner_art: rafa
+owner_design: dani
+owner_code: leo
+
+# ---------------------------------------------------------------------------
+# Concept — authored by art.
+# ---------------------------------------------------------------------------
+concept:
+  views:
+    - concept/mech_scout_front.png
+    - concept/mech_scout_three_quarter.png
+  silhouette_rules:
+    - One asymmetric shoulder reads as the front at 25 m.
+    - The head sits below the shoulder line; it never breaks the top edge.
+
+# ---------------------------------------------------------------------------
+# Design — authored by design. Every field here constrains art, constrains code,
+# or is checkable by the validator; a field that does none of the three is a
+# wiki page, not a spec field.
+# ---------------------------------------------------------------------------
+design:
+  role: fast recon walker, no sustained fire
+  read_distance_m: 25
+  silhouette_priority: legs over torso
+  scale_ref: 3.2 m at the shoulder
+  team_color_regions: [shoulder pauldron, calf plate]
+
+  # The closed loop: design declares a socket, art places an empty with that
+  # name, and `socket.missing` rejects the export without it.
+  sockets:
+    - name: SOCKET_muzzle_l
+      purpose: muzzle flash and tracer origin for the left arm
+
+  # States resolve into required clips through `clip_naming` (D12), so
+  # `states: [walk, fire]` constrains the export instead of describing it.
+  states:
+    - name: walk
+      loop: true
+      root_motion: true
+      min_duration_s: 0.1
+    - name: fire
+      loop: false
+      root_motion: true
+      min_duration_s: 0.05
+
+# ---------------------------------------------------------------------------
+# Engineering constraints — authored by code. Anything omitted falls back to
+# `.canon/project.yaml`.
+# ---------------------------------------------------------------------------
+constraints:
+  tri_budget: 12000
+  lods: [12000, 6000, 2000]
+  collider: convex hull, 12 faces
+  rig:
+    skeleton: SK_MechScout
+    skinned: true
+
+links:
+  source: art/source/mech_scout.blend
+  engine: Content/Ronin/Characters/MechScout
+  design_doc: https://arche.cyberdynecorp.ai/d/ronin-recon-roster
+
+# ---------------------------------------------------------------------------
+# Annotations have exactly two exits: promoted to a rule, or resolved as an
+# issue. Only the open ones reach the compiled briefing.
+# ---------------------------------------------------------------------------
+annotations:
+  - id: ann-0007
+    author: dani
+    kind: art-direction
+    state: open
+    text: The pauldron still reads as a backpack from behind at 25 m.
+    target:
+      part: SM_mech_scout_LOD0
+  - id: ann-0004
+    author: leo
+    kind: technical
+    state: resolved
+    text: The muzzle empty was rotated 90 degrees in the first export.
+    target:
+      part: SOCKET_muzzle_l

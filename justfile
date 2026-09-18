@@ -22,10 +22,11 @@ setup:
     uv sync --frozen
 
 # Everything CI runs, in CI's order: lint, the layering contract, complexity,
-# the generated features, unit + BDD + conformance + both traceability gates,
-# and `openspec validate`. E2E is not here by design (D6) — `just test-e2e`.
+# the generated features, unit + BDD + conformance + integration + both
+# traceability gates, and `openspec validate`. E2E is not here by design (D6) —
+# `just test-e2e`.
 #
-# Measured runtime: ~7 s on a warm checkout (163 tests, 657 scenarios, 0 absent).
+# Measured runtime: ~16 s on a warm checkout (889 tests, 657 scenarios, 0 absent).
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
 check: lint imports complexity features test spec
@@ -44,9 +45,10 @@ imports:
 complexity:
     uv run --locked complexipy --max-complexity-allowed {{ max_complexity }} libs services tools tests scripts
 
-# Unit, BDD and port-conformance tests, with the traceability gates and the
-# domain coverage threshold (D7). E2E is excluded: it needs a compose stack and
-# browsers, and `just check` has to stay fast enough to run constantly (D6).
+# Unit, BDD, port-conformance and integration tests, with the traceability gates
+# and the domain coverage threshold (D7). E2E is excluded: it needs a compose
+# stack and browsers, and `just check` has to stay fast enough to run
+# constantly (D6).
 test *args:
     uv run --locked pytest --cov -m "not e2e" {{ args }}
 
@@ -65,6 +67,13 @@ test-conformance *args:
 # selects nothing and pytest exits 5.
 test-bdd *args:
     uv run --locked pytest -m bdd {{ args }}
+
+# Only the integration layer: the real outbound adapters against real files,
+# written from code by `tools/canon_fixtures` so nothing binary lives in git.
+# Reachable on its own, and part of `just check` through `test` — CI runs
+# `just check` and nothing else, so a suite outside it is a suite CI never runs.
+test-integration *args:
+    uv run --locked pytest -m integration {{ args }}
 
 # End to end: Playwright over the web app, plus subprocess runs of `canon`.
 # Deliberately outside `just check` (D6) — browsers and a compose stack are too

@@ -14,11 +14,11 @@ from cybercanon.application.testing.spec_store import InMemorySpecStore
 FAKE_FACTORIES = MappingProxyType({"spec_store": InMemorySpecStore})
 ```
 
-It is empty until the first port lands: ports arrive with the change that
-introduces them (``SpecStore`` and ``MeshInspector`` with
-``add-asset-spec-and-validator``), and the change that adds a port adds its fake
-here in the same breath. Everything downstream — the ``fakes`` BDD fixture, the
-conformance suites — then picks it up with no further wiring.
+Ports arrive with the change that introduces them, and the change that adds a
+port adds its fake here in the same breath. Everything downstream — the
+``fakes`` BDD fixture, the conformance suites — then picks it up with no further
+wiring. ``add-asset-spec-and-validator`` registers the three the validator needs:
+``spec_store``, ``mesh_inspector`` and ``blob_store``.
 """
 
 from __future__ import annotations
@@ -27,10 +27,20 @@ from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
 
+from cybercanon.application.testing.blob_store import InMemoryBlobStore
+from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.spec_store import InMemorySpecStore
+
 FakeFactory = Callable[[], Any]
 """A zero-argument constructor for one port's in-memory fake."""
 
-FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType({})
+FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType(
+    {
+        "blob_store": InMemoryBlobStore,
+        "mesh_inspector": InMemoryMeshInspector,
+        "spec_store": InMemorySpecStore,
+    }
+)
 """Port name -> the fake that stands in for it. One entry per port."""
 
 
@@ -52,4 +62,12 @@ def _registry(factories: Mapping[str, FakeFactory] | None) -> Mapping[str, FakeF
     return FAKE_FACTORIES if factories is None else factories
 
 
-__all__ = ["FAKE_FACTORIES", "FakeFactory", "build_fakes", "fake_names"]
+__all__ = [
+    "FAKE_FACTORIES",
+    "FakeFactory",
+    "InMemoryBlobStore",
+    "InMemoryMeshInspector",
+    "InMemorySpecStore",
+    "build_fakes",
+    "fake_names",
+]

@@ -25,6 +25,12 @@ dev = [
     "playwright>=1.47",
 ]
 
+# The `canon` binary. It is the only script this project installs: the API and
+# the MCP server are deployables with their own entry points, and the CLI is the
+# one thing a person types.
+[project.scripts]
+canon = "cybercanon.cli.main:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -1,27 +1,42 @@
-"""Step definitions for `asset-validation` — the scenarios the domain rules satisfy.
+"""Step definitions for `asset-validation` — the rules, and the use case over them.
 
 Group 3 of `add-asset-spec-and-validator` builds the validation decision as pure
 domain: `MeshFacts` and the per-format matrix, the effective-spec merge, every
-rule, and the three-way dispatch that makes NOT EVALUATED structural.
+rule, and the three-way dispatch that makes NOT EVALUATED structural. Group 4
+adds `validate_export` above it, and with it the three scenarios no rule can
+answer on its own — an export in a format the matrix does not cover, a file that
+is not a mesh, and a run with every remote service unreachable.
 
 **Every scenario here runs over hand-built `MeshFacts` with zero files on disk.**
 That is not a testing convenience, it is the boundary D1 draws: mesh *reading* is
 a port, mesh *rules* are domain. A `.glb` fixture appearing in this module would
-mean the boundary had moved.
+mean the boundary had moved — the use-case scenarios below reach the same facts
+through the in-memory inspector.
 
-The scenarios that stay in `tests/bdd/pending.txt` are the ones a rule cannot
-answer on its own: the use case that reads a file and refuses an unsupported
-format (group 4), the renderings and the exit-code seam (group 6), and the
-surfaces that must agree with each other (group 6 and `add-web-backend`).
+The scenarios that stay in `tests/bdd/pending.txt` are the renderings and the
+exit-code seam (group 6), the surfaces that must agree with each other (group 6
+and `add-web-backend`), and reporting a result to a destination, which is a
+separate use case allowed to fail (D10).
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 from pytest_bdd import given, scenario, then, when
+from typer.testing import CliRunner
 
+from cybercanon.adapters.inbound.cli import payload, rendering
+from cybercanon.adapters.inbound.cli.app import build_app
+from cybercanon.adapters.wiring.container import Container
+from cybercanon.application.errors import OperationFailed
+from cybercanon.application.ports.mesh_inspector import MeshUnreadable, UnsupportedExport
+from cybercanon.application.testing.blob_store import InMemoryBlobStore
+from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.spec_store import InMemorySpecStore
+from cybercanon.application.use_cases.validate_export import ValidationOutcome, validate_export
 from cybercanon.domain.asset import Asset, AssetId
 from cybercanon.domain.constraints import AnimationDefaults, Constraints, Rig
 from cybercanon.domain.design import Design, Socket, State
@@ -36,6 +51,8 @@ from cybercanon.domain.violations import Severity
 ASSET_ID = "mech_scout"
 CONVENTION = "A_{asset}_{state}"
 NAMING = "SM_{asset}_LOD{n}"
+SPEC_PATH = "characters/mech_scout/asset.yaml"
+EXPORT = "characters/mech_scout/exports/SM_mech_scout_LOD0.glb"
 
 WALK = "A_mech_scout_walk"
 FIRE = "A_mech_scout_fire"
@@ -783,3 +800,214 @@ def _the_two_suppressed_rules_are_listed(validation: dict[str, Any]) -> None:
 def _the_suppressed_rules_are_not_violations(validation: dict[str, Any]) -> None:
     reported = {violation.rule_id for violation in validation["report"].violations}
     assert not reported & {conventions.UNIT_SCALE, conventions.UP_AXIS}
+
+
+# --------------------------------------------------------------------------
+# Group 4 — the scenarios only the use case can answer
+#
+# A rule cannot refuse a file it was never handed: "no identity, no network",
+# "this format is not in the matrix" and "this file is not a mesh" are decisions
+# `validate_export` makes before any rule runs. They are exercised here through
+# the in-memory ports, so they still run with zero files on disk.
+# --------------------------------------------------------------------------
+
+
+@scenario(
+    "../features/add-asset-spec-and-validator/asset-validation.feature",
+    "Validation succeeds while services are down",
+)
+def test_validation_succeeds_while_services_are_down() -> None: ...
+
+
+@scenario(
+    "../features/add-asset-spec-and-validator/asset-validation.feature",
+    "Unsupported format is refused, not assumed",
+)
+def test_unsupported_format_is_refused() -> None: ...
+
+
+@scenario(
+    "../features/add-asset-spec-and-validator/asset-validation.feature",
+    "Unparseable export",
+)
+def test_unparseable_export() -> None: ...
+
+
+def _a_local_store() -> InMemorySpecStore:
+    """One asset, on disk in a working copy — no identity, no service, no token."""
+    store = InMemorySpecStore()
+    store.add(SPEC_PATH, an_asset(constraints=Constraints(tri_budget=12000)))
+    return store
+
+
+def _validate(validation: dict[str, Any], **ports: Any) -> None:
+    """Run the use case, recording the verdict or the operation failure."""
+    try:
+        validation["outcome"] = validate_export(EXPORT, **ports)
+    except OperationFailed as failure:
+        validation["failure"] = failure
+
+
+@given("the identity provider and all remote services are unreachable")
+def _every_remote_service_is_down(validation: dict[str, Any]) -> None:
+    blobs = InMemoryBlobStore()
+    blobs.fail_with(ConnectionError("the network is unreachable"))
+    validation["blob_store"] = blobs
+
+
+@when("an export is validated locally")
+def _an_export_is_validated_locally(validation: dict[str, Any]) -> None:
+    inspector = InMemoryMeshInspector()
+    inspector.add(EXPORT, a_glb(triangles=14310))
+    inspector.fail_preview(EXPORT, ConnectionError("the network is unreachable"))
+    _validate(
+        validation,
+        spec_store=_a_local_store(),
+        mesh_inspector=inspector,
+        blob_store=validation["blob_store"],
+        emit_preview=True,
+    )
+
+
+@then("validation SHALL complete and report its violations normally")
+def _validation_completed_normally(validation: dict[str, Any]) -> None:
+    outcome = validation["outcome"]
+    (violation,) = outcome.report.violations_of(budgets.TRI_BUDGET)
+    assert violation.observed == "14310"
+    assert violation.expected == "12000"
+    assert not outcome.passed
+
+
+@when("validation is requested for an export in a format the matrix does not cover")
+def _an_export_in_an_uncovered_format(validation: dict[str, Any]) -> None:
+    inspector = InMemoryMeshInspector()
+    inspector.add_unsupported(EXPORT, "3DS")
+    _validate(validation, spec_store=_a_local_store(), mesh_inspector=inspector)
+
+
+@then("the system SHALL report an unsupported export format naming the format")
+def _the_unsupported_format_is_named(validation: dict[str, Any]) -> None:
+    failure = validation["failure"]
+    assert isinstance(failure, UnsupportedExport)
+    assert failure.format_name == "3DS"
+    assert "3DS" in failure.message
+
+
+@then("SHALL NOT report the export as passing")
+@then("the overall outcome SHALL be failing")
+def _no_verdict_was_produced(validation: dict[str, Any]) -> None:
+    """An operation that could not run has no verdict — and never a passing one."""
+    assert isinstance(validation["failure"], OperationFailed)
+    assert "outcome" not in validation
+
+
+@when("validation is run against a file that is not a readable mesh")
+def _a_file_that_is_not_a_mesh(validation: dict[str, Any]) -> None:
+    inspector = InMemoryMeshInspector()
+    inspector.add_unreadable(EXPORT, "unexpected end of file")
+    _validate(validation, spec_store=_a_local_store(), mesh_inspector=inspector)
+
+
+@then("the system SHALL report a failure naming the file and the reason")
+def _the_failure_names_the_file_and_the_reason(validation: dict[str, Any]) -> None:
+    failure = validation["failure"]
+    assert isinstance(failure, MeshUnreadable)
+    assert failure.export == EXPORT
+    assert failure.reason == "unexpected end of file"
+    assert EXPORT in failure.message
+
+
+# --------------------------------------------------------------------------
+# One verdict across every surface, rendered two ways (group 6)
+# --------------------------------------------------------------------------
+
+
+@scenario(
+    "../features/add-asset-spec-and-validator/asset-validation.feature",
+    "Both renderings agree",
+)
+def test_both_renderings_agree() -> None: ...
+
+
+@scenario(
+    "../features/add-asset-spec-and-validator/asset-validation.feature",
+    "Command line and application agree",
+)
+def test_command_line_and_application_agree() -> None: ...
+
+
+def _an_outcome(facts: MeshFacts) -> ValidationOutcome:
+    """A verdict with something in all three lists, as a surface would receive it."""
+    spec = merge(an_asset(constraints=Constraints(tri_budget=12000, naming=NAMING)))
+    return ValidationOutcome(report=run(spec, facts, export=EXPORT), spec_path=SPEC_PATH)
+
+
+@when("a report is rendered as structured data and as prose")
+def _a_report_is_rendered_both_ways(validation: dict[str, Any]) -> None:
+    outcome = _an_outcome(facts_for(MeshFormat.OBJ, triangles=14310, objects=("body",)))
+    validation["outcome"] = outcome
+    document = payload.validation_payload([outcome])
+    validation["prose"] = rendering.render_validations([outcome])
+    validation["document"] = document
+    validation["structured"] = document["results"][0]
+
+
+@then("both SHALL contain the same violations, severities and overall outcome")
+def _both_renderings_state_the_same_verdict(validation: dict[str, Any]) -> None:
+    report = validation["outcome"].report
+    prose, structured = validation["prose"], validation["structured"]
+    assert [entry["rule_id"] for entry in structured["violations"]] == [
+        violation.rule_id for violation in report.violations
+    ]
+    for violation in report.violations:
+        assert violation.rule_id in prose
+        assert str(violation.severity) in prose
+    assert structured["outcome"] == report.outcome
+    assert validation["document"]["passed"] is report.passed
+    assert ("FAILING" in prose) is not report.passed
+
+
+@then("both SHALL contain the same not-evaluated rules with their reasons")
+def _both_renderings_list_the_same_suppressions(validation: dict[str, Any]) -> None:
+    report = validation["outcome"].report
+    prose, structured = validation["prose"], validation["structured"]
+    assert report.not_evaluated, "this scenario needs a format that suppresses rules"
+    assert [entry["rule_id"] for entry in structured["not_evaluated"]] == [
+        entry.rule_id for entry in report.not_evaluated
+    ]
+    for entry in report.not_evaluated:
+        assert entry.rule_id in prose
+        assert entry.reason in prose
+
+
+@given("an export that fails its triangle budget")
+def _an_over_budget_export(validation: dict[str, Any]) -> None:
+    inspector = InMemoryMeshInspector()
+    inspector.add(EXPORT, a_glb(triangles=14310, objects=("SM_mech_scout_LOD0",)))
+    validation["spec_store"] = _a_local_store()
+    validation["mesh_inspector"] = inspector
+
+
+@when("it is validated from the command line and again from any other surface")
+def _validated_from_two_surfaces(validation: dict[str, Any]) -> None:
+    """The CLI and a direct call, over the *same* container — because it is one use case."""
+    container = Container(
+        spec_store=validation["spec_store"],
+        mesh_inspector=validation["mesh_inspector"],
+    )
+    result = CliRunner().invoke(build_app(container), ["validate", "--json", EXPORT])
+    assert result.exit_code == 1, result.output
+    validation["from_cli"] = json.loads(result.stdout)["results"][0]["violations"]
+    validation["from_use_case"] = container.validate_export(EXPORT).report.violations
+
+
+@then("both SHALL report the same violations with the same severities")
+def _both_surfaces_report_the_same(validation: dict[str, Any]) -> None:
+    assert validation["from_use_case"], "the export was supposed to fail its budget"
+    assert [
+        (entry["rule_id"], entry["severity"], entry["subject"], entry["observed"])
+        for entry in validation["from_cli"]
+    ] == [
+        (violation.rule_id, str(violation.severity), violation.subject, violation.observed)
+        for violation in validation["from_use_case"]
+    ]

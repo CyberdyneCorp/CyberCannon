@@ -12,20 +12,31 @@ naming template, and the two loops the product exists to close — a declared
 socket and a declared state becoming export gates, evaluated over hand-built
 `MeshFacts` with no file on disk.
 
+Group 5 adds the two this capability cannot answer without a file: a
+specification read straight out of a working copy, and an unrecognised field
+reported rather than refused (D5). Those run against `GitSpecStore` over a
+temporary repository — there is no way to assert "it read the file from the
+working copy" without a working copy, and asserting it against a fake would be
+asserting that the fake was written as intended.
+
 The rest of this capability's scenarios stay in `tests/bdd/pending.txt` until the
-change that earns them: the YAML loader and upward discovery (group 5),
-annotation triage (`add-model-sheet-2d`) and anchor resolution (`add-viewer-3d`).
+change that earns them: annotation triage (`add-model-sheet-2d`) and anchor
+resolution (`add-viewer-3d`).
 """
 
 from __future__ import annotations
 
 import socket
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pytest
 from pytest_bdd import given, scenario, then, when
 
+from cybercanon.adapters.outbound.git.discovery import GIT_DIR
+from cybercanon.adapters.outbound.git.schema import RULE_UNKNOWN_FIELD
+from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
 from cybercanon.domain.asset import Asset, AssetId, Links
 from cybercanon.domain.concept import Concept
 from cybercanon.domain.constraints import AnimationDefaults, Constraints, Rig
@@ -50,6 +61,16 @@ UNREACHABLE = "https://unreachable.invalid/threads/7"
 
 FIRST_FILE = "characters/mech_scout/asset.yaml"
 SECOND_FILE = "enemies/mech_scout/asset.yaml"
+
+SPEC_PATH = "characters/mech_scout/asset.yaml"
+WORKING_COPY_SPEC = """\
+schema_version: 1
+id: mech_scout
+name: "Scout Mech"
+status: modeling
+constraints:
+  tri_budget: 12000
+"""
 
 CONVENTION = "A_{asset}_{state}"
 MUZZLE = "SOCKET_muzzle_l"
@@ -197,6 +218,17 @@ def test_declared_socket_becomes_an_export_gate() -> None: ...
 def test_a_named_state_becomes_an_export_gate() -> None: ...
 
 
+@scenario(
+    "../features/add-asset-spec-and-validator/asset-spec.feature",
+    "Spec read directly from a working copy",
+)
+def test_spec_read_directly_from_a_working_copy() -> None: ...
+
+
+@scenario("../features/add-asset-spec-and-validator/asset-spec.feature", "Unknown field reported")
+def test_unknown_field_reported() -> None: ...
+
+
 # --------------------------------------------------------------------------
 # GIVEN
 # --------------------------------------------------------------------------
@@ -210,6 +242,31 @@ def _an_asset_with_an_id_and_a_name(spec: dict[str, Any]) -> None:
 @given("a specification declaring identity and a `concept` block only")
 def _a_concept_only_specification(spec: dict[str, Any]) -> None:
     spec["asset"] = an_asset(concept=Concept(views=("front", "side")))
+
+
+@given("a game repository containing `characters/mech_scout/asset.yaml`")
+def _a_game_repository(
+    spec: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A working copy, and the network taken away for the duration.
+
+    Blocking the socket is half the scenario: "it SHALL NOT require any
+    database, service or network connection" is only proven if a connection
+    would have failed the test.
+    """
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("reading a specification opened a network connection")
+
+    monkeypatch.setattr(socket, "socket", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    (tmp_path / GIT_DIR).mkdir(parents=True, exist_ok=True)
+    written = tmp_path / SPEC_PATH
+    written.parent.mkdir(parents=True, exist_ok=True)
+    written.write_text(WORKING_COPY_SPEC, encoding="utf-8")
+    spec["network_blocked"] = True
+    spec["repository"] = tmp_path
+    spec["store"] = GitSpecStore(tmp_path)
 
 
 @given("a specification declaring `owner_art` and `owner_code` but no `owner_design`")
@@ -374,6 +431,20 @@ def _the_required_clips_are_resolved(spec: dict[str, Any]) -> None:
     spec["required_clips"] = _merged(spec).required_clips
 
 
+@when("the system is asked for the specification of `mech_scout`")
+def _the_specification_is_asked_for(spec: dict[str, Any]) -> None:
+    spec["loaded"] = spec["store"].load(spec["store"].discover(SPEC_PATH))
+
+
+@when("a specification declares a field not defined by the schema")
+def _a_specification_declares_an_unknown_field(spec: dict[str, Any], tmp_path: Path) -> None:
+    (tmp_path / GIT_DIR).mkdir(parents=True, exist_ok=True)
+    written = tmp_path / SPEC_PATH
+    written.parent.mkdir(parents=True, exist_ok=True)
+    written.write_text(WORKING_COPY_SPEC + "  shinyness: 3\n", encoding="utf-8")
+    spec["loaded"] = GitSpecStore(tmp_path).load(SPEC_PATH)
+
+
 # --------------------------------------------------------------------------
 # THEN
 # --------------------------------------------------------------------------
@@ -500,3 +571,27 @@ def _the_missing_clip_is_a_violation(spec: dict[str, Any]) -> None:
     assert violation.subject == FIRE_CLIP
     assert "fire" in violation.message
     assert not report.passed
+
+
+@then("it SHALL read the file from the working copy")
+def _it_read_the_file_from_the_working_copy(spec: dict[str, Any]) -> None:
+    loaded = spec["loaded"]
+    assert loaded.path == SPEC_PATH
+    assert loaded.asset.id.value == ASSET_ID
+    assert (spec["repository"] / SPEC_PATH).is_file(), "the file is the source of truth"
+
+
+@then("it SHALL NOT require any database, service or network connection")
+def _it_required_nothing_external(spec: dict[str, Any]) -> None:
+    assert spec["network_blocked"], "the guard was never installed, so this proves nothing"
+    assert spec["loaded"].asset.constraints is not None
+
+
+@then("the system SHALL report it, naming the field and its location in the file")
+def _the_unknown_field_is_reported(spec: dict[str, Any]) -> None:
+    (warning,) = spec["loaded"].warnings
+    assert warning.rule_id == RULE_UNKNOWN_FIELD
+    assert warning.severity is Severity.WARNING, "version skew must never be fatal (D5)"
+    assert warning.subject == "constraints.shinyness"
+    assert "shinyness" in warning.message
+    assert spec["loaded"].asset.id.value == ASSET_ID, "the specification still loaded"
