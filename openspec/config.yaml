@@ -1,0 +1,98 @@
+schema: spec-driven
+
+context: |
+  CyberCanon — the shared canon of a game project. One versioned contract per
+  asset covering what it looks like (art), what it does (design), and what it
+  must respect technically (engineering). Full context: openspec/project.md.
+
+  Core decision: GIT IS THE SOURCE OF TRUTH. asset.yaml lives in the game repo
+  next to the asset; PostgreSQL + MinIO are a rebuildable cache/index and blob
+  mirror. Never spec a feature that makes the database authoritative.
+
+  Golden rule for design fields: every field must constrain art, constrain code,
+  or be checkable by the validator. Otherwise it is a wiki page, not a spec field.
+
+  Stack: Python 3.12+, FastAPI (HTTP) + FastMCP (MCP, stdio) + Typer (CLI) over
+  ONE hexagonal core (libs/cybercanon/{domain,application,adapters}); PostgreSQL
+  cache; MinIO blobs; trimesh/pygltflib behind a MeshInspector port. Frontend
+  Svelte 5 runes + SvelteKit + TS, selective MVVM, three.js, built on
+  @cyberdynecorp/svelte-ui-core. Auth via CyberdyneAuth behind an
+  IdentityProvider port — token format never reaches the domain.
+
+  Hard boundaries:
+  - Mesh RULES are domain; mesh READING is a port. MeshInspector returns a dumb
+    MeshFacts value object; the domain decides pass/fail. Validator tests run on
+    hand-built MeshFacts with zero files on disk.
+  - The CLI validator, the MCP validate_export tool and the web Validate button
+    are the SAME use case. Never duplicate validation logic per adapter.
+  - The validator must never require identity or network.
+  - Agents read constraints; agents never write constraints. MCP writes are
+    minimal and proposal-shaped.
+  - Annotations have exactly two exits: promoted to a rule, or resolved as an
+    issue and excluded from the compiled spec.
+  - Long-form GDD lives in CyberArche and is linked, not rebuilt. Semantic search
+    delegates to CyberArche RAG; CyberCanon does exact/FTS over ids/names/aliases.
+
+  LLM access is OpenAI-compatible Chat Completions ONLY, behind LLMPort/VisionPort,
+  configured by environment (CANON_LLM_ENABLED default false, CANON_LLM_BASE_URL,
+  CANON_LLM_API_KEY, CANON_LLM_MODEL, CANON_LLM_VISION_MODEL, CANON_LLM_TIMEOUT_S,
+  CANON_LLM_MAX_RETRIES). Model ids are opaque strings - never branch on them, never
+  allow-list them. No provider SDK outside the adapter. Every LLM feature degrades
+  to absent; validation, compilation and lookup never depend on a reachable model.
+
+  Derived metadata (generated descriptions, tags, suggested aliases) lives ONLY in
+  the rebuildable index keyed by blob content hash - never written to asset.yaml,
+  never compiled into art-spec.md. A human accepting a suggestion is what turns it
+  into authored content, attributed to that person.
+
+  Agent access has three layers: identity comes from the credential and is NEVER a
+  tool parameter; authorization is the owning actor's roles decided in the domain;
+  lens (design|art|modeling|code) shapes which fields a read returns and carries no
+  authority. Agents act AS a person and never escalate. Writes are attributed to the
+  person and the agent ("rafa, via blender-agent"). Promotion to rule is never an
+  agent-callable tool.
+
+  Deployment target is Coolify (https://coolify.cyberdynecorp.ai), host convention
+  <service>.backend.coolify.cyberdynecorp.ai. Deployed: FastAPI api, SvelteKit web,
+  PostgreSQL (index), MinIO (blobs). NOT deployed: the canon CLI and the FastMCP
+  server - the MCP server is stdio and local-first by design; hosting it would add
+  an open port and a network threat model. Config is environment variables with no
+  file fallback; images build once and promote; every service has a health endpoint
+  that does not depend on a model or a sibling backend; migrations run as a release
+  step. RESOLVED: a hosted API reaches git via a persistent working copy per project
+  (scheduled + webhook fetch, reads pinned to a revision) and writes back by DIRECT
+  COMMIT to a configured branch, authored as the acting person via .canon/actors.yaml;
+  an unmapped person is refused. Not a pull request.
+
+  Deferred, do not spec: pgvector in CyberCanon, formal dependency graph,
+  variation voting, AI mesh auto-correction, full paint-over, hosted MCP mode.
+
+  Tooling: uv manages the Python env and deps (uv.lock committed, authoritative for
+  CI and the image build; never a bare pip install). just is the task runner - every
+  command a person or pipeline runs is a justfile recipe, and CI runs `just check`
+  and nothing else. Frontend uses pnpm, wrapped by recipes. This is a convention, not
+  a requirement: it changes no observable behaviour, so it earns no spec.
+
+  Testing: three layers. pytest for unit (domain/application, pure, no I/O) and for
+  per-port conformance suites run against the fake AND every real adapter. pytest-bdd
+  for the spec scenarios - .feature files are GENERATED from the spec deltas and
+  committed; CI regenerates and fails on any diff; nobody hand-writes a .feature.
+  Playwright for e2e (web + canon subprocess). Two CI gates: a requirement with no
+  executing scenario fails, and a generated scenario with no step definition fails
+  naming the spec file and line. `just check` = unit + bdd + conformance + gates;
+  e2e is separate. Coverage thresholds on the domain package only.
+
+  Conventions: RFC-2119 (SHALL/MUST/MAY), every requirement has >= 1 scenario,
+  every bug fix ships a regression test, backend cognitive complexity <= 15 per
+  function, frontend 8-12. Never mention AI authorship in commits or PRs.
+
+rules:
+  proposal:
+    - Always include an explicit "Non-goals" section naming what this change does NOT do.
+    - State which roadmap position the change occupies and why it comes now.
+  specs:
+    - Requirements use SHALL/MUST/MAY and are mechanically checkable where possible.
+    - Every requirement carries at least one GIVEN/WHEN/THEN scenario.
+  design:
+    - Name the ports and domain value objects introduced or touched.
+    - State explicitly what stays in the domain and what belongs to an adapter.
