@@ -14,35 +14,20 @@
 # bootstrap, never part of `just check`.
 
 agent-identity :: A location answer names the person
-agent-identity :: A near miss is never guessed
 agent-identity :: A project without a mapping still works
-agent-identity :: Agent denied what its person is denied
 agent-identity :: An unmapped owner is shown as unmapped
-agent-identity :: Attribution names both
-agent-identity :: Authorization verified without an identity service
 agent-identity :: Cached actor expires
 agent-identity :: Claimed identity is ignored
 agent-identity :: Claimed role is ignored
-agent-identity :: Commit author is recognised as the person
-agent-identity :: Constraint edit refused for every role
 agent-identity :: Disagreement is surfaced
-agent-identity :: Duplicate email is a violation
-agent-identity :: Duplicate subject is a violation
-agent-identity :: Git identity for acting on a person's behalf
-agent-identity :: Mapping validation needs nothing external
-agent-identity :: One entry binds both identities
 agent-identity :: One person, one presentation
 agent-identity :: Provider-supplied emails win
 agent-identity :: Read works with no credential
 agent-identity :: Reads survive an identity outage
 agent-identity :: Role-requiring action refused with a reason
-agent-identity :: Round trip is stable
 agent-identity :: Scheduled run cannot act as a person
 agent-identity :: The file answers what the provider does not
 agent-identity :: Unattainable budget is reported, not changed
-agent-identity :: Unattributable action is refused
-agent-identity :: Unknown role is a violation
-agent-identity :: Unmapped author is preserved and flagged
 agent-identity :: Unmapped authors are enumerable
 anchor-resolution :: A moved hint does not break resolution
 anchor-resolution :: Bone absent, part present

@@ -2,14 +2,14 @@
 
 ## 1. Domain — actor, authorization, attribution
 
-- [ ] 1.1 Model `ActorId`, `Actor` (id, display name, roles, projects) and `Role` (`ART_DIRECTOR | ARTIST | DESIGNER | ENGINEER`) as frozen value objects; verify `lint-imports` still reports zero third-party imports in the domain
-- [ ] 1.2 Implement the read-entitlement policy (may this actor read this project) as a pure function and verify tests cover entitled, unentitled and local-actor cases with no identity service present
-- [ ] 1.3 Implement `Attribution(actor, via)` with a non-optional actor (D5) and verify a test asserts no constructor path produces an attribution without an actor
-- [ ] 1.4 Implement the rule that automated callers may not author durable content, as a policy function, and verify it refuses for every role in turn
-- [ ] 1.5 Model `GitAuthor`, `ActorBinding` (subject, display name, git emails, chat handle, default role) and `ActorMapping` as frozen value objects, plus an unmapped `Actor` carrying the raw email and no roles (D14); verify `lint-imports` still reports zero third-party imports in the domain
-- [ ] 1.6 Implement resolution in both directions as pure functions over `ActorMapping` (D12) and verify case-insensitive email matching, an actor with several emails yielding the first for commits, and a round trip returning the original actor
-- [ ] 1.7 Verify the unmapped path: a test asserts an unmatched email returns an unmapped actor carrying that email, that a near-miss email is never resolved to the similar mapped actor, and that no resolution signature can return nothing
-- [ ] 1.8 Implement structural mapping rules — duplicate subject, duplicate email across entries, default role outside the role set, entry with no email, unparseable mapping — returning `Violation` values in the existing report shape; verify each defect is reported naming the offending entry
+- [x] 1.1 Model `ActorId`, `Actor` (id, display name, roles, projects) and `Role` (`ART_DIRECTOR | ARTIST | DESIGNER | ENGINEER`) as frozen value objects; verify `lint-imports` still reports zero third-party imports in the domain
+- [x] 1.2 Implement the read-entitlement policy (may this actor read this project) as a pure function and verify tests cover entitled, unentitled and local-actor cases with no identity service present
+- [x] 1.3 Implement `Attribution(actor, via)` with a non-optional actor (D5) and verify a test asserts no constructor path produces an attribution without an actor
+- [x] 1.4 Implement the rule that automated callers may not author durable content, as a policy function, and verify it refuses for every role in turn
+- [x] 1.5 Model `GitAuthor`, `ActorBinding` (subject, display name, git emails, chat handle, default role) and `ActorMapping` as frozen value objects, plus an unmapped `Actor` carrying the raw email and no roles (D14); verify `lint-imports` still reports zero third-party imports in the domain
+- [x] 1.6 Implement resolution in both directions as pure functions over `ActorMapping` (D12) and verify case-insensitive email matching, an actor with several emails yielding the first for commits, and a round trip returning the original actor
+- [x] 1.7 Verify the unmapped path: a test asserts an unmatched email returns an unmapped actor carrying that email, that a near-miss email is never resolved to the similar mapped actor, and that no resolution signature can return nothing
+- [x] 1.8 Implement structural mapping rules — duplicate subject, duplicate email across entries, default role outside the role set, entry with no email, unparseable mapping — returning `Violation` values in the existing report shape; verify each defect is reported naming the offending entry
 
 ## 2. Application — identity resolution and ports
 
