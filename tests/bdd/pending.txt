@@ -1,0 +1,630 @@
+# Pending scenarios — the single explicitly-marked escape from the step-definition
+# gate (add-test-strategy, D3). A line here says: this generated scenario has no
+# step definition yet, and that is a reviewed exception rather than an accident.
+#
+# Format: <capability> :: <scenario name>, exactly as the spec delta names them.
+#
+# Rules the build enforces (tests/bdd/test_traceability.py):
+#   * a generated scenario that is neither executing nor listed here FAILS;
+#   * a line naming a scenario that now executes FAILS — delete the line;
+#   * a line naming a scenario no spec contains FAILS — the spec moved.
+#
+# This list only ever shrinks. Regenerate it from scratch with
+# `python scripts/gen_features.py --bootstrap-pending`, which is a one-time
+# bootstrap, never part of `just check`.
+
+agent-identity :: A location answer names the person
+agent-identity :: A near miss is never guessed
+agent-identity :: A project without a mapping still works
+agent-identity :: Agent denied what its person is denied
+agent-identity :: An unmapped owner is shown as unmapped
+agent-identity :: Attribution names both
+agent-identity :: Authorization verified without an identity service
+agent-identity :: Cached actor expires
+agent-identity :: Claimed identity is ignored
+agent-identity :: Claimed role is ignored
+agent-identity :: Commit author is recognised as the person
+agent-identity :: Constraint edit refused for every role
+agent-identity :: Disagreement is surfaced
+agent-identity :: Duplicate email is a violation
+agent-identity :: Duplicate subject is a violation
+agent-identity :: Git identity for acting on a person's behalf
+agent-identity :: Mapping validation needs nothing external
+agent-identity :: One entry binds both identities
+agent-identity :: One person, one presentation
+agent-identity :: Provider-supplied emails win
+agent-identity :: Read works with no credential
+agent-identity :: Reads survive an identity outage
+agent-identity :: Role-requiring action refused with a reason
+agent-identity :: Round trip is stable
+agent-identity :: Scheduled run cannot act as a person
+agent-identity :: The file answers what the provider does not
+agent-identity :: Unattainable budget is reported, not changed
+agent-identity :: Unattributable action is refused
+agent-identity :: Unknown role is a violation
+agent-identity :: Unmapped author is preserved and flagged
+agent-identity :: Unmapped authors are enumerable
+anchor-resolution :: A moved hint does not break resolution
+anchor-resolution :: Bone absent, part present
+anchor-resolution :: Hint lands on the named part, not the nearest surface
+anchor-resolution :: Large displacement is flagged
+anchor-resolution :: No saved camera falls back to framing the part
+anchor-resolution :: Nothing re-anchors on its own
+anchor-resolution :: Orphan status is determinable without rendering
+anchor-resolution :: Orphans are listed
+anchor-resolution :: Part and bone both present
+anchor-resolution :: Part dropped by preview emission is not an orphan
+anchor-resolution :: Placement on empty space is refused
+anchor-resolution :: Placement records the named part
+anchor-resolution :: Re-anchoring clears the orphan state
+anchor-resolution :: Re-anchoring is attributed
+anchor-resolution :: Re-anchoring preserves the conversation
+anchor-resolution :: Renamed part orphans rather than relocates
+anchor-resolution :: Resolution does not depend on the camera
+anchor-resolution :: Restoring does not rewrite the annotation
+anchor-resolution :: Retopology preserves the anchor
+anchor-resolution :: Same part resolved in both
+anchor-resolution :: Saved camera is restored
+anchor-resolution :: Small displacement is not flagged
+anchor-resolution :: Topology identifiers are not stored
+animation-playback :: A deliberately unanimated state is not a gap
+animation-playback :: A preview with no clips says so
+animation-playback :: An unclaimed clip is labelled, not rejected
+animation-playback :: Clip and position are recorded
+animation-playback :: Clip is attributed to its state
+animation-playback :: Clips are listed
+animation-playback :: Clips lost in preview emission
+animation-playback :: Frame and camera are restored together
+animation-playback :: Missing clip degrades without breaking the annotation
+animation-playback :: Missing clip is shown, not omitted
+animation-playback :: Pause holds the displayed pose
+animation-playback :: Playback does not rewrite anchors
+animation-playback :: Playback leaves no trace in the specification
+animation-playback :: Pose does not corrupt the hint
+animation-playback :: Scrubbing is deterministic
+animation-playback :: Speed does not alter the clip
+animation-playback :: The durable key is unaffected
+annotation-authoring :: A mixed list is uniform
+annotation-authoring :: Agent-originated annotation names both
+annotation-authoring :: Anchor naming an absent subject refused
+annotation-authoring :: Anchorless annotation refused
+annotation-authoring :: Annotation created on a view
+annotation-authoring :: Annotation is visible in version control
+annotation-authoring :: Deleting a thread with replies refused
+annotation-authoring :: Deleting an untouched annotation succeeds
+annotation-authoring :: Editing another person's annotation refused
+annotation-authoring :: Engineer raises art direction feedback
+annotation-authoring :: Index rebuild loses nothing
+annotation-authoring :: Kind is machine-readable
+annotation-authoring :: Marks travel with the annotation
+annotation-authoring :: Move is attributed and visible
+annotation-authoring :: New annotation is awaiting triage
+annotation-authoring :: New annotation reaches the briefing
+annotation-authoring :: Orphan can still be resolved
+annotation-authoring :: Read-only person refused
+annotation-authoring :: Removed view orphans its annotations
+annotation-authoring :: Reply inherits the thread's anchor
+annotation-authoring :: Same operations, same outcomes across media
+annotation-authoring :: Source image untouched
+annotation-authoring :: Submitted author field is ignored
+annotation-authoring :: Text edit leaves the anchor untouched
+annotation-authoring :: Thread order is stable
+annotation-authoring :: Unattributable contribution refused
+annotation-authoring :: Unknown kind refused
+annotation-triage :: A second exit is refused
+annotation-triage :: An uninvolved person may not resolve
+annotation-triage :: Art director's agent refused
+annotation-triage :: Artist attempting promotion refused
+annotation-triage :: Failed write leaves nothing half-done
+annotation-triage :: Index rebuild preserves the promotion
+annotation-triage :: Invalid resulting constraint refused
+annotation-triage :: Mixed queue is ordered by the same signals
+annotation-triage :: Only two exits are offered
+annotation-triage :: Promotion adds a rule, not a thread
+annotation-triage :: Promotion is absent from the agent surface
+annotation-triage :: Promotion is visible in history
+annotation-triage :: Promotion lands the rule
+annotation-triage :: Promotion with no destination refused
+annotation-triage :: Queue is filterable for a pass
+annotation-triage :: Queue needs no derived store
+annotation-triage :: Refusal does not remove other exits
+annotation-triage :: Reopening a promotion refused
+annotation-triage :: Reopening a resolved issue
+annotation-triage :: Repeated feedback rises
+annotation-triage :: Resolved annotation leaves the briefing
+annotation-triage :: Same exit, either medium
+annotation-triage :: Settling many issues does not inflate the briefing
+app-navigation :: A link to a specific surface opens it
+app-navigation :: A shared link still resolves after a rename
+app-navigation :: Absent content is stated, not hidden
+app-navigation :: Address survives an index rebuild
+app-navigation :: Filters do not leak between projects
+app-navigation :: Not found and not permitted are different screens
+app-navigation :: One page, everything recorded
+app-navigation :: Project is always visible
+app-navigation :: Switching with an asset open
+app-navigation :: Unrestorable state degrades
+asset-browser :: A filtered listing is shareable
+asset-browser :: Active filters are visible and removable
+asset-browser :: Alias match is disclosed
+asset-browser :: Delegated search unavailable
+asset-browser :: Empty because of filters, not the query
+asset-browser :: First run
+asset-browser :: Index rebuilding
+asset-browser :: Listing shows state without opening an asset
+asset-browser :: No results
+asset-browser :: Order comes from the specified ranking
+asset-browser :: Suggestion match is disclosed as unaccepted
+asset-lookup :: Alias finds the asset
+asset-lookup :: Constraint changed since a revision
+asset-lookup :: Deleted index is fully restored
+asset-lookup :: Exact identifier outranks a substring
+asset-lookup :: Filter by status and owner
+asset-lookup :: Full location answer
+asset-lookup :: Index is not authoritative
+asset-lookup :: Miss is recorded and retrievable
+asset-lookup :: No change since the revision
+asset-lookup :: Rebuild reports malformed files
+asset-lookup :: Spec edited after indexing
+asset-lookup :: Successful searches are not recorded as misses
+asset-lookup :: Unrecorded location is explicit
+asset-lookup :: Validated export is identified as such
+asset-preview :: A source without clips is not a failure
+asset-preview :: Clips cannot be preserved
+asset-preview :: Clips survive decimation
+asset-preview :: Named parts survive decimation
+asset-preview :: Preview emission fails
+asset-preview :: Preview emitted during validation
+asset-preview :: Preview is smaller than the source
+asset-preview :: Preview traceable to its export
+asset-preview :: Skinning is preserved
+asset-preview :: Unreadable export produces no preview
+asset-requests :: A reader may ask
+asset-requests :: A request is not a constraint
+asset-requests :: A request states what is needed and why
+asset-requests :: A request that could not be persisted did not happen
+asset-requests :: An unrelated actor may not decide
+asset-requests :: Asset status does not move request state
+asset-requests :: Assignee sees an unread item
+asset-requests :: Assignment falls back to the project's discipline owner
+asset-requests :: Assignment follows the asset's discipline owner
+asset-requests :: Declining states a reason
+asset-requests :: Dismissal is per person
+asset-requests :: Every transition is attributed
+asset-requests :: Fulfilment requires the asked-for status
+asset-requests :: Fulfilment succeeds once the status is reached
+asset-requests :: Invalid transition is refused
+asset-requests :: Linking a request to a newly created asset
+asset-requests :: No owner means unassigned, not misassigned
+asset-requests :: Notification failure does not reverse the action
+asset-requests :: Only the author withdraws
+asset-requests :: Reassignment is attributed
+asset-requests :: Request against an existing asset
+asset-requests :: Request for something that does not exist yet
+asset-requests :: Request state does not move asset status
+asset-requests :: Requests survive an index rebuild
+asset-spec :: Anchor survives a remesh
+asset-spec :: Derived index is disposable
+asset-spec :: Missing part yields an orphan, not a wrong placement
+asset-spec :: Promotion retires the annotation
+asset-spec :: Resolution does not become permanent context
+asset-spec :: Spec read directly from a working copy
+asset-spec :: Unknown field reported
+asset-validation :: Both renderings agree
+asset-validation :: Command line and application agree
+asset-validation :: Reporting a result is separable and non-blocking
+asset-validation :: Unparseable export
+asset-validation :: Unsupported format is refused, not assumed
+asset-validation :: Validation succeeds while services are down
+auth-integration :: A role-less actor is resolved, not rejected
+auth-integration :: Adding a mapping requires no code change
+auth-integration :: Authorization code without proof is refused
+auth-integration :: Authorization tested without an identity service
+auth-integration :: Beyond the window, refusal names the cause
+auth-integration :: Body-supplied identity is ignored
+auth-integration :: Credential is not written into the repository
+auth-integration :: Degradation never elevates
+auth-integration :: Expired credential is refused
+auth-integration :: Identical decision for identical actors
+auth-integration :: Key rotation is tolerated without a restart
+auth-integration :: No claim vocabulary in recorded actions
+auth-integration :: Path-supplied tenant cannot widen access
+auth-integration :: Reads survive a short identity outage
+auth-integration :: Scheduled refresh names no person
+auth-integration :: Service credential cannot impersonate
+auth-integration :: Sign-out removes the credential
+auth-integration :: The adapter cannot grant
+auth-integration :: The surface never sees a password
+auth-integration :: Unmapped group grants nothing
+auth-integration :: Unverifiable signature is refused
+auth-integration :: Validation still requires no sign-in
+auth-integration :: Wrong audience is refused
+blob-storage :: A link is scoped to one object
+blob-storage :: A missing blob is reported, not fabricated
+blob-storage :: Authorization precedes issuance
+blob-storage :: Changed content gets a new key
+blob-storage :: Corrupted object is not served as valid
+blob-storage :: Corruption is repairable
+blob-storage :: Empty store rebuilds
+blob-storage :: Expired link is refused
+blob-storage :: Identical content stores once
+blob-storage :: Interrupted upload leaves nothing readable
+blob-storage :: Re-mirroring is a no-op
+blob-storage :: Renaming does not change the key
+blob-storage :: Repository decides which blobs matter
+blob-storage :: Upload without a repository source is refused
+canon-cli :: Actionable message
+canon-cli :: Check specification files
+canon-cli :: Clean run
+canon-cli :: First run on a fresh machine
+canon-cli :: Machine mode output is parseable
+canon-cli :: No governing spec found
+canon-cli :: Nothing relevant changed
+canon-cli :: Only touched assets are validated
+canon-cli :: Operation could not run
+canon-cli :: Spec found from an export path
+canon-cli :: Validate an export
+canon-cli :: Violations found
+concept-ingestion :: A first view does not promote an asset
+concept-ingestion :: A late concept view does not demote an asset
+concept-ingestion :: A newly exported render appears
+concept-ingestion :: A slot holds one view
+concept-ingestion :: A supplied author is ignored
+concept-ingestion :: Agent-mediated upload names both
+concept-ingestion :: An invalid asset identifier creates nothing
+concept-ingestion :: An unmappable person is refused before any write
+concept-ingestion :: An unsupported format is rejected
+concept-ingestion :: Arbitrary named view
+concept-ingestion :: Cached images are distinguishable by content
+concept-ingestion :: Canonical slot
+concept-ingestion :: Commit authorship is the uploader
+concept-ingestion :: Content decides, not the extension
+concept-ingestion :: Creating an asset by uploading its first concept
+concept-ingestion :: Deterministic derivation
+concept-ingestion :: Exactly at the limit is accepted
+concept-ingestion :: Existing authored content is untouched
+concept-ingestion :: Failure before commit retains no blob object
+concept-ingestion :: Failure while writing leaves the working copy as it was
+concept-ingestion :: Freshness cannot be established
+concept-ingestion :: Ingestion with model access disabled
+concept-ingestion :: Invalid slot name
+concept-ingestion :: Mirror outage does not block ingestion
+concept-ingestion :: No blob storage configured at all
+concept-ingestion :: One bad image rejects the request
+concept-ingestion :: Oversized dimensions are rejected
+concept-ingestion :: Oversized file is rejected with numbers
+concept-ingestion :: Post-commit derived failure is a pending step, not a failed upload
+concept-ingestion :: Rebuilding the mirror from the repository
+concept-ingestion :: Three views, one commit
+concept-ingestion :: Thumbnails are recoverable
+concept-ingestion :: Thumbnails stay out of the repository
+concept-ingestion :: Two images cannot claim the same slot
+concept-ingestion :: Uploading generates nothing
+deployment-operations :: A component restarts without taking the others down
+deployment-operations :: A configuration file is not consulted
+deployment-operations :: A lost index does NOT withhold traffic
+deployment-operations :: A lost working copy does withhold traffic
+deployment-operations :: A never-ready new version does not replace the old one
+deployment-operations :: A retiring instance drains before terminating
+deployment-operations :: A silently failing fetch is detectable
+deployment-operations :: Abandoned write-back leaves no partial edit
+deployment-operations :: Artifact inspection reveals no secret
+deployment-operations :: Blob volume destroyed
+deployment-operations :: Blobs outlive a restart
+deployment-operations :: Changing a setting requires no new artifact
+deployment-operations :: Continuous availability across a deploy
+deployment-operations :: Degradation during recovery is bounded and visible
+deployment-operations :: Drills are executed, not assumed
+deployment-operations :: Failed migration aborts the release
+deployment-operations :: Freshness is answerable per project
+deployment-operations :: Hosting the agent surface is a specification change
+deployment-operations :: Identity provider outage does not block a deploy
+deployment-operations :: Index volume destroyed
+deployment-operations :: Live but not ready during warm-up
+deployment-operations :: Liveness performs no dependency access
+deployment-operations :: Local tools work with the hosted environment unreachable
+deployment-operations :: Malformed value is refused at boot, not at first request
+deployment-operations :: Migrations do not run per instance
+deployment-operations :: Missing setting names itself
+deployment-operations :: Model gateway outage does not block a deploy
+deployment-operations :: No network listener for the agent server
+deployment-operations :: Not ready withholds traffic instead of restarting
+deployment-operations :: Only one write-back touches a project's working copy at a time
+deployment-operations :: Optional configuration absent is not a startup failure
+deployment-operations :: Promotion preserves the digest
+deployment-operations :: Recovery from a broken schema is a rebuild
+deployment-operations :: Redeploy preserves state
+deployment-operations :: Repository inspection reveals no secret
+deployment-operations :: Rollback selects a previously built artifact
+deployment-operations :: Secret values are not echoed
+deployment-operations :: Stale index is visible as stale
+deployment-operations :: Success is reported only for a landed commit
+deployment-operations :: The inventory is enumerable and complete
+deployment-operations :: The schema version is reportable after a failure
+deployment-operations :: The web application does not require the API to become ready
+deployment-operations :: Working copy destroyed
+deployment-operations :: Write-back completes within the drain window
+derived-metadata :: Accepted alias outranks a suggestion
+derived-metadata :: Agent cannot accept a suggestion
+derived-metadata :: Changed image produces a new record
+derived-metadata :: Compiled output identical with and without generation
+derived-metadata :: Derived records deleted
+derived-metadata :: Existing aliases are not re-suggested
+derived-metadata :: Generated content is labelled
+derived-metadata :: Lensed read excludes generated content
+derived-metadata :: Mesh is not described
+derived-metadata :: Provenance retrievable
+derived-metadata :: Reads never generate
+derived-metadata :: Specification file untouched by generation
+derived-metadata :: Suggestion match is disclosed
+derived-metadata :: Suggestions are search-usable
+derived-metadata :: Unchanged image is not regenerated
+document-platform :: Asset link is versioned with the asset
+document-platform :: Compilation is not blocked by the platform
+document-platform :: Compiled output does not vary with platform reachability
+document-platform :: Creating a link reports unavailability
+document-platform :: Creation refused leaves no link
+document-platform :: Deleted document
+document-platform :: Deterministic ordering
+document-platform :: Document contents are not constraints
+document-platform :: Editing happens elsewhere
+document-platform :: Existing references survive
+document-platform :: Guidance at the point of authoring
+document-platform :: Link list reads as documents
+document-platform :: Link write failure names the created document
+document-platform :: Malformed reference is a specification violation
+document-platform :: No field is generated from a document
+document-platform :: No prose is compiled in
+document-platform :: Offline validation is unaffected
+document-platform :: One action produces a linked document
+document-platform :: One broken link does not break the list
+document-platform :: Only the reference is authored
+document-platform :: Project link is visible from every asset
+document-platform :: Removing a link leaves the document untouched
+document-platform :: Resolved content never reaches authored or compiled artifacts
+document-platform :: Resolved display data is disposable
+document-platform :: Scope is visible
+document-platform :: Service unavailable
+document-platform :: Title follows a rename at the source
+document-platform :: Unconfigured deployment works
+document-platform :: Unresolved link is still usable
+document-platform :: Viewer not permitted
+hosted-repository :: A failed refresh keeps the last good revision
+hosted-repository :: A local commit that cannot be pushed is not reported as applied
+hosted-repository :: A refresh does not fail a read
+hosted-repository :: A rejected push does not silently retry into a conflict
+hosted-repository :: Agent-performed write names both
+hosted-repository :: An edit not in the repository is not applied
+hosted-repository :: An outside commit conflicts too
+hosted-repository :: Commit author is the person who made the edit
+hosted-repository :: Commit message identifies the change
+hosted-repository :: Deleted working copy recovers
+hosted-repository :: Divergence resolves toward the remote
+hosted-repository :: Dropping the index loses no answer
+hosted-repository :: Multi-file reads agree
+hosted-repository :: No partial tree is ever observed
+hosted-repository :: No write reaches only the index
+hosted-repository :: Non-overlapping edits both succeed
+hosted-repository :: Notification triggers a refresh
+hosted-repository :: One edit, one pushed commit
+hosted-repository :: Provisioning is reported, not faked
+hosted-repository :: Rebuild is an operation, not a side effect
+hosted-repository :: Recovery does not resurrect refused edits
+hosted-repository :: Rejected credential is reported with its reason
+hosted-repository :: Repository content wins over service storage
+hosted-repository :: Revision and confirmation time are stated
+hosted-repository :: Scheduled refresh covers a missed notification
+hosted-repository :: Second writer is refused
+hosted-repository :: Staleness is surfaced, not hidden
+hosted-repository :: Unauthenticated notification is ignored
+hosted-repository :: Unmapped person is refused, not substituted
+http-api :: A continuation token grants nothing
+http-api :: A domain refusal is not an internal error
+http-api :: A retried write creates one commit
+http-api :: Address survives an index rebuild
+http-api :: Compilation agrees across surfaces
+http-api :: Correlated generic failure
+http-api :: Error bodies are machine-readable and specific
+http-api :: Full traversal returns each result once
+http-api :: Health does not require identity
+http-api :: Healthy while optional services are down
+http-api :: Human-only actions are enumerated, not incidental
+http-api :: Lookup agrees across surfaces
+http-api :: Missing revision is refused
+http-api :: Oversized page request is bounded
+http-api :: Replay returns the original outcome
+http-api :: Reused key with different content is refused
+http-api :: Service credential cannot promote
+http-api :: Stale write is refused
+http-api :: The same outcome maps identically everywhere
+http-api :: Unknown identifier is not found
+http-api :: Unknown optional field is tolerated
+http-api :: Unversioned request is rejected
+http-api :: Validation agrees across surfaces
+llm-integration :: Authentication failure is not retried
+llm-integration :: Cause is reported
+llm-integration :: Compiled specification unaffected
+llm-integration :: Disabled by default
+llm-integration :: Enabled by configuration alone
+llm-integration :: Endpoint substituted without code change
+llm-integration :: Features tested without an endpoint
+llm-integration :: Image description sends only the image
+llm-integration :: No behavioural branching on model name
+llm-integration :: No vendor-specific feature is required
+llm-integration :: Retry budget respected
+llm-integration :: Timeout does not fail the surrounding operation
+llm-integration :: Unrecognised model accepted
+llm-integration :: Validation unaffected by model availability
+mcp-server :: Agent and command line agree
+mcp-server :: Art director's agent cannot promote
+mcp-server :: Identical results across clients
+mcp-server :: Launch without credentials
+mcp-server :: Listings are compact
+mcp-server :: No listening port
+mcp-server :: No mutating tool is advertised
+mcp-server :: Repository is unchanged by reads
+mcp-server :: Server runs with no network
+mcp-server :: Specification returned as readable markdown
+mcp-server :: Unknown asset identifier
+mcp-server :: Unparseable specification does not kill the server
+mcp-write-surface :: A claimed author in the payload is ignored
+mcp-write-surface :: A looping agent is throttled
+mcp-write-surface :: A pre-commit run is unaffected
+mcp-write-surface :: A re-export is a new outcome
+mcp-write-surface :: A resolved observation may be raised again
+mcp-write-surface :: An agent cannot close its own observation
+mcp-write-surface :: Art director's agent cannot promote
+mcp-write-surface :: Both fields are carried
+mcp-write-surface :: Both parties are recorded and displayed
+mcp-write-surface :: Destination unreachable
+mcp-write-surface :: Expired identity refuses the write, not the read
+mcp-write-surface :: Marked in a reading of open annotations
+mcp-write-surface :: Marked in the compiled briefing
+mcp-write-surface :: Named target resolves
+mcp-write-surface :: No configured agent identifier
+mcp-write-surface :: No other repository content is touched by a write
+mcp-write-surface :: No resolvable person
+mcp-write-surface :: No secret appears in configuration
+mcp-write-surface :: No verdict is produced by reporting
+mcp-write-surface :: One sign-in serves both surfaces
+mcp-write-surface :: Only two write tools are advertised
+mcp-write-surface :: Pending reports are delivered later
+mcp-write-surface :: Promotion is not reachable through the observation tool
+mcp-write-surface :: Promotion is recorded as the person's authorship
+mcp-write-surface :: Refusal leaves the session usable
+mcp-write-surface :: Reporting does not change the verdict
+mcp-write-surface :: Reporting does not consume the annotation allowance
+mcp-write-surface :: Resolved observation leaves the briefing
+mcp-write-surface :: Restarted agent does not duplicate its observation
+mcp-write-surface :: Retry does not duplicate
+mcp-write-surface :: Sign-in never asks for a pasted secret
+mcp-write-surface :: Signing out disables writes and leaves reads working
+mcp-write-surface :: The annotation kind set is not extended
+mcp-write-surface :: Throttling is scoped and does not stop other work
+mcp-write-surface :: Unauthenticated caller keeps every read
+mcp-write-surface :: Unauthenticated write is refused with a remedy
+mcp-write-surface :: Unknown kind is refused with the permitted values
+mcp-write-surface :: Unreachable budget is recorded and the budget stands
+mcp-write-surface :: Unresolvable target is preserved, not guessed
+mcp-write-surface :: Write to an unknown asset is refused
+metadata-acceptance :: Acceptance requires an identified actor
+metadata-acceptance :: Accepted alias is a normal alias
+metadata-acceptance :: Accepted alias ranks as an alias
+metadata-acceptance :: Accepting person recorded
+metadata-acceptance :: Edited before acceptance
+metadata-acceptance :: Image replaced after acceptance
+metadata-acceptance :: Interrupted write
+metadata-acceptance :: Nothing is accepted without a person
+metadata-acceptance :: Only the intended change appears
+metadata-acceptance :: Rejected suggestion does not return
+metadata-acceptance :: Subset accepted
+model-sheet-2d :: Asset with no views
+model-sheet-2d :: Combined filter
+model-sheet-2d :: Default presentation shows open work
+model-sheet-2d :: Discarding before saving leaves nothing
+model-sheet-2d :: Failed write removes the pin
+model-sheet-2d :: Filtering agrees across surfaces
+model-sheet-2d :: Filtering changes nothing durable
+model-sheet-2d :: Finger navigates, stylus annotates
+model-sheet-2d :: Gesture on the background places nothing
+model-sheet-2d :: Hidden is not the same as forbidden
+model-sheet-2d :: Immediate feedback
+model-sheet-2d :: Orphans are visible but not placed
+model-sheet-2d :: Pencil and mouse agree
+model-sheet-2d :: Pin to thread
+model-sheet-2d :: Placement yields an anchor and nothing more
+model-sheet-2d :: Promotion is not offered to a non-director
+model-sheet-2d :: Reload agrees with the repository
+model-sheet-2d :: Round trip preserves the coordinate
+model-sheet-2d :: Same coordinate on a different device
+model-sheet-2d :: Scribble is attached to its annotation
+model-sheet-2d :: Strokes scale with the view
+model-sheet-2d :: Thread to pin across views
+model-sheet-2d :: Two pins at nearly the same coordinate
+model-sheet-2d :: Views listed by anchor name
+model-sheet-2d :: Zoom does not move a pin
+semantic-search-delegation :: A semantic hit does not hide an exact miss
+semantic-search-delegation :: A semantic hit is not an asset record
+semantic-search-delegation :: Exact lookup needs no remote service
+semantic-search-delegation :: Groups are labelled and ordered
+semantic-search-delegation :: Identifier query is never answered only semantically
+semantic-search-delegation :: Identifier-shaped query is not delegated
+semantic-search-delegation :: Local results are produced either way
+semantic-search-delegation :: Misses stay local
+semantic-search-delegation :: Natural-language question reaches the document platform
+semantic-search-delegation :: No combined score
+semantic-search-delegation :: No forwardable credential means local only
+semantic-search-delegation :: No indexing path exists
+semantic-search-delegation :: Only the query is sent
+semantic-search-delegation :: Reason is distinguishable
+semantic-search-delegation :: Repeated query is stable
+semantic-search-delegation :: Semantic results name their source
+semantic-search-delegation :: Service credential is never end-user authority
+semantic-search-delegation :: Slow service does not hold the response
+semantic-search-delegation :: Two people get different results
+semantic-search-delegation :: Unreachable service degrades the response, not the search
+spec-compilation :: Compiled file edited by hand
+spec-compilation :: Compiles while offline
+spec-compilation :: Defaults merged into output
+spec-compilation :: Output does not grow with usage
+spec-compilation :: Project briefing excludes per-asset content
+spec-compilation :: Promoted content appears as a rule, not as history
+spec-compilation :: Read cold
+spec-compilation :: Repeated compilation is identical
+spec-compilation :: Resolved annotation is excluded
+spec-lenses :: Lens cannot reveal an inaccessible asset
+spec-lenses :: Lens choice is unrestricted
+spec-lenses :: Modeling lens returns constraints
+spec-lenses :: No lens returns everything
+spec-lenses :: Resolved annotation absent under every lens
+spec-lenses :: Shared field is identical across lenses
+spec-lenses :: Sockets surfaced before modelling
+spec-lenses :: Unknown lens is rejected clearly
+view-versioning :: A different aspect ratio orphans the pins
+view-versioning :: A historical revision is labelled
+view-versioning :: A person re-anchors an orphan
+view-versioning :: A removed view has no current revision
+view-versioning :: A revision list is complete and ordered
+view-versioning :: An identical re-upload is not a revision
+view-versioning :: An orphan can still be read against its own revision
+view-versioning :: Argument order does not change the presentation
+view-versioning :: Comparing a revision with itself
+view-versioning :: Comparing a superseded revision with the current one
+view-versioning :: Comparing two historical revisions
+view-versioning :: History survives a wiped mirror
+view-versioning :: Nothing re-anchors itself
+view-versioning :: Orphans still appear in the compiled briefing
+view-versioning :: Removing a view keeps its history
+view-versioning :: Replacement resolves nothing
+view-versioning :: Revision identifiers are stable
+view-versioning :: Same aspect ratio carries the pins
+view-versioning :: Shallow working copy
+view-versioning :: The outcome is never silent
+view-versioning :: Three uploads, three revisions
+view-versioning :: Unknown revision identifier
+viewer-3d :: Budget-relevant count is the source's
+viewer-3d :: Frame restores a known view
+viewer-3d :: Framing a part
+viewer-3d :: Isolation is reversible
+viewer-3d :: Isolation leaves no trace in the specification
+viewer-3d :: No export yet
+viewer-3d :: No rendering support
+viewer-3d :: No route exposes the working export
+viewer-3d :: Preview emission failed
+viewer-3d :: Preview is what is loaded
+viewer-3d :: Provenance is visible
+viewer-3d :: Rendering context lost mid-session
+viewer-3d :: Retrieval fails
+viewer-3d :: Same annotation state in both surfaces
+viewer-3d :: Selecting names the part
+viewer-3d :: Superseded preview is flagged
+viewer-3d :: Triage performed in 3D behaves identically
+viewer-3d :: Unrecorded count is absent, not inferred
+web-session :: Acting identity shown
+web-session :: Arriving signed out
+web-session :: Deep link through sign-in
+web-session :: No content survives sign-out
+web-session :: Re-authentication is declined
+web-session :: Reads continue during an outage
+web-session :: Session expires while writing an annotation
+web-session :: Unmapped person is warned early
