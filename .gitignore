@@ -3,8 +3,16 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
+dist/
+
+# Build output of `just check`: the BDD traceability report (tools/canon_bdd).
+reports/
+
+# uv.lock is committed on purpose: it is authoritative for CI, the Coolify image
+# build and a developer's machine.
 
 # Node
 node_modules/

@@ -1,0 +1,109 @@
+[project]
+name = "cybercanon"
+version = "0.1.0"
+description = "CyberCanon — the versioned canon of a game project: one verifiable contract per asset."
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+
+dependencies = [
+    "pydantic>=2.9",
+    "ruamel.yaml>=0.18",
+    "typer>=0.12",
+    "trimesh>=4.4",
+    "pygltflib>=1.16",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "import-linter>=2.1",
+    "ruff>=0.6",
+    "complexipy>=2.0",
+    "pytest-bdd>=8.1",
+    "pytest-xdist>=3.6",
+    "playwright>=1.47",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# ``cybercanon`` is a PEP 420 namespace package with two portions: the hexagonal
+# core under libs/ and the deployables under services/. Both map onto the same
+# import namespace, so services/cybercanon/cli is ``cybercanon.cli``.
+[tool.hatch.build.targets.wheel]
+packages = ["libs/cybercanon", "services/cybercanon"]
+dev-mode-dirs = ["libs", "services"]
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["tools"]
+addopts = "-ra --strict-markers --strict-config -p canon_bdd.plugin"
+# A test's layer is its directory (canon_bdd.plugin marks it), so `-m unit`
+# selects tests/unit and nothing else. Step modules are named after their
+# capability rather than test_*, so collection has to be told about them.
+python_files = ["test_*.py", "steps/*.py"]
+markers = [
+    "unit: domain and application, pure, no I/O (tests/unit)",
+    "bdd: generated spec scenarios and the traceability gates (tests/bdd)",
+    "conformance: one parametrised suite per port, fake and real adapter (tests/conformance)",
+    "e2e: Playwright and `canon` subprocess runs; excluded from `just check` (tests/e2e)",
+    "tooling: verifies the build itself — justfile, CI, generator, gates (tests/tooling)",
+    "integration: exercises real files or real adapters; excluded from the fast suite",
+]
+
+[tool.coverage.run]
+# D7 (add-test-strategy): coverage thresholds apply to the domain package only.
+# The domain is pure, so a gap there is a rule nobody tested; a number on the
+# adapters would only buy tests written to move the number.
+source = ["cybercanon.domain"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+
+# ---------------------------------------------------------------------------
+# Lint
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["libs", "services", "tools", "tests", "scripts"]
+# ruff formats Python code blocks inside Markdown. The specs under openspec/ are
+# frozen prose and must never be rewritten by a formatter.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+
+# ---------------------------------------------------------------------------
+# Layering contract (D10) — domain <- application <- adapters
+# ---------------------------------------------------------------------------
+
+[tool.importlinter]
+root_packages = ["cybercanon.domain", "cybercanon.application", "cybercanon.adapters"]
+include_external_packages = true
+contract_types = ["stdlib_only: canon_lint.contracts.StdlibOnlyContract"]
+
+[[tool.importlinter.contracts]]
+name = "Hexagonal layers: domain <- application <- adapters"
+type = "layers"
+layers = ["cybercanon.adapters", "cybercanon.application", "cybercanon.domain"]
+
+[[tool.importlinter.contracts]]
+name = "Inbound adapters must not import outbound adapters"
+type = "forbidden"
+source_modules = ["cybercanon.adapters.inbound"]
+forbidden_modules = ["cybercanon.adapters.outbound"]
+
+[[tool.importlinter.contracts]]
+name = "The domain imports no third-party package"
+type = "stdlib_only"
+modules = ["cybercanon.domain"]

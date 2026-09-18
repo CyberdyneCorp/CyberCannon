@@ -1,0 +1,52 @@
+# CI runs justfile recipes and nothing else.
+#
+# Every project check lives in the justfile, so a green local `just check` means
+# a green pipeline. Steps other than the recipe invocations below may only
+# install tooling — tests/tooling/test_ci_workflow.py fails the build if a check
+# leaks in here.
+#
+# Two jobs, because D6 splits the suite in two: `check` is everything that must
+# stay fast enough to run constantly, and `e2e` is the part that needs browsers
+# and a compose stack. They run independently, so a slow e2e job never delays
+# the verdict on `check`.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - uses: extractions/setup-just@v3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: just check
+        run: just check
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - uses: extractions/setup-just@v3
+
+      # Browser installation and the compose stack the e2e suite runs against
+      # are group 6 of add-test-strategy (sprint S9). They belong in a recipe
+      # too: whatever `just test-e2e` needs, it brings up itself.
+      - name: just test-e2e
+        run: just test-e2e
