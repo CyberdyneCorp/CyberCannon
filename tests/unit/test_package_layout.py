@@ -28,6 +28,7 @@ CORE_PACKAGES = [
     "cybercanon.adapters.outbound.arche",
     "cybercanon.adapters.wiring",
     "cybercanon.cli",
+    "cybercanon.api",
 ]
 
 

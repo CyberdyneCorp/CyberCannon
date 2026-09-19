@@ -84,16 +84,43 @@ def test_a_third_party_import_by_the_package_root_breaks_the_contract() -> None:
     assert check.metadata["offenders"][0]["line_numbers"] == (1,)
 
 
-def test_the_declared_contracts_cover_every_clause_of_d10(repo_root: Path) -> None:
+def _by_type(repo_root: Path) -> dict[str, list[dict[str, object]]]:
     config = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
-    contracts = config["tool"]["importlinter"]["contracts"]
-    by_type = {contract["type"]: contract for contract in contracts}
+    declared: dict[str, list[dict[str, object]]] = {}
+    for contract in config["tool"]["importlinter"]["contracts"]:
+        declared.setdefault(contract["type"], []).append(contract)
+    return declared
 
-    assert by_type["layers"]["layers"] == [
+
+def test_the_declared_contracts_cover_every_clause_of_d10(repo_root: Path) -> None:
+    by_type = _by_type(repo_root)
+
+    (layers,) = by_type["layers"]
+    (stdlib_only,) = by_type["stdlib_only"]
+    assert layers["layers"] == [
         "cybercanon.adapters",
         "cybercanon.application",
         "cybercanon.domain",
     ]
-    assert by_type["forbidden"]["source_modules"] == ["cybercanon.adapters.inbound"]
-    assert by_type["forbidden"]["forbidden_modules"] == ["cybercanon.adapters.outbound"]
-    assert by_type["stdlib_only"]["modules"] == ["cybercanon.domain"]
+    assert [contract["source_modules"] for contract in by_type["forbidden"]] == [
+        ["cybercanon.adapters.inbound"],
+        ["cybercanon.adapters.inbound.http"],
+    ]
+    assert all(
+        contract["forbidden_modules"] == ["cybercanon.adapters.outbound"]
+        for contract in by_type["forbidden"]
+    )
+    assert stdlib_only["modules"] == ["cybercanon.domain"]
+
+
+def test_the_http_adapter_is_named_by_a_contract_of_its_own(repo_root: Path) -> None:
+    """Task 1.2 — so a broken layering names the surface that broke it.
+
+    The package-wide contract already covers it; this one exists so the failure
+    reads "The HTTP adapter must not import outbound adapters" rather than
+    naming the whole inbound package, on the surface the product has the most to
+    lose from.
+    """
+    named = {contract["name"] for contract in _by_type(repo_root)["forbidden"]}
+
+    assert "The HTTP adapter must not import outbound adapters" in named

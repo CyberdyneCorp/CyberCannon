@@ -120,6 +120,18 @@ type = "forbidden"
 source_modules = ["cybercanon.adapters.inbound"]
 forbidden_modules = ["cybercanon.adapters.outbound"]
 
+# The HTTP adapter is covered by the contract above, which forbids the whole
+# inbound package from reaching an outbound one. It is named again, on its own,
+# because a contract that fails by name is what tells the person who added the
+# import which surface they broke — and because this is the adapter the product
+# has the most to lose from: a "Validate" button that disagrees with
+# `canon validate` is the bug CyberCanon exists to prevent.
+[[tool.importlinter.contracts]]
+name = "The HTTP adapter must not import outbound adapters"
+type = "forbidden"
+source_modules = ["cybercanon.adapters.inbound.http"]
+forbidden_modules = ["cybercanon.adapters.outbound"]
+
 [[tool.importlinter.contracts]]
 name = "The domain imports no third-party package"
 type = "stdlib_only"
