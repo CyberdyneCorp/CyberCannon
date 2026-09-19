@@ -24,6 +24,7 @@ from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
 from cybercanon.application.ports.preview import PreviewMesh
 from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.validate_export import validate_export
+from cybercanon.domain.revisions import ContentHash, blob_key
 
 pytestmark = pytest.mark.integration
 
@@ -90,3 +91,44 @@ def test_a_validation_run_writes_a_traceable_preview(tmp_path: Path) -> None:
     assert outcome.preview.source_export == EXPORT
     assert blobs.read(outcome.preview.key)
     assert blobs.preview_for(ASSET) == outcome.preview
+
+
+# --------------------------------------------------------------------------
+# Task 7.2 — an interrupted upload leaves nothing readable at its key
+# --------------------------------------------------------------------------
+
+
+VIEW = b"\x89PNG\r\n\x1a\nthe scout mech, three-quarter"
+
+
+def test_an_upload_in_flight_is_not_readable_at_its_key(tmp_path: Path) -> None:
+    """The half-written file is beside the key, never at it.
+
+    `blob-storage`: *"An upload that fails or is interrupted SHALL leave no
+    readable object at its key."* `FsBlobStore` writes to a `.partial` name in
+    the same directory and renames, so what an interruption leaves behind is
+    exactly what is staged here — and the key still does not resolve.
+    """
+    store = FsBlobStore(tmp_path / "blobs")
+    key = blob_key(ContentHash.of(VIEW))
+    partial = store.root / key
+    partial.parent.mkdir(parents=True, exist_ok=True)
+    partial.with_name(partial.name + ".partial").write_bytes(VIEW[:8])
+
+    assert not store.exists(key)
+    assert store.read(key) is None
+
+
+def test_the_completed_upload_replaces_the_partial_atomically(tmp_path: Path) -> None:
+    """And the interrupted attempt leaves nothing behind once the real one lands."""
+    store = FsBlobStore(tmp_path / "blobs")
+    key = blob_key(ContentHash.of(VIEW))
+    partial = (store.root / key).with_name((store.root / key).name + ".partial")
+    partial.parent.mkdir(parents=True, exist_ok=True)
+    partial.write_bytes(VIEW[:8])
+
+    stored = store.put(VIEW)
+
+    assert stored.key == key
+    assert store.verified(key) == VIEW
+    assert not partial.exists()

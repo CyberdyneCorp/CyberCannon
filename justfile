@@ -26,7 +26,13 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~49 s on a warm checkout (1899 tests, 657 scenarios, 0 absent).
+# Measured runtime: ~91 s on a warm checkout (2233 tests, 657 scenarios, 0 absent).
+# Groups 6 and 7 of add-web-backend added a real PostgreSQL (pgserver) and a real
+# S3 API (moto) to the conformance and integration layers; that is most of the
+# increase, and it is the cost of the two hosted adapters being checked rather
+# than described. Group 8 added an in-process CyberdyneAuth (`tools/canon_issuer`)
+# for the same reason and at almost no cost: it signs with cached RSA keys and
+# opens no socket.
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
 check: lint imports complexity features test spec
@@ -93,6 +99,14 @@ test-e2e *args:
 # described (openspec/project.md).
 api *args:
     uv run --locked python -m cybercanon.api {{ args }}
+
+# Apply db/migrations to the configured database — the release step, run before
+# a new version starts serving (openspec/project.md). It reads CANON_DATABASE_URL
+# from the same configuration the service reads, so a deployment cannot migrate
+# one database and serve another, and it is idempotent: re-running it applies
+# nothing, which is what makes a retried deploy safe.
+migrate *args:
+    uv run --locked python -m cybercanon.api.migrate {{ args }}
 
 # Run the FastMCP read server over stdio for the repository this is run in.
 # An agent client spawns `canon mcp serve` directly — this recipe is the way a

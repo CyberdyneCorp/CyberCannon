@@ -22,6 +22,22 @@ dependencies = [
     "fastapi>=0.141.1",
     "uvicorn>=0.53.0",
     "httpx>=0.28.1",
+    # The hosted surface's two stateful backings. Both are deployed by
+    # `add-coolify-deployment`, and both are rebuildable by specification: the
+    # index is dropped and rebuilt from the working copy, the mirror is emptied
+    # and re-mirrored, and neither is ever the source of truth.
+    "psycopg[binary]>=3.2",
+    "boto3>=1.35",
+    # CyberdyneAuth's two halves. `joserfc` verifies an issuer-signed JWT against
+    # a published JWKS — a signature check is not something this repository is
+    # going to hand-roll — and `keyring` puts the command line's credential in
+    # the operating system's credential store, which `auth-integration` requires
+    # and which is the whole reason no token is ever written beside a repository.
+    # Both are named here rather than relied on transitively: they are imported
+    # by `adapters/outbound/auth`, and an undeclared import is a dependency that
+    # disappears the day something else stops pulling it in.
+    "joserfc>=1.7.5",
+    "keyring>=25.7.0",
 ]
 
 [dependency-groups]
@@ -34,6 +50,16 @@ dev = [
     "pytest-bdd>=8.1",
     "pytest-xdist>=3.6",
     "playwright>=1.47",
+    # A real PostgreSQL, as a wheel. The `SearchIndex` conformance suite runs the
+    # same contract against the in-memory fake, SQLite and PostgreSQL, and a
+    # PostgreSQL that only runs where somebody happens to have a server is a
+    # conformance suite that does not run — which is the same failure as a fake
+    # that lies. `pgserver` ships the server binaries for macOS and manylinux, so
+    # the suite needs no daemon, no container and no credential.
+    "pgserver>=0.1.4",
+    # An in-process S3, for the same reason: `S3BlobStore` is exercised against a
+    # real S3 API rather than against a mock this repository wrote.
+    "moto[s3]>=5.0",
 ]
 
 # The `canon` binary. It is the only script this project installs: the API and

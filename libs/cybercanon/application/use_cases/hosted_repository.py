@@ -27,9 +27,9 @@ like on disk is still an adapter's.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.application.ports.clock import Clock, system_clock
@@ -44,12 +44,17 @@ from cybercanon.application.ports.repository_host import (
 )
 from cybercanon.application.ports.search_index import SearchIndex
 from cybercanon.application.ports.spec_store import SpecStore
-from cybercanon.application.results import as_result
+from cybercanon.application.results import Result, as_result
 from cybercanon.application.use_cases.index_assets import (
     Fingerprinter,
     RebuildReport,
     no_fingerprints,
     rebuild_index,
+)
+from cybercanon.application.use_cases.resolve_actor import (
+    GitIdentity,
+    Resolution,
+    resolve_git_identity,
 )
 from cybercanon.domain.actors import GitAuthor
 from cybercanon.domain.revisions import ContentHash, Revision, ServedRevision
@@ -191,6 +196,7 @@ def write_back(
     author: GitAuthor | None,
     message: str,
     subject: str = "",
+    agent: str = "",
     attempts: int = DEFAULT_ATTEMPTS,
 ) -> WriteOutcome:
     """Apply one logical edit as one pushed commit, or refuse it (D2, D5, D6, D8).
@@ -208,11 +214,38 @@ def write_back(
         raise AuthorUnmapped(subject or project, edits[0].path if edits else "")
     if not edits:
         raise WriteConflict(project, "an edit changes at least one file")
+    recorded = performed_by(message, agent)
+    with repository_host.writer(project):
+        return _attempt_until(project, edits, repository_host, author, recorded, attempts)
+
+
+def _attempt_until(
+    project: str,
+    edits: Sequence[Edit],
+    repository_host: RepositoryHost,
+    author: GitAuthor,
+    message: str,
+    attempts: int,
+) -> WriteOutcome:
+    """D6's bounded loop, inside the project's single-writer lock (task 5.7).
+
+    Two ways out other than success, and they are not the same. A **rejected**
+    push means the remote advanced, which is the retry signal: recover, and
+    evaluate the precondition again against what is there now. An
+    **unavailable** remote is not retryable at all — nothing will have changed
+    by the next line — so the working copy is put back and the caller is told,
+    which is what makes *"a local commit that cannot be pushed is not reported
+    as applied"* true for every way a push can fail rather than only for the
+    interesting one (task 5.9).
+    """
     for attempt in range(1, attempts + 1):
         try:
             return _apply(project, edits, repository_host, author, message, attempt)
         except PushRejected:
             _reset(project, repository_host)
+        except RepositoryUnavailable:
+            _reset(project, repository_host)
+            raise
     raise WriteConflict(
         edits[0].path,
         f"the branch moved under {attempts} attempts; nothing was written",
@@ -301,6 +334,183 @@ def _ready(project: str, repository_host: RepositoryHost) -> ProjectStatus:
     return status
 
 
+def author_for(resolution: Resolution, spec_store: SpecStore) -> GitIdentity:
+    """The git identity this person's edits are committed under (task 5.6, D8).
+
+    The mapping is repository content, so it is read through the same store, at
+    the same revision, as the specifications it explains — a project whose
+    `.canon/actors.yaml` was added in the commit being read gains the person in
+    that same commit, and never a moment earlier.
+
+    The answer is always a :class:`GitIdentity`, and an unmapped person is one
+    with no address rather than a raise. Refusing is `write_back`'s job, and it
+    refuses *naming the missing entry*: the fix is adding a line to a file, and a
+    message that did not say so would send somebody to a support channel.
+    """
+    return resolve_git_identity(resolution, spec_store.load_actor_mapping().mapping)
+
+
+AGENT_TRAILER = "Performed-by"
+"""The trailer that records the agent a person's write was performed through.
+
+*"A write performed by an agent on a person's behalf SHALL record both the
+person and the agent."* The author stays the person — an agent is an instrument,
+not an author — so the agent goes where git keeps the things a commit is *about*
+rather than who made it, and `git log --format=%(trailers)` answers "what did
+the Blender agent write" without a second store.
+"""
+
+
+def edit_message(asset: str, change: str) -> str:
+    """The commit message for one edit: the asset it concerns, then what changed.
+
+    *"Its commit message SHALL name the asset and describe what changed."*
+    Composed here rather than at each call site, because a message format
+    derived independently in three surfaces is a history nobody can grep.
+    """
+    return f"{asset}: {change}"
+
+
+def performed_by(message: str, agent: str = "") -> str:
+    """That message, with the performing agent recorded when there was one."""
+    return f"{message}\n\n{AGENT_TRAILER}: {agent}" if agent else message
+
+
+@dataclass(frozen=True)
+class Freshness:
+    """What a read was served from, and whether anybody has checked recently.
+
+    Both halves of *"every read states the revision it was served from and how
+    stale it may be"*, as one value, so a surface cannot render the revision and
+    quietly drop the staleness — the two arrive together or not at all.
+    """
+
+    revision: Revision
+    confirmed_at: datetime
+    may_be_stale: bool
+
+    @classmethod
+    def of(cls, served: ServedRevision, now: datetime, interval: timedelta) -> Freshness:
+        """The freshness of that served revision, judged against the interval."""
+        return cls(
+            revision=served.revision,
+            confirmed_at=served.confirmed_at,
+            may_be_stale=served.may_be_stale(now, interval),
+        )
+
+
+@dataclass(frozen=True)
+class Served[T]:
+    """One read's answer, and the revision it came from."""
+
+    value: T
+    freshness: Freshness
+
+    @property
+    def revision(self) -> Revision:
+        return self.freshness.revision
+
+    @property
+    def confirmed_at(self) -> datetime:
+        return self.freshness.confirmed_at
+
+    @property
+    def may_be_stale(self) -> bool:
+        return self.freshness.may_be_stale
+
+
+type PinnedRead[T] = Callable[[SpecStore], T]
+"""A read, given the store pinned to the revision it is being served from."""
+
+
+@as_result
+def read_at_revision[T](
+    project: str,
+    read: PinnedRead[T],
+    *,
+    repository_host: RepositoryHost,
+    spec_store: SpecStore,
+    clock: Clock = system_clock,
+    interval: timedelta = DEFAULT_INTERVAL,
+) -> Served[T]:
+    """Serve one read from one revision, and state which one (task 5.5).
+
+    The revision is resolved **once**, before the read runs, and the store is
+    pinned to it — so a briefing assembled from six files is assembled from one
+    revision by construction (D3) and a fetch landing mid-read changes nothing
+    the reader can see.
+
+    A project whose working copy is not ready refuses here rather than answering
+    an empty listing, which is the distinction `hosted-repository` insists on:
+    *still cloning* and *has no assets* look identical to a caller and mean
+    opposite things.
+    """
+    revision = repository_host.head(project)
+    status = repository_host.status(project)
+    served = status.served or ServedRevision(revision, clock())
+    return Served(
+        value=read(spec_store.pinned(revision.value)),
+        freshness=Freshness.of(served, clock(), interval),
+    )
+
+
+@dataclass(frozen=True)
+class FetchSchedule:
+    """When a project is next due a fetch. The guarantee, not the optimisation (D4).
+
+    A webhook is lost, misconfigured or silently disabled by a repository
+    administrator; a timer is not. So the schedule is what makes a project's
+    staleness bounded, and the webhook only shortens the wait.
+    """
+
+    interval: timedelta = DEFAULT_INTERVAL
+
+    def due(self, status: ProjectStatus, now: datetime) -> bool:
+        """Whether this project has gone the whole interval without a confirmation."""
+        if not status.is_ready or status.served is None:
+            return False
+        return status.served.age(now) >= self.interval
+
+
+DEFAULT_SCHEDULE = FetchSchedule()
+"""The schedule a caller that configured none is measured against."""
+
+
+def due_projects(
+    projects: Sequence[str],
+    *,
+    repository_host: RepositoryHost,
+    schedule: FetchSchedule,
+    now: datetime,
+) -> tuple[str, ...]:
+    """Which of these projects the schedule says to fetch at `now`."""
+    return tuple(
+        project for project in projects if schedule.due(repository_host.status(project), now)
+    )
+
+
+def scheduled_refresh(
+    projects: Sequence[str],
+    *,
+    repository_host: RepositoryHost,
+    schedule: FetchSchedule = DEFAULT_SCHEDULE,
+    clock: Clock = system_clock,
+) -> tuple[Result[RefreshOutcome], ...]:
+    """Refresh every project the interval has come round for (task 5.3).
+
+    One tick of the timer. It returns outcomes rather than raising, because a
+    remote that is down must not stop the other projects being refreshed — the
+    failure is one project's staleness, and staleness is already reported.
+    """
+    now = clock()
+    return tuple(
+        refresh_project(project, repository_host=repository_host, clock=clock)
+        for project in due_projects(
+            projects, repository_host=repository_host, schedule=schedule, now=now
+        )
+    )
+
+
 def served_after(outcome: RefreshOutcome, previous: ServedRevision) -> ServedRevision:
     """The served revision after a refresh — the previous one when it failed.
 
@@ -312,15 +522,26 @@ def served_after(outcome: RefreshOutcome, previous: ServedRevision) -> ServedRev
 
 
 __all__ = [
+    "AGENT_TRAILER",
     "DEFAULT_ATTEMPTS",
     "DEFAULT_INTERVAL",
     "AuthorUnmapped",
     "Edit",
+    "FetchSchedule",
+    "Freshness",
+    "PinnedRead",
     "RefreshOutcome",
+    "Served",
     "WriteConflict",
     "WriteOutcome",
+    "author_for",
+    "due_projects",
+    "edit_message",
+    "performed_by",
+    "read_at_revision",
     "rebuild_project_index",
     "refresh_project",
+    "scheduled_refresh",
     "served_after",
     "write_back",
 ]

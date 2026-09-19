@@ -34,6 +34,7 @@ Paths are repository-relative POSIX strings, exactly as `SpecStore` speaks them.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -240,6 +241,23 @@ class RepositoryHost(Protocol):
         Absent is an answer — a new file's precondition is *that it does not
         exist* (D5) — while a revision this repository cannot reach is
         :class:`RevisionUnreachable`, because those are different problems.
+        """
+        ...
+
+    def writer(self, project: str) -> AbstractContextManager[None]:
+        """Hold this project's single-writer lock for the duration of one edit.
+
+        The eighth operation, and the one that is not about git at all. D5's
+        precondition — *the content this edit was composed against is still
+        there* — is only a precondition if nothing can move between the check
+        and the commit, and the design's *"no horizontal scaling of the API
+        beyond one writer per project"* is exactly the statement that this lock
+        is enough. It is re-entrant, because D6's retry recovers and re-fetches
+        inside the same edit.
+
+        Reads never take it: isolation for a reader is a revision it already
+        resolved (D3), and a read that queued behind a slow write would be the
+        reader-writer lock this design rejected.
         """
         ...
 

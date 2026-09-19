@@ -28,6 +28,7 @@ from cybercanon.application.testing.outcomes import ran, refused
 from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases import (
+    blob_mirror,
     compile_spec,
     diff_spec,
     hosted_repository,
@@ -40,8 +41,20 @@ from cybercanon.domain.asset import Asset, AssetId
 REBUILDS = frozenset({"rebuild_index", "rebuild_project_index"})
 """The two names that mean *rewrite the whole index*."""
 
-READ_MODULES = (compile_spec, diff_spec, lookup_assets, spec_lens, validate_export)
-"""Every module a read goes through. A rebuild called from one is the defect."""
+READ_MODULES = (
+    blob_mirror,
+    compile_spec,
+    diff_spec,
+    lookup_assets,
+    spec_lens,
+    validate_export,
+)
+"""Every module a read goes through. A rebuild called from one is the defect.
+
+`blob_mirror` is here because listing an asset's views and issuing a link to one
+are reads, and the mirroring pass beside them is exactly the kind of expensive
+operation a helpful read would reach for on finding an object missing.
+"""
 
 SPEC_PATH = "characters/mech_scout/asset.yaml"
 
@@ -93,12 +106,15 @@ def test_the_read_modules_are_the_ones_on_disk(repo_root: Path) -> None:
 
     assert listed <= present
     assert present - listed == {
+        "authenticate",
         "briefing",
         "hosted_repository",
+        "idempotency",
         "index_assets",
         "lint_spec",
         "requests",
         "resolve_actor",
+        "sign_in",
     }
 
 
