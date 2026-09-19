@@ -26,7 +26,7 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: TO BE MEASURED after the rebase.
+# Measured runtime: ~49 s on a warm checkout (1899 tests, 657 scenarios, 0 absent).
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
 check: lint imports complexity features test spec

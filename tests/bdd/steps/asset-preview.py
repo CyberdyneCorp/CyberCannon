@@ -31,6 +31,7 @@ from cybercanon.application.ports.preview import PreviewUnavailable
 from cybercanon.application.results import Refusal, succeeded
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.validate_export import validate_export
 from cybercanon.domain.asset import Asset, AssetId
@@ -259,10 +260,12 @@ def _an_export_whose_clips_cannot_be_carried(
     preview_run: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _real_export(preview_run, fixtures.write_rigged_glb, RIGGED)
-    preview_run["baseline"] = validate_export(
-        preview_run["export"],
-        spec_store=preview_run["spec_store"],
-        mesh_inspector=preview_run["mesh_inspector"],
+    preview_run["baseline"] = ran(
+        validate_export(
+            preview_run["export"],
+            spec_store=preview_run["spec_store"],
+            mesh_inspector=preview_run["mesh_inspector"],
+        )
     )
     _lose_the_clips(monkeypatch)
 
