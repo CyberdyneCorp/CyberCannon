@@ -86,6 +86,14 @@ test-integration *args:
 test-e2e *args:
     uv run --locked pytest -m e2e {{ args }}
 
+# Run the FastAPI service. It reads its configuration from the environment and
+# refuses to start naming every required variable it does not have — there is no
+# file fallback, because Coolify supplies configuration as environment and a file
+# that disagrees with it is a deployment behaving differently from how it is
+# described (openspec/project.md).
+api *args:
+    uv run --locked python -m cybercanon.api {{ args }}
+
 # Run the FastMCP read server over stdio for the repository this is run in.
 # An agent client spawns `canon mcp serve` directly — this recipe is the way a
 # person starts the same server by hand, so there is still exactly one way to
