@@ -26,7 +26,7 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~40 s on a warm checkout (1361 tests, 657 scenarios, 0 absent).
+# Measured runtime: ~43 s on a warm checkout (1502 tests, 657 scenarios, 0 absent).
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
 check: lint imports complexity features test spec
@@ -70,6 +70,9 @@ test-bdd *args:
 
 # Only the integration layer: the real outbound adapters against real files,
 # written from code by `tools/canon_fixtures` so nothing binary lives in git.
+# `CANON_BLENDER=<path to blender>` additionally runs the FBX cross-check against
+# a real DCC (tests/integration/test_fbx_against_blender.py); without it those
+# tests skip, so this recipe behaves the same on every machine.
 # Reachable on its own, and part of `just check` through `test` — CI runs
 # `just check` and nothing else, so a suite outside it is a suite CI never runs.
 test-integration *args:
@@ -89,6 +92,11 @@ test-e2e *args:
 # run the operation.
 mcp *args:
     uv run --locked canon mcp serve {{ args }}
+
+# Write every export fixture into a directory so a person can open one. The
+# suites build these at test time; this is how you look at what they built.
+fixtures directory:
+    PYTHONPATH=tools uv run --locked python -m canon_fixtures {{ directory }}
 
 # Regenerate tests/bdd/features/ from the spec deltas. Nobody hand-writes a
 # .feature; this recipe overwrites any that somebody did.

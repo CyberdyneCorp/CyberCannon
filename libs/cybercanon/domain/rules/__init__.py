@@ -29,6 +29,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 
 from cybercanon.domain.effective_spec import EffectiveSpec
+from cybercanon.domain.format_matrix import absence_phrase
 from cybercanon.domain.mesh_facts import FactKind, MeshFacts
 from cybercanon.domain.report import (
     NotEvaluated,
@@ -162,8 +163,13 @@ BY_ID: Mapping[str, Rule] = {rule.rule_id: rule for rule in REGISTRY}
 
 
 def reason_for(missing: FactKind, facts: MeshFacts) -> str:
-    """Why a rule could not run, in the words a report prints."""
-    return f"{facts.source_format} carries no {missing.label}"
+    """Why a rule could not run, in the words a report prints.
+
+    The matrix owns the sentence because it owns the distinction: a format that
+    cannot record a fact and one that records it unreliably both produce NOT
+    EVALUATED, and only the wording tells the two apart.
+    """
+    return absence_phrase(facts.source_format, missing)
 
 
 def evaluate(rule: Rule, spec: EffectiveSpec, facts: MeshFacts) -> tuple[RuleOutcome, ...]:

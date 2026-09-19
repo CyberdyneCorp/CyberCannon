@@ -11,6 +11,13 @@ dependencies = [
     "typer>=0.12",
     "trimesh>=4.4",
     "pygltflib>=1.16",
+    "numpy>=1.26",
+    # Draco, for the compressed preview D7 asks for. Capped below 2.1 on purpose:
+    # 2.1.0 publishes no macOS arm64 wheel, so uv would fall back to the sdist and
+    # need a C++ toolchain on every Apple Silicon machine. 2.0.0 ships wheels for
+    # macOS x86_64 and arm64, manylinux x86_64 and aarch64, and Windows — no
+    # compiler anywhere we run. Lift the cap when an arm64 wheel returns.
+    "dracopy>=2.0,<2.1",
     "fastmcp>=2.0",
 ]
 

@@ -18,13 +18,14 @@ Three properties are the reason this suite exists at all:
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
 
 from canon_fixtures import mesh as fixtures
 from cybercanon.adapters.outbound.mesh.gltf_facts import GLTF_UNIT_SCALE, GLTF_UP_AXIS
-from cybercanon.adapters.outbound.mesh.trimesh_inspector import FBX_REASON, TrimeshInspector
+from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
 from cybercanon.application.ports.mesh_inspector import MeshUnreadable, UnsupportedExport
 from cybercanon.domain.format_matrix import available_for, unavailable_for
 from cybercanon.domain.mesh_facts import MESH_FIELD_BY_FACT, MeshFormat
@@ -32,6 +33,7 @@ from cybercanon.domain.mesh_facts import MESH_FIELD_BY_FACT, MeshFormat
 pytestmark = pytest.mark.integration
 
 SKINNED = "characters/mech_scout/exports/SM_mech_scout_LOD0.glb"
+SKINNED_GLTF = "characters/mech_scout/exports/SM_mech_scout_LOD0.gltf"
 STATIC_GLB = "props/crate/exports/SM_crate_LOD0.glb"
 STATIC_OBJ = "props/crate/exports/SM_crate_LOD0.obj"
 
@@ -40,6 +42,7 @@ STATIC_OBJ = "props/crate/exports/SM_crate_LOD0.obj"
 def repository(tmp_path: Path) -> Path:
     """A working copy holding one export of each shape the adapter can read."""
     fixtures.write_skinned_glb(tmp_path / SKINNED)
+    fixtures.write_skinned_gltf(tmp_path / SKINNED_GLTF)
     fixtures.write_static_glb(tmp_path / STATIC_GLB)
     fixtures.write_static_obj(tmp_path / STATIC_OBJ)
     return tmp_path
@@ -117,16 +120,19 @@ def test_reading_the_same_export_twice_is_the_same_answer(inspector: TrimeshInsp
     assert inspector.inspect(SKINNED).facts == inspector.inspect(SKINNED).facts
 
 
-def test_an_fbx_export_is_refused_by_name_rather_than_guessed_at(repository: Path) -> None:
-    """The honest gap: no FBX reader ships here, and empty facts would be a lie."""
-    (repository / "characters/mech_scout/exports/SM_mech_scout_LOD0.fbx").write_bytes(b"Kaydara")
+def test_gltf_is_the_same_export_read_through_the_same_path(inspector: TrimeshInspector) -> None:
+    """GLB and glTF are one matrix row, so they must be one answer but the format.
 
-    with pytest.raises(MeshUnreadable) as raised:
-        TrimeshInspector(root=repository).inspect(
-            "characters/mech_scout/exports/SM_mech_scout_LOD0.fbx"
-        )
+    The `.gltf` fixture carries its buffer as a URI rather than a binary chunk —
+    the branch a `.glb` never exercises and the one a hand-authored export from a
+    DCC most often takes.
+    """
+    binary = inspector.inspect(SKINNED).facts
+    json_form = inspector.inspect(SKINNED_GLTF).facts
 
-    assert FBX_REASON in raised.value.message
+    assert json_form.source_format is MeshFormat.GLTF
+    assert json_form.available == available_for(MeshFormat.GLTF)
+    assert dataclasses.replace(json_form, source_format=MeshFormat.GLB) == binary
 
 
 def test_a_format_with_no_matrix_row_is_refused_by_name(repository: Path) -> None:
