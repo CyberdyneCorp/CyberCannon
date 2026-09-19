@@ -22,7 +22,19 @@ path arithmetic out of every adapter:
 * **the actor mapping** — `.canon/actors.yaml` is repository content like
   `asset.yaml`, so it is fetched here, at the same revision as the specifications
   it explains (D12). It is a project-scoped read beside the asset-scoped ones,
-  which is the cost D12 accepted rather than inventing a second identity port.
+  which is the cost D12 accepted rather than inventing a second identity port;
+* **revision pinning** (D3) — :meth:`SpecStore.pinned` hands back a store whose
+  *every* read resolves at one revision. The hosted surface resolves the
+  revision once per logical operation and reads through the pinned store, so a
+  briefing assembled from six files is assembled from one revision by
+  construction and a fetch landing mid-read cannot be observed. No lock, and no
+  window in which a reader sees a half-updated tree.
+
+D3's accepted cost is that the store grows a second read path, and that the
+local "just read the file" path and the server's "read this revision" path must
+be covered by the same conformance suite or they will drift — which is why
+`tests/conformance/test_spec_store.py` runs the contract over a pinned store as
+well as a path-reading one.
 
 **Paths are repository-relative POSIX strings.** An implementation MAY also
 accept an absolute path that lies inside its repository, but the paths it hands
@@ -170,6 +182,25 @@ class LoadedMapping:
 
 class SpecStore(Protocol):
     """Reads specifications and project configuration out of a repository."""
+
+    def current_revision(self) -> str | None:
+        """The revision this store is reading at, or ``None`` when it reads a tree.
+
+        A store over a working copy answers the revision its checkout is on; a
+        directory that is not a repository answers ``None``, which is an answer
+        rather than a failure — the CLI has never needed one.
+        """
+        ...
+
+    def pinned(self, revision: str) -> SpecStore:
+        """This same store, with every read resolved at that revision (D3).
+
+        The returned store answers the same questions from the repository's
+        object database rather than from the checked-out tree, so nothing it
+        hands back can change while a fetch is in progress. Raises
+        :class:`HistoryUnavailable` when the revision cannot be reached at all.
+        """
+        ...
 
     def discover(self, start: str) -> str | None:
         """The governing specification for `start`, found by walking upward (D9).

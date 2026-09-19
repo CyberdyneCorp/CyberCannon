@@ -20,6 +20,8 @@ port adds its fake here in the same breath. Everything downstream — the
 wiring. ``add-asset-spec-and-validator`` registers the three the validator needs:
 ``spec_store``, ``mesh_inspector`` and ``blob_store``. ``add-mcp-read-server``
 adds the two the read surface needs: ``identity_provider`` and ``search_index``.
+``add-web-backend`` adds the two the hosted surface needs: ``repository_host``
+and ``notifier``.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ from typing import Any
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.notifier import InMemoryNotifier
+from cybercanon.application.testing.repository_host import InMemoryRepositoryHost
 from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 
@@ -42,6 +46,8 @@ FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType(
         "blob_store": InMemoryBlobStore,
         "identity_provider": InMemoryIdentityProvider,
         "mesh_inspector": InMemoryMeshInspector,
+        "notifier": InMemoryNotifier,
+        "repository_host": InMemoryRepositoryHost,
         "search_index": InMemorySearchIndex,
         "spec_store": InMemorySpecStore,
     }
@@ -73,6 +79,8 @@ __all__ = [
     "InMemoryBlobStore",
     "InMemoryIdentityProvider",
     "InMemoryMeshInspector",
+    "InMemoryNotifier",
+    "InMemoryRepositoryHost",
     "InMemorySearchIndex",
     "InMemorySpecStore",
     "build_fakes",

@@ -16,11 +16,21 @@ its directory, which is a fact on disk rather than a pointer that can rot.
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
+from cybercanon.application.ports.blob_store import (
+    OCTET_STREAM,
+    BlobNotStored,
+    SignedLink,
+    StoredBlob,
+    signed_link,
+)
 from cybercanon.application.ports.preview import GLB_CONTENT_TYPE, PreviewMesh, StoredPreview
+from cybercanon.domain.revisions import ContentHash, blob_key
 
 SIDECAR_SUFFIX = ".json"
 PREVIEWS = "previews"
@@ -31,8 +41,10 @@ STORED_AT = "stored_at"
 class FsBlobStore:
     """Blobs under a root directory, keyed exactly as a remote store would key them."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, base_url: str = "file://", secret: bytes = b"") -> None:
         self._root = Path(root)
+        self._base_url = base_url
+        self._secret = secret or os.urandom(32)
 
     @property
     def root(self) -> Path:
@@ -71,6 +83,36 @@ class FsBlobStore:
         """The bytes behind a stored key, or ``None`` when nothing is stored there."""
         path = self._path(key)
         return path.read_bytes() if path.is_file() else None
+
+    # -- content-addressed blobs (D14) -----------------------------------
+
+    def put(self, content: bytes, *, content_type: str = OCTET_STREAM) -> StoredBlob:
+        """Store bytes under the key their digest derives, atomically.
+
+        Written to a temporary name in the same directory and then renamed, so
+        an interrupted upload leaves nothing readable at the key: a key either
+        resolves to complete, correct content or does not resolve at all.
+        """
+        digest = ContentHash.of(content)
+        key = blob_key(digest)
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_name(f"{path.name}.partial")
+        partial.write_bytes(content)
+        partial.replace(path)
+        return StoredBlob(
+            key=key, digest=digest, size_bytes=len(content), content_type=content_type
+        )
+
+    def exists(self, key: str) -> bool:
+        return self._path(key).is_file()
+
+    def link_for(self, key: str, *, expires_at: datetime) -> SignedLink:
+        if not self.exists(key):
+            raise BlobNotStored(key)
+        return signed_link(
+            base_url=self._base_url, key=key, expires_at=expires_at, secret=self._secret
+        )
 
     def _path(self, key: str) -> Path:
         return self._root / PurePosixPath(key)
