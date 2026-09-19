@@ -26,12 +26,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol
 
 from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.application.ports.preview import PreviewMesh, StoredPreview
-from cybercanon.domain.revisions import ContentHash
+from cybercanon.domain.revisions import BLOB_PREFIX, ContentHash, digest_of_key
 
 OCTET_STREAM = "application/octet-stream"
 """What content whose type nobody stated is stored as."""
@@ -87,6 +87,50 @@ class BlobNotStored(OperationFailed):
         self.key = key
 
 
+class BlobCorrupted(OperationFailed):
+    """The stored bytes do not hash to what the key says they must.
+
+    *"the service SHALL report it as corrupt rather than serve content that does
+    not match"*. Unavailable rather than not-found, and deliberately: the object
+    is there, the repository can produce it again, and re-mirroring is the
+    documented repair — so the condition resolves without the caller changing
+    anything about the request.
+    """
+
+    kind = FailureKind.UNAVAILABLE
+    identifier = "blob.corrupt"
+
+    def __init__(self, key: str) -> None:
+        super().__init__(
+            f"the object stored at {key!r} does not match the digest its key states; "
+            "re-mirror the project to repair it",
+            key,
+        )
+        self.key = key
+
+
+class LinkRefused(OperationFailed):
+    """A link that has expired, was altered, or was never issued by this store.
+
+    One failure for all three, on purpose: *"an expired link SHALL be refused"*
+    and *"a link ... modified to address a different stored object"* SHALL be
+    refused, and a caller learning **which** of the two it was would be learning
+    something about objects it was never granted.
+    """
+
+    kind = FailureKind.FORBIDDEN
+    identifier = "blob.link_refused"
+
+    def __init__(self, reason: str = "the link is not valid for this object") -> None:
+        super().__init__(f"access was refused: {reason}")
+        self.reason = reason
+
+
+EXPIRES = "expires"
+SIGNATURE = "signature"
+"""The two query parameters a link carries. Both are covered by the signature."""
+
+
 def signed_link(*, base_url: str, key: str, expires_at: datetime, secret: bytes) -> SignedLink:
     """Build the one link shape every blob store issues (D14).
 
@@ -99,13 +143,84 @@ def signed_link(*, base_url: str, key: str, expires_at: datetime, secret: bytes)
     *"altered into a link for another"*.
     """
     stamp = int(expires_at.timestamp())
-    signature = hmac.new(secret, f"{key}:{stamp}".encode(), hashlib.sha256).hexdigest()
+    signature = link_signature(key, stamp, secret)
     separator = "" if base_url.endswith("/") or not base_url else "/"
     return SignedLink(
-        url=f"{base_url}{separator}{key}?expires={stamp}&signature={signature}",
+        url=f"{base_url}{separator}{key}?{EXPIRES}={stamp}&{SIGNATURE}={signature}",
         key=key,
         expires_at=expires_at,
     )
+
+
+def link_signature(key: str, stamp: int, secret: bytes) -> str:
+    """The signature over one key and one expiry. Neither can move without it."""
+    return hmac.new(secret, f"{key}:{stamp}".encode(), hashlib.sha256).hexdigest()
+
+
+def verify_link(url: str, *, secret: bytes, now: datetime) -> str:
+    """The key this link grants, or :class:`LinkRefused`.
+
+    The counterpart of :func:`signed_link`, and here for the same reason it is:
+    the bound *is* the security property, so it is checked in one place rather
+    than by each store. Three ways to be refused and they all read the same from
+    outside — a signature that does not cover this key and this expiry (which is
+    what "rewritten to another object" produces), an expiry in the past, and a
+    link that is not one of ours at all.
+    """
+    address, _, query = url.partition("?")
+    parameters = dict(pair.partition("=")[::2] for pair in query.split("&") if pair)
+    key = _key_of(address)
+    stamp = parameters.get(EXPIRES, "")
+    signature = parameters.get(SIGNATURE, "")
+    if not key or not stamp.isdigit():
+        raise LinkRefused("the link is malformed")
+    if not hmac.compare_digest(signature, link_signature(key, int(stamp), secret)):
+        raise LinkRefused("the link's signature does not cover this object")
+    if now >= datetime.fromtimestamp(int(stamp), tz=UTC):
+        raise LinkRefused("the link has expired")
+    return key
+
+
+def _key_of(address: str) -> str:
+    """The stored key an address names, or the empty string when it names none.
+
+    Derived from the address rather than trusted from a parameter: a link whose
+    key travelled beside the bytes it addresses could be pointed at one object
+    and signed for another.
+
+    Every place the address could begin a key is tried, and the one that parses
+    as a key wins — because a base URL is free to contain the word `blobs`
+    itself, and `memory://blobs/blobs/sha256/...` is not a hypothetical: the
+    in-memory store's base URL ends in exactly that.
+    """
+    marker = f"{BLOB_PREFIX}/"
+    starts = [index for index in range(len(address)) if address.startswith(marker, index)]
+    for candidate in (address[index:] for index in (*starts, 0)):
+        if digest_of_key(candidate) is not None:
+            return candidate
+    return ""
+
+
+def verified_bytes(key: str, content: bytes | None) -> bytes:
+    """These bytes, if they are the ones the key says they are.
+
+    Shared rather than written per store for the reason every other shared
+    helper here exists: the check *is* the requirement, and a store that
+    implemented it slightly differently would serve mismatched content on
+    exactly one deployment.
+
+    A key that encodes no digest — a preview, keyed by its asset and the export
+    it came from — has nothing to check against and is returned as it is. That
+    is stated rather than hidden: content addressing is what makes verification
+    possible, and a key that is not content-addressed cannot be verified by
+    anything.
+    """
+    if content is None:
+        raise BlobNotStored(key)
+    digest = digest_of_key(key)
+    if digest is not None and not digest.matches(content):
+        raise BlobCorrupted(key)
+    return content
 
 
 class BlobStore(Protocol):
@@ -150,12 +265,39 @@ class BlobStore(Protocol):
         """
         ...
 
+    def resolve_link(self, url: str, *, now: datetime) -> str:
+        """The key a link grants right now, or :class:`LinkRefused`.
+
+        The other half of `link_for`, and the half that makes the bound real: an
+        expired link and a link edited to address another object are both
+        refused here, by the store that issued it.
+        """
+        ...
+
+    def verified(self, key: str) -> bytes:
+        """The bytes at that key, checked against the digest the key states.
+
+        Raises :class:`BlobNotStored` when nothing is there and
+        :class:`BlobCorrupted` when what is there does not match — *"SHALL NOT
+        serve the mismatched bytes as the asset's content"*. Every read that
+        reaches a caller goes through here; `read` stays the raw accessor the
+        mirror itself uses.
+        """
+        ...
+
 
 __all__ = [
+    "EXPIRES",
     "OCTET_STREAM",
+    "SIGNATURE",
+    "BlobCorrupted",
     "BlobNotStored",
     "BlobStore",
+    "LinkRefused",
     "SignedLink",
     "StoredBlob",
+    "link_signature",
     "signed_link",
+    "verified_bytes",
+    "verify_link",
 ]

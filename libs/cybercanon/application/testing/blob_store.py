@@ -27,6 +27,8 @@ from cybercanon.application.ports.blob_store import (
     SignedLink,
     StoredBlob,
     signed_link,
+    verified_bytes,
+    verify_link,
 )
 from cybercanon.application.ports.preview import PreviewMesh, StoredPreview
 from cybercanon.domain.revisions import ContentHash, blob_key
@@ -96,6 +98,25 @@ class InMemoryBlobStore:
         return signed_link(
             base_url=self.BASE_URL, key=key, expires_at=expires_at, secret=self.SECRET
         )
+
+    def resolve_link(self, url: str, *, now: datetime) -> str:
+        return verify_link(url, secret=self.SECRET, now=now)
+
+    def verified(self, key: str) -> bytes:
+        self._raise_if_configured()
+        return verified_bytes(key, self._blobs.get(key))
+
+    def empty(self) -> None:
+        """Lose every blob — the total loss `blob-storage` requires recovery from.
+
+        An operation rather than a test reaching into the dictionary, because
+        the recovery drill the specification asks for is *"the blob store is
+        emptied and re-mirroring runs"*, and a drill that could only be staged
+        by one implementation would not be a drill.
+        """
+        self._blobs.clear()
+        self._previews.clear()
+        self._types.clear()
 
     def _raise_if_configured(self) -> None:
         if self._failure is not None:

@@ -18,6 +18,10 @@ not, the product has the bug it exists to prevent.
   zero-result search terms it recorded locally (D11).
 * `canon actors unmapped` — the git authors and recorded owners
   `.canon/actors.yaml` does not bind yet, listed so the file can be completed.
+* `canon auth login|logout|status` — the device-authorization sign-in, the
+  credential stored in the operating system's credential store rather than in
+  any file, and its removal. **Nothing else in `canon` needs it**: validation,
+  checking and compilation complete on a machine that has never signed in.
 * `canon mcp serve` — the FastMCP read server over standard input and output,
   built from the same container every other command here runs against.
 
@@ -69,6 +73,13 @@ NOTHING_TO_DO = "canon: no changed file belongs to an asset"
 
 INDEX_HELP = "Maintain the derived lookup index, and read what it recorded."
 ACTORS_HELP = "The people a project's `.canon/actors.yaml` does or does not bind."
+AUTH_HELP = """\
+Sign in to CyberdyneAuth, or sign out again.
+
+The credential is kept in the operating system's credential store and never in
+a file inside the repository. Validation, checking and compilation need none of
+this and work on a machine that has never signed in.
+"""
 MCP_HELP = "The local read server an agent client spawns over standard input and output."
 
 ContainerFor = Callable[[Path], Container]
@@ -157,9 +168,11 @@ def build_app(container: Container, container_for: ContainerFor | None = None) -
 
     index_app = typer.Typer(add_completion=False, help=INDEX_HELP, no_args_is_help=True)
     actors_app = typer.Typer(add_completion=False, help=ACTORS_HELP, no_args_is_help=True)
+    auth_app = typer.Typer(add_completion=False, help=AUTH_HELP, no_args_is_help=True)
     mcp_app = typer.Typer(add_completion=False, help=MCP_HELP, no_args_is_help=True)
     app.add_typer(index_app, name="index")
     app.add_typer(actors_app, name="actors")
+    app.add_typer(auth_app, name="auth")
     app.add_typer(mcp_app, name="mcp")
 
     @index_app.command(name="rebuild")
@@ -182,6 +195,21 @@ def build_app(container: Container, container_for: ContainerFor | None = None) -
     ) -> None:
         """List the git authors and owners `.canon/actors.yaml` does not bind."""
         _run("actors unmapped", json_output, lambda: _unmapped(container, path))
+
+    @auth_app.command(name="login")
+    def login(json_output: JsonOption = False) -> None:
+        """Sign in by approving a device authorization in a browser."""
+        _run("auth login", json_output, lambda: _login(container, json_output))
+
+    @auth_app.command(name="logout")
+    def logout(json_output: JsonOption = False) -> None:
+        """Remove the credential this machine stored. Twice is not an error."""
+        _run("auth logout", json_output, lambda: _logout(container))
+
+    @auth_app.command(name="status")
+    def status(json_output: JsonOption = False) -> None:
+        """Whether this machine holds a credential — never what it is."""
+        _run("auth status", json_output, lambda: _status(container))
 
     @mcp_app.command(name="serve")
     def serve(
@@ -342,6 +370,58 @@ def _unmapped(container: Container, path: Path) -> Result[Produced]:
     )
 
 
+def _login(container: Container, json_output: bool) -> Result[Produced]:
+    """Sign in, showing the person what to approve while the process waits.
+
+    The announcement goes to standard error even in `--json` mode, because the
+    structured document is the *result* and this is an instruction the person
+    has to act on before there is one.
+    """
+
+    def announce(grant) -> None:
+        print(rendering.render_device_grant(grant), file=sys.stderr)
+
+    result = container.sign_in(announce)
+    if not succeeded(result):
+        return result
+    signed_in = result.value
+    return Ok(
+        Produced(
+            payload=payloads.sign_in_payload(signed_in),
+            text=rendering.render_sign_in(signed_in),
+            passed=True,
+        )
+    )
+
+
+def _logout(container: Container) -> Result[Produced]:
+    result = container.sign_out()
+    if not succeeded(result):
+        return result
+    signed_out = result.value
+    return Ok(
+        Produced(
+            payload=payloads.sign_out_payload(signed_out),
+            text=rendering.render_sign_out(signed_out),
+            passed=True,
+        )
+    )
+
+
+def _status(container: Container) -> Result[Produced]:
+    result = container.sign_in_status()
+    if not succeeded(result):
+        return result
+    status = result.value
+    return Ok(
+        Produced(
+            payload=payloads.sign_in_status_payload(status),
+            text=rendering.render_sign_in_status(status),
+            passed=True,
+        )
+    )
+
+
 def _serve(container: Container) -> None:
     """Hand one container to the read server and let it own the process.
 
@@ -453,6 +533,7 @@ def _changed_text(lint: LintReport, outcomes: Sequence[ValidationOutcome]) -> st
 
 __all__ = [
     "ACTORS_HELP",
+    "AUTH_HELP",
     "HELP",
     "INDEX_HELP",
     "MCP_HELP",

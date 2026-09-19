@@ -185,6 +185,62 @@ def _contains(values: tuple[str, ...], wanted: str) -> bool:
     return any(value.strip().lower() == wanted for value in values)
 
 
+LIST_SEPARATOR = "\n"
+"""How an ordered list of aliases or tags becomes one stored value.
+
+Here for the same reason :func:`rank` is here. A store that packs a list its own
+way is free to unpack it its own way too, and the day SQLite and PostgreSQL
+disagree about whether a tag may contain a comma is the day two adapters answer
+one filter differently. The separator is a newline because no tag or alias a
+person authors contains one.
+"""
+
+
+def joined(values: tuple[str, ...]) -> str:
+    """An ordered list of aliases or tags as one stored value."""
+    return LIST_SEPARATOR.join(values)
+
+
+def unjoined(stored: str) -> tuple[str, ...]:
+    """That stored value back as the list it was, empty for an empty column."""
+    return tuple(stored.split(LIST_SEPARATOR)) if stored else ()
+
+
+def tags_key(tags: tuple[str, ...]) -> str:
+    """The tags in comparison form, delimited so a filter matches whole tags only.
+
+    `vehicle` never matches an asset tagged `vehicles`, in every store, because
+    the delimiters are part of the stored form rather than part of a query
+    somebody wrote twice.
+    """
+    if not tags:
+        return ""
+    inner = LIST_SEPARATOR.join(tag.strip().lower() for tag in tags)
+    return f"{LIST_SEPARATOR}{inner}{LIST_SEPARATOR}"
+
+
+def tag_needle(tag: str) -> str:
+    """What a tag filter looks for inside :func:`tags_key`."""
+    return f"{LIST_SEPARATOR}{tag.strip().lower()}{LIST_SEPARATOR}"
+
+
+def searchable_text(entry: IndexedAsset) -> str:
+    """Every searchable field of one row, lower-cased, for the substring pass.
+
+    The substring pass exists because two of the five passes are defined as
+    substrings — a name *prefix* and a description *substring* — and no token
+    index expresses either. It narrows; :func:`rank` still decides.
+    """
+    fields = (
+        entry.asset_id,
+        entry.name,
+        joined(entry.aliases),
+        joined(entry.tags),
+        entry.description,
+    )
+    return LIST_SEPARATOR.join(fields).lower()
+
+
 class SearchIndex(Protocol):
     """The derived, rebuildable lookup over a project's specification files."""
 
@@ -256,13 +312,19 @@ def stale_paths(
 __all__ = [
     "ABSENT",
     "CASCADE",
+    "LIST_SEPARATOR",
     "FileFingerprint",
     "IndexedAsset",
     "MatchKind",
     "RecordedMiss",
     "SearchHit",
     "SearchIndex",
+    "joined",
     "match_kind",
     "rank",
+    "searchable_text",
     "stale_paths",
+    "tag_needle",
+    "tags_key",
+    "unjoined",
 ]

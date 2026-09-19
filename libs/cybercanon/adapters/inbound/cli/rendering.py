@@ -21,11 +21,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
+from cybercanon.application.ports.interactive_sign_in import DeviceGrant
 from cybercanon.application.ports.search_index import RecordedMiss
 from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
 from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
+from cybercanon.application.use_cases.sign_in import SignedIn, SignedOut, SignInStatus
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import SpecViolation, Violation
@@ -103,6 +105,37 @@ def render_unmapped(unmapped: UnmappedAuthors) -> str:
 def render_project_notes(notes: Sequence[SpecViolation]) -> str:
     """What the project configuration itself got wrong — beside the findings, never among them."""
     return "\n".join((".canon/project.yaml", *(_spec_warning(note) for note in notes)))
+
+
+def render_device_grant(grant: DeviceGrant) -> str:
+    """What the person must do, while `canon` waits for them to do it.
+
+    Two lines and no credential: the address to open and the code to confirm.
+    Everything the issuer handed back that is *not* meant for human eyes — the
+    device code above all — stays out of the terminal, and out of the scrollback
+    a screen share would show.
+    """
+    return "\n".join(
+        (
+            f"canon: open {grant.verification_uri}",
+            f"{INDENT}and confirm the code {grant.user_code}",
+        )
+    )
+
+
+def render_sign_in(signed_in: SignedIn) -> str:
+    """A completed sign-in, naming where the credential was kept."""
+    return f"canon: {signed_in}"
+
+
+def render_sign_out(signed_out: SignedOut) -> str:
+    """A sign-out, whether or not there was anything to remove."""
+    return f"canon: {signed_out}"
+
+
+def render_sign_in_status(status: SignInStatus) -> str:
+    """Whether this machine holds a credential — never what it is."""
+    return f"canon: {status}"
 
 
 def render_failure(refusal: Refusal) -> str:

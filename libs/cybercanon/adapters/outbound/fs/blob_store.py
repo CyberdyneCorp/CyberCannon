@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import time
 from dataclasses import asdict
 from datetime import datetime
@@ -28,6 +29,8 @@ from cybercanon.application.ports.blob_store import (
     SignedLink,
     StoredBlob,
     signed_link,
+    verified_bytes,
+    verify_link,
 )
 from cybercanon.application.ports.preview import GLB_CONTENT_TYPE, PreviewMesh, StoredPreview
 from cybercanon.domain.revisions import ContentHash, blob_key
@@ -113,6 +116,18 @@ class FsBlobStore:
         return signed_link(
             base_url=self._base_url, key=key, expires_at=expires_at, secret=self._secret
         )
+
+    def empty(self) -> None:
+        """Lose every blob — the total loss `blob-storage` requires recovery from."""
+        if self._root.is_dir():
+            shutil.rmtree(self._root)
+
+    def resolve_link(self, url: str, *, now: datetime) -> str:
+        return verify_link(url, secret=self._secret, now=now)
+
+    def verified(self, key: str) -> bytes:
+        """The bytes at that key, checked against the digest the key states."""
+        return verified_bytes(key, self.read(key))
 
     def _path(self, key: str) -> Path:
         return self._root / PurePosixPath(key)

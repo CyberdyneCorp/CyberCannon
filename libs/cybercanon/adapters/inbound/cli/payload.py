@@ -26,6 +26,7 @@ from cybercanon.application.use_cases.compile_spec import CompiledSpec
 from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
 from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
+from cybercanon.application.use_cases.sign_in import SignedIn, SignedOut, SignInStatus
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import SpecViolation, Violation
@@ -88,6 +89,36 @@ def unmapped_payload(unmapped: UnmappedAuthors) -> dict[str, Any]:
         passed=not unmapped.violations,
         authors=list(unmapped.emails),
         findings=[_spec_violation(violation) for violation in unmapped.violations],
+    )
+
+
+def sign_in_payload(signed_in: SignedIn) -> dict[str, Any]:
+    """A completed sign-in. It names where the credential went and never what it is."""
+    return _document(
+        "auth login",
+        passed=True,
+        approved_at=signed_in.verification_uri,
+        stored_in=signed_in.stored_in,
+    )
+
+
+def sign_out_payload(signed_out: SignedOut) -> dict[str, Any]:
+    """A sign-out, and whether there was anything to remove."""
+    return _document(
+        "auth logout",
+        passed=True,
+        removed=signed_out.removed,
+        stored_in=signed_out.stored_in,
+    )
+
+
+def sign_in_status_payload(status: SignInStatus) -> dict[str, Any]:
+    """Whether this machine holds a credential. Never the credential."""
+    return _document(
+        "auth status",
+        passed=True,
+        signed_in=status.signed_in,
+        stored_in=status.stored_in,
     )
 
 

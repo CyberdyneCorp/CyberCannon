@@ -27,7 +27,9 @@ directly, :meth:`fail_next_fetch` is the network going away for one call, and
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import threading
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -65,6 +67,7 @@ class _Project:
     fail_fetches: int = 0
     reject_pushes: int = 0
     unreachable: str = ""
+    lock: threading.RLock = field(default_factory=threading.RLock)
 
 
 class InMemoryRepositoryHost:
@@ -155,6 +158,17 @@ class InMemoryRepositoryHost:
             raise ProjectNotReady(project, held.state)
         assert held.served is not None
         return held.served.revision
+
+    @contextmanager
+    def writer(self, project: str) -> Iterator[None]:
+        """The same single-writer lock the real host holds, for the same reason.
+
+        A fake without it would let the unit suite pass a concurrency the real
+        adapter serialises — which is the exact class of lie the conformance
+        suite exists to catch.
+        """
+        with self._held(project).lock:
+            yield
 
     def read(self, project: str, path: str, revision: Revision) -> bytes | None:
         held = self._held(project)

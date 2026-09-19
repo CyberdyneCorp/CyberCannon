@@ -37,7 +37,12 @@ from cybercanon.application.ports.search_index import (
     IndexedAsset,
     RecordedMiss,
     SearchHit,
+    joined,
     rank,
+    searchable_text,
+    tag_needle,
+    tags_key,
+    unjoined,
 )
 
 CANON_DIRECTORY = ".canon"
@@ -47,9 +52,6 @@ QUERY_LOG_FILENAME = "queries.log"
 INDEX_PATH = f"{CANON_DIRECTORY}/{INDEX_FILENAME}"
 QUERY_LOG_PATH = f"{CANON_DIRECTORY}/{QUERY_LOG_FILENAME}"
 """Both are git-ignored: derived state never enters a review (task 4.3)."""
-
-LIST_SEPARATOR = "\n"
-"""How an ordered list of aliases or tags is stored in one column."""
 
 FIELD_SEPARATOR = "\t"
 """How the query log separates a miss's project from its term."""
@@ -298,8 +300,8 @@ class SqliteSearchIndex:
             [
                 entry.asset_id,
                 entry.name,
-                _join(entry.aliases),
-                _join(entry.tags),
+                joined(entry.aliases),
+                joined(entry.tags),
                 entry.description,
                 entry.project,
             ],
@@ -355,8 +357,8 @@ def _values(entry: IndexedAsset) -> dict[str, object]:
         "asset_id": entry.asset_id,
         "name": entry.name,
         "status": entry.status,
-        "aliases": _join(entry.aliases),
-        "tags": _join(entry.tags),
+        "aliases": joined(entry.aliases),
+        "tags": joined(entry.tags),
         "description": entry.description,
         "spec_path": entry.spec_path,
         "directory": entry.directory,
@@ -372,8 +374,8 @@ def _values(entry: IndexedAsset) -> dict[str, object]:
         "fingerprint_path": fingerprint.path if fingerprint else None,
         "fingerprint_size": fingerprint.size if fingerprint else None,
         "fingerprint_mtime_ns": fingerprint.mtime_ns if fingerprint else None,
-        "tags_key": _tags_key(entry.tags),
-        "searchable": _searchable(entry),
+        "tags_key": tags_key(entry.tags),
+        "searchable": searchable_text(entry),
     }
 
 
@@ -384,8 +386,8 @@ def _entry(row: sqlite3.Row) -> IndexedAsset:
         name=row["name"],
         project=row["project"],
         status=row["status"],
-        aliases=_split(row["aliases"]),
-        tags=_split(row["tags"]),
+        aliases=unjoined(row["aliases"]),
+        tags=unjoined(row["tags"]),
         description=row["description"],
         spec_path=row["spec_path"],
         directory=row["directory"],
@@ -410,34 +412,6 @@ def _fingerprint(row: sqlite3.Row) -> FileFingerprint | None:
     return FileFingerprint(
         path=path, size=row["fingerprint_size"], mtime_ns=row["fingerprint_mtime_ns"]
     )
-
-
-def _join(values: tuple[str, ...]) -> str:
-    return LIST_SEPARATOR.join(values)
-
-
-def _split(stored: str) -> tuple[str, ...]:
-    return tuple(stored.split(LIST_SEPARATOR)) if stored else ()
-
-
-def _tags_key(tags: tuple[str, ...]) -> str:
-    """The tags in comparison form, delimited so a filter matches whole tags only."""
-    if not tags:
-        return ""
-    inner = LIST_SEPARATOR.join(tag.strip().lower() for tag in tags)
-    return f"{LIST_SEPARATOR}{inner}{LIST_SEPARATOR}"
-
-
-def _searchable(entry: IndexedAsset) -> str:
-    """Every searchable field lower-cased, for the substring pass."""
-    fields = (
-        entry.asset_id,
-        entry.name,
-        _join(entry.aliases),
-        _join(entry.tags),
-        entry.description,
-    )
-    return LIST_SEPARATOR.join(fields).lower()
 
 
 # --------------------------------------------------------------------------
@@ -495,7 +469,7 @@ def _tag(tag: str | None) -> tuple[str, list[object]]:
     """Whole tags only: `vehicle` never matches an asset tagged `vehicles`."""
     if tag is None:
         return "", []
-    return "instr(tags_key, ?) > 0", [f"{LIST_SEPARATOR}{tag.strip().lower()}{LIST_SEPARATOR}"]
+    return "instr(tags_key, ?) > 0", [tag_needle(tag)]
 
 
 def _where(clauses: Iterable[str]) -> str:

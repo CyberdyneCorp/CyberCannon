@@ -34,7 +34,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol
 
 from cybercanon.application.ports.identity_provider import (
     Credential,
@@ -272,6 +272,64 @@ class ActorResolver:
         )
 
 
+class Resolver(Protocol):
+    """Anything that can answer *who is acting*, asked with no arguments.
+
+    :class:`ActorResolver` is the local one — the chain that degrades to an
+    unauthenticated actor so a laptop off the VPN keeps reading. A networked
+    surface has already done the resolution before the request reached a use
+    case, and hands in :class:`AlreadyResolved` instead.
+
+    The protocol exists so that fact is expressible in a type rather than
+    carried by duck typing: a composition root that wires a resolver is saying
+    *this is where identity comes from on this surface*, and there are exactly
+    two answers.
+    """
+
+    def resolve(self) -> Resolution:
+        """Who is acting. No parameters, here as everywhere (task 2.4)."""
+        ...
+
+
+@dataclass(frozen=True)
+class AlreadyResolved:
+    """A resolution taken before the use case was called, and simply carried.
+
+    The networked surface verifies a credential once per request, at the edge,
+    through :func:`~cybercanon.application.use_cases.authenticate.authenticate`;
+    a use case that re-resolved would ask an identity service again per read and
+    could get a different answer halfway through one request. So the actor is
+    resolved once and this carries it, unchanged, to every use case the request
+    touches.
+
+    It takes no arguments to :meth:`resolve` for the same reason the chain does:
+    there must be no signature through which a caller could influence who they
+    are.
+    """
+
+    resolution: Resolution
+
+    def resolve(self) -> Resolution:
+        return self.resolution
+
+
+def verified_as(actor: Actor, git_emails: tuple[str, ...] = ()) -> Resolution:
+    """The resolution for an actor a verified credential already produced.
+
+    `verified` is true because the credential was checked — signature, issuer,
+    audience and validity — by the identity adapter before this was built. That
+    word gates roles and nothing else, so saying it here is what lets a
+    role-requiring action succeed over HTTP while the same action from a laptop
+    with no credential is refused as unverifiable.
+    """
+    return Resolution(
+        actor=actor,
+        source=IdentitySource.PROVIDER,
+        verified=True,
+        git_emails=git_emails,
+    )
+
+
 # --------------------------------------------------------------------------
 # What a resolution may do
 # --------------------------------------------------------------------------
@@ -466,6 +524,7 @@ __all__ = [
     "IDENTITY_CLAIM_PARAMETERS",
     "UNVERIFIABLE",
     "ActorResolver",
+    "AlreadyResolved",
     "AuthorSource",
     "CachedIdentity",
     "Clock",
@@ -474,6 +533,7 @@ __all__ = [
     "IdentityCache",
     "IdentitySource",
     "Resolution",
+    "Resolver",
     "UnmappedAuthors",
     "list_unmapped_authors",
     "list_unmapped_people",
@@ -482,4 +542,5 @@ __all__ = [
     "no_authors",
     "resolve_git_identity",
     "strip_identity_claims",
+    "verified_as",
 ]

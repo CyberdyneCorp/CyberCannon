@@ -9,10 +9,15 @@ Task 4.5 adds the content-addressed half (D14), and every clause of it is a
 requirement `blob-storage` states rather than a property of an implementation:
 identical content stores once under one key, a rename changes nothing because
 the key never depended on the name, an interrupted upload leaves nothing
-readable, and a link is issued for exactly one object with a bound on it. What
-the contract does *not* assert here is the verification of an expired or
-rewritten link — that is group 7's, and asserting it now against an issuance-only
-implementation would be asserting nothing.
+readable, and a link is issued for exactly one object with a bound on it.
+
+Group 7 completes it, and the clauses it adds are the ones that only mean
+something once a store can *serve*: a link presented after its expiry and a link
+edited to address another object are both refused, and a stored object whose
+bytes no longer match its key is reported as corrupt rather than served. The
+corruption is staged through a `corrupt` fixture the suite supplies per
+implementation, because producing mismatched bytes is something only an accident
+does — `put` cannot, by construction.
 """
 
 from __future__ import annotations
@@ -21,7 +26,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from cybercanon.application.ports.blob_store import BlobNotStored, BlobStore
+from cybercanon.application.ports.blob_store import (
+    BlobCorrupted,
+    BlobNotStored,
+    BlobStore,
+    LinkRefused,
+)
 from cybercanon.application.ports.preview import PreviewMesh
 from cybercanon.domain.revisions import ContentHash, blob_key
 
@@ -42,6 +52,9 @@ LATER_PREVIEW = PreviewMesh(content=b"glTF-preview-bytes-v2", triangles=3600)
 VIEW = b"\x89PNG\r\n\x1a\nthe scout mech, three-quarter"
 OTHER_VIEW = b"\x89PNG\r\n\x1a\nthe scout mech, from behind"
 EXPIRY = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
+
+CORRUPTED = b"\x89PNG\r\n\x1a\nthese are not the bytes that key promises"
+"""Bytes deliberately unlike `VIEW`, so a digest check is the only thing that can tell."""
 
 
 class BlobStoreContract:
@@ -153,3 +166,88 @@ class BlobStoreContract:
     ) -> None:
         with pytest.raises(BlobNotStored):
             implementation.link_for(blob_key(ContentHash.of(OTHER_VIEW)), expires_at=EXPIRY)
+
+    # -- serving a blob (group 7) ----------------------------------------
+
+    def test_a_link_inside_its_bound_resolves_to_its_object(
+        self, implementation: BlobStore
+    ) -> None:
+        stored = implementation.put(VIEW)
+        link = implementation.link_for(stored.key, expires_at=EXPIRY)
+
+        granted = implementation.resolve_link(link.url, now=EXPIRY - timedelta(seconds=1))
+
+        assert granted == stored.key
+
+    def test_an_expired_link_is_refused(self, implementation: BlobStore) -> None:
+        """*"WHEN it is used after its expiry THEN access SHALL be refused."*"""
+        link = implementation.link_for(implementation.put(VIEW).key, expires_at=EXPIRY)
+
+        with pytest.raises(LinkRefused):
+            implementation.resolve_link(link.url, now=EXPIRY + timedelta(seconds=1))
+
+    def test_a_link_rewritten_to_another_object_is_refused(self, implementation: BlobStore) -> None:
+        """The bound is the security property: one link, one object, or nothing."""
+        one = implementation.put(VIEW)
+        other = implementation.put(OTHER_VIEW)
+        link = implementation.link_for(one.key, expires_at=EXPIRY)
+
+        rewritten = link.url.replace(one.key, other.key)
+
+        assert rewritten != link.url
+        with pytest.raises(LinkRefused):
+            implementation.resolve_link(rewritten, now=EXPIRY - timedelta(seconds=1))
+
+    def test_a_link_whose_expiry_was_extended_is_refused(self, implementation: BlobStore) -> None:
+        """The signature covers the expiry too, so a bound cannot be widened."""
+        link = implementation.link_for(implementation.put(VIEW).key, expires_at=EXPIRY)
+        later = int((EXPIRY + timedelta(days=365)).timestamp())
+        extended = link.url.replace(f"expires={int(EXPIRY.timestamp())}", f"expires={later}")
+
+        with pytest.raises(LinkRefused):
+            implementation.resolve_link(extended, now=EXPIRY - timedelta(seconds=1))
+
+    def test_a_verified_read_returns_the_bytes_that_were_stored(
+        self, implementation: BlobStore
+    ) -> None:
+        stored = implementation.put(VIEW)
+
+        assert implementation.verified(stored.key) == VIEW
+
+    def test_a_verified_read_of_nothing_reports_it_absent(self, implementation: BlobStore) -> None:
+        with pytest.raises(BlobNotStored):
+            implementation.verified(blob_key(ContentHash.of(OTHER_VIEW)))
+
+    def test_a_corrupted_object_is_reported_rather_than_served(
+        self, implementation: BlobStore, corrupt
+    ) -> None:
+        """*"SHALL NOT serve the mismatched bytes as the asset's content."*"""
+        stored = implementation.put(VIEW)
+
+        corrupt(stored.key, CORRUPTED)
+
+        with pytest.raises(BlobCorrupted):
+            implementation.verified(stored.key)
+
+    def test_corruption_is_repaired_by_mirroring_again(
+        self, implementation: BlobStore, corrupt
+    ) -> None:
+        """Re-mirroring writes the right bytes back under the key they belong to."""
+        stored = implementation.put(VIEW)
+        corrupt(stored.key, CORRUPTED)
+
+        implementation.put(VIEW)
+
+        assert implementation.verified(stored.key) == VIEW
+
+    def test_emptying_the_store_loses_everything_and_re_putting_restores_the_key(
+        self, implementation: BlobStore
+    ) -> None:
+        """The total-loss drill, at the level of one object and one key."""
+        stored = implementation.put(VIEW)
+
+        implementation.empty()
+        assert not implementation.exists(stored.key)
+
+        assert implementation.put(VIEW).key == stored.key
+        assert implementation.verified(stored.key) == VIEW

@@ -134,35 +134,6 @@ asset-spec :: Missing part yields an orphan, not a wrong placement
 asset-spec :: Promotion retires the annotation
 asset-spec :: Resolution does not become permanent context
 asset-validation :: Reporting a result is separable and non-blocking
-auth-integration :: A role-less actor is resolved, not rejected
-auth-integration :: Adding a mapping requires no code change
-auth-integration :: Authorization code without proof is refused
-auth-integration :: Beyond the window, refusal names the cause
-auth-integration :: Body-supplied identity is ignored
-auth-integration :: Credential is not written into the repository
-auth-integration :: Degradation never elevates
-auth-integration :: Expired credential is refused
-auth-integration :: Key rotation is tolerated without a restart
-auth-integration :: Reads survive a short identity outage
-auth-integration :: Scheduled refresh names no person
-auth-integration :: Service credential cannot impersonate
-auth-integration :: Sign-out removes the credential
-auth-integration :: The adapter cannot grant
-auth-integration :: The surface never sees a password
-auth-integration :: Unmapped group grants nothing
-auth-integration :: Unverifiable signature is refused
-auth-integration :: Validation still requires no sign-in
-auth-integration :: Wrong audience is refused
-blob-storage :: A link is scoped to one object
-blob-storage :: A missing blob is reported, not fabricated
-blob-storage :: Authorization precedes issuance
-blob-storage :: Corrupted object is not served as valid
-blob-storage :: Corruption is repairable
-blob-storage :: Empty store rebuilds
-blob-storage :: Expired link is refused
-blob-storage :: Interrupted upload leaves nothing readable
-blob-storage :: Repository decides which blobs matter
-blob-storage :: Upload without a repository source is refused
 concept-ingestion :: A first view does not promote an asset
 concept-ingestion :: A late concept view does not demote an asset
 concept-ingestion :: A newly exported render appears
@@ -287,36 +258,9 @@ document-platform :: Title follows a rename at the source
 document-platform :: Unconfigured deployment works
 document-platform :: Unresolved link is still usable
 document-platform :: Viewer not permitted
-hosted-repository :: Agent-performed write names both
-hosted-repository :: Commit message identifies the change
-hosted-repository :: Deleted working copy recovers
-hosted-repository :: Dropping the index loses no answer
-hosted-repository :: No write reaches only the index
-hosted-repository :: Notification triggers a refresh
-hosted-repository :: Provisioning is reported, not faked
-hosted-repository :: Repository content wins over service storage
-hosted-repository :: Revision and confirmation time are stated
-hosted-repository :: Staleness is surfaced, not hidden
-hosted-repository :: Unauthenticated notification is ignored
-http-api :: A continuation token grants nothing
 http-api :: A domain refusal is not an internal error
-http-api :: A retried write creates one commit
-http-api :: Address survives an index rebuild
 http-api :: Compilation agrees across surfaces
-http-api :: Correlated generic failure
-http-api :: Error bodies are machine-readable and specific
-http-api :: Full traversal returns each result once
-http-api :: Healthy while optional services are down
 http-api :: Lookup agrees across surfaces
-http-api :: Missing revision is refused
-http-api :: Oversized page request is bounded
-http-api :: Replay returns the original outcome
-http-api :: Reused key with different content is refused
-http-api :: Stale write is refused
-http-api :: The same outcome maps identically everywhere
-http-api :: Unknown identifier is not found
-http-api :: Unknown optional field is tolerated
-http-api :: Unversioned request is rejected
 http-api :: Validation agrees across surfaces
 llm-integration :: Authentication failure is not retried
 llm-integration :: Cause is reported

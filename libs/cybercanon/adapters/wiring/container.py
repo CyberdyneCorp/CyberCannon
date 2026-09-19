@@ -27,6 +27,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from cybercanon.application.ports.blob_store import BlobStore
+from cybercanon.application.ports.credential_store import CredentialStore
+from cybercanon.application.ports.interactive_sign_in import InteractiveSignIn
 from cybercanon.application.ports.mesh_inspector import MeshInspector
 from cybercanon.application.ports.search_index import RecordedMiss, SearchIndex
 from cybercanon.application.ports.spec_store import ProjectConfig, SpecStore
@@ -66,9 +68,20 @@ from cybercanon.application.use_cases.resolve_actor import (
     ActorResolver,
     AuthorSource,
     Resolution,
+    Resolver,
     UnmappedAuthors,
     list_unmapped_people,
     no_authors,
+)
+from cybercanon.application.use_cases.sign_in import (
+    Announce,
+    SignedIn,
+    SignedOut,
+    SignInStatus,
+    announce_nothing,
+    sign_in,
+    sign_in_status,
+    sign_out,
 )
 from cybercanon.application.use_cases.spec_lens import (
     Lens,
@@ -82,6 +95,19 @@ NO_INDEX = (
     "this container was built without a search index; lookup, search and "
     "specification reads by identifier need one"
 )
+
+NO_SIGN_IN = (
+    "this container was built with no identity service configured; `canon auth "
+    "login` needs CANON_AUTH_ISSUER and CANON_AUTH_CLIENT_ID in the environment"
+)
+
+SIGN_IN_UNAVAILABLE = Unavailable(identifier="sign_in.unconfigured", message=NO_SIGN_IN)
+"""What a container built with no identity service answers to `canon auth login`.
+
+A refusal rather than a crash, and *unavailable* rather than *invalid*: nothing
+the person typed is wrong, and the fix is a configured issuer rather than a
+different command.
+"""
 
 INDEX_UNAVAILABLE = Unavailable(identifier="index.unavailable", message=NO_INDEX)
 """What a container built for validation alone answers to a lookup (D10).
@@ -110,6 +136,9 @@ USE_CASES: tuple[str, ...] = (
     "resolve_actor",
     "lint_actor_mapping",
     "unmapped_authors",
+    "sign_in",
+    "sign_out",
+    "sign_in_status",
 )
 """Every use case this change ships, by the name the container resolves it under.
 
@@ -132,9 +161,11 @@ class Container:
     mesh_inspector: MeshInspector
     blob_store: BlobStore | None = None
     search_index: SearchIndex | None = None
-    actor_resolver: ActorResolver | None = None
+    actor_resolver: Resolver | None = None
     fingerprints: Fingerprinter = no_fingerprints
     authors: AuthorSource = no_authors
+    credential_store: CredentialStore | None = None
+    interactive_sign_in: InteractiveSignIn | None = None
 
     # -- validation ------------------------------------------------------
 
@@ -215,6 +246,35 @@ class Container:
         parameter through which a caller could influence the answer.
         """
         return (self.actor_resolver or ActorResolver(project=self.project_name)).resolve()
+
+    # -- signing in and out (task 8.6) -----------------------------------
+
+    def sign_in(self, announce: Announce = announce_nothing) -> Result[SignedIn]:
+        """Approve a device authorization in a browser and keep what it issues.
+
+        Both ports or neither: obtaining a credential and having somewhere to
+        put it are one operation, and a container holding only the second would
+        report a sign-in it could not perform.
+        """
+        if self.credential_store is None or self.interactive_sign_in is None:
+            return SIGN_IN_UNAVAILABLE
+        return sign_in(
+            interactive_sign_in=self.interactive_sign_in,
+            credential_store=self.credential_store,
+            announce=announce,
+        )
+
+    def sign_out(self) -> Result[SignedOut]:
+        """Remove this machine's stored credential. Twice is not an error."""
+        if self.credential_store is None:
+            return SIGN_IN_UNAVAILABLE
+        return sign_out(credential_store=self.credential_store)
+
+    def sign_in_status(self) -> Result[SignInStatus]:
+        """Whether a credential is stored on this machine — never what it is."""
+        if self.credential_store is None:
+            return SIGN_IN_UNAVAILABLE
+        return sign_in_status(credential_store=self.credential_store)
 
     def unmapped_authors(self, root: str = "") -> Result[UnmappedAuthors]:
         """The project's git authors and recorded owners the mapping does not bind.
@@ -355,4 +415,11 @@ class Container:
         )
 
 
-__all__ = ["INDEX_UNAVAILABLE", "NO_INDEX", "USE_CASES", "Container"]
+__all__ = [
+    "INDEX_UNAVAILABLE",
+    "NO_INDEX",
+    "NO_SIGN_IN",
+    "SIGN_IN_UNAVAILABLE",
+    "USE_CASES",
+    "Container",
+]

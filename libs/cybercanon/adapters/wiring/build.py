@@ -23,8 +23,12 @@ works through (D12).
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from pathlib import Path
 
+from cybercanon.adapters.outbound.auth.flows import DeviceAuthorization, Endpoints
+from cybercanon.adapters.outbound.auth.keychain import KeychainCredentialStore
 from cybercanon.adapters.outbound.fs.blob_store import FsBlobStore
 from cybercanon.adapters.outbound.git import revisions
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
@@ -40,8 +44,17 @@ from cybercanon.application.use_cases.resolve_actor import ActorResolver, Author
 CANON_DIR = ".canon"
 """Derived blobs live beside the configuration, inside the repository."""
 
+ISSUER = "CANON_AUTH_ISSUER"
+CLIENT_ID = "CANON_AUTH_CLIENT_ID"
+AUDIENCE = "CANON_AUTH_AUDIENCE"
+DEVICE_CODE_URL = "CANON_AUTH_DEVICE_CODE_URL"
+TOKEN_URL = "CANON_AUTH_TOKEN_URL"
 
-def build_container(root: str | Path) -> Container:
+DEVICE_CODE_PATH = "/oauth/device/code"
+TOKEN_PATH = "/oauth/token"
+
+
+def build_container(root: str | Path, environment: Mapping[str, str] | None = None) -> Container:
     """The container an inbound adapter runs against, over a working copy.
 
     `root` is any path inside the repository — the working directory a person
@@ -52,9 +65,11 @@ def build_container(root: str | Path) -> Container:
 
     No credential is configured here, and that is the specified behaviour rather
     than an omission: the resolver's chain ends in a local unauthenticated actor
-    (D4), so every read works with no identity, no network and no services. The
-    CyberdyneAuth adapter becomes the chain's first link in a later change,
-    without touching anything else.
+    (D4), so every read works with no identity, no network and no services.
+    `canon auth login` is how a person puts one in the machine's credential
+    store, and nothing else in `canon` asks for it — which is why the store is
+    wired unconditionally (it needs no configuration and opens nothing until it
+    is used) while the sign-in flow is wired only when an issuer is configured.
     """
     spec_store = GitSpecStore(root)
     settings = preview_settings(spec_store.load_project("").preview)
@@ -66,6 +81,39 @@ def build_container(root: str | Path) -> Container:
         actor_resolver=ActorResolver(project=spec_store.load_project("").name or ""),
         fingerprints=file_fingerprints(spec_store.root),
         authors=commit_authors(spec_store.root),
+        credential_store=KeychainCredentialStore(),
+        interactive_sign_in=device_sign_in(environment),
+    )
+
+
+def device_sign_in(environment: Mapping[str, str] | None = None) -> DeviceAuthorization | None:
+    """The terminal sign-in flow, when an issuer and a client are configured.
+
+    ``None`` when either is absent, and the container turns that into a refusal
+    naming the two variables. That is the honest shape for a local-first tool:
+    `canon` is useful on a machine that has never heard of an identity service,
+    so an unconfigured issuer is a command that is unavailable rather than an
+    application that will not start — which is the opposite of the hosted
+    service's rule, and deliberately so.
+
+    The two endpoint addresses default to CyberdyneAuth's paths under the issuer
+    and are overridable, because deriving an endpoint from an issuer is a
+    convention rather than a guarantee.
+    """
+    source = os.environ if environment is None else environment
+    issuer = source.get(ISSUER, "").strip().rstrip("/")
+    client_id = source.get(CLIENT_ID, "").strip()
+    if not issuer or not client_id:
+        return None
+    return DeviceAuthorization(
+        endpoints=Endpoints(
+            token=source.get(TOKEN_URL, "").strip() or f"{issuer}{TOKEN_PATH}",
+            device_authorization=(
+                source.get(DEVICE_CODE_URL, "").strip() or f"{issuer}{DEVICE_CODE_PATH}"
+            ),
+        ),
+        client_id=client_id,
+        audience=source.get(AUDIENCE, "").strip(),
     )
 
 
@@ -108,9 +156,17 @@ def preview_settings(declared: PreviewDefaults | None) -> PreviewSettings:
 
 
 __all__ = [
+    "AUDIENCE",
     "CANON_DIR",
+    "CLIENT_ID",
+    "DEVICE_CODE_PATH",
+    "DEVICE_CODE_URL",
+    "ISSUER",
+    "TOKEN_PATH",
+    "TOKEN_URL",
     "build_container",
     "commit_authors",
+    "device_sign_in",
     "file_fingerprints",
     "preview_settings",
 ]

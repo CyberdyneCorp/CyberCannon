@@ -38,57 +38,57 @@
 
 ## 5. Adapters — the hosted working copy
 
-- [ ] 5.1 Implement `GitRepositoryHost` cloning per project onto a persistent path, with provisioning, ready, unavailable and recovering states; verify a project reports provisioning rather than an empty asset list while cloning
-- [ ] 5.2 Implement revision-pinned reads from the git object database (D3) and verify a read issued before a fetch and completed after it returns content from the pre-fetch revision
-- [ ] 5.3 Implement the per-project scheduled fetch and verify a commit pushed to the remote is visible after the configured interval with no webhook involved
-- [ ] 5.4 Implement the webhook endpoint with origin authentication and verify: authenticated notification refreshes, unauthenticated notification is ignored with no refresh, unknown project and uninteresting branch are accepted and discarded without error
-- [ ] 5.5 Surface the served revision and last-confirmed time on every specification read, and verify a read after a refresh outage longer than the interval is marked as possibly stale
-- [ ] 5.6 Implement the actors-mapping lookup from `.canon/actors.yaml` (D8) and verify a mapped person's edit is authored by their git identity and an unmapped person's edit is refused naming the missing mapping with no commit created
-- [ ] 5.7 Implement single-writer serialisation per project and verify two concurrent edits to different files both apply, while two concurrent edits to the same file produce one success and one conflict
-- [ ] 5.8 Implement recovery by re-obtaining the working copy and verify: a deleted working copy restores and serves every specification; a diverged working copy resets to the remote and reports the discarded local commits
-- [ ] 5.9 Verify the failed-push path leaves no local-only commit: after a push failure the working copy matches the remote and the caller was told the edit did not apply
-- [ ] 5.10 Verify by test that no repository credential, path or remote URL appears in any error response body
+- [x] 5.1 Implement `GitRepositoryHost` cloning per project onto a persistent path, with provisioning, ready, unavailable and recovering states; verify a project reports provisioning rather than an empty asset list while cloning
+- [x] 5.2 Implement revision-pinned reads from the git object database (D3) and verify a read issued before a fetch and completed after it returns content from the pre-fetch revision
+- [x] 5.3 Implement the per-project scheduled fetch and verify a commit pushed to the remote is visible after the configured interval with no webhook involved
+- [x] 5.4 Implement the webhook endpoint with origin authentication and verify: authenticated notification refreshes, unauthenticated notification is ignored with no refresh, unknown project and uninteresting branch are accepted and discarded without error
+- [x] 5.5 Surface the served revision and last-confirmed time on every specification read, and verify a read after a refresh outage longer than the interval is marked as possibly stale
+- [x] 5.6 Implement the actors-mapping lookup from `.canon/actors.yaml` (D8) and verify a mapped person's edit is authored by their git identity and an unmapped person's edit is refused naming the missing mapping with no commit created
+- [x] 5.7 Implement single-writer serialisation per project and verify two concurrent edits to different files both apply, while two concurrent edits to the same file produce one success and one conflict
+- [x] 5.8 Implement recovery by re-obtaining the working copy and verify: a deleted working copy restores and serves every specification; a diverged working copy resets to the remote and reports the discarded local commits
+- [x] 5.9 Verify the failed-push path leaves no local-only commit: after a push failure the working copy matches the remote and the caller was told the edit did not apply
+- [x] 5.10 Verify by test that no repository credential, path or remote URL appears in any error response body
 
 ## 6. Adapters — PostgreSQL as the rebuildable index
 
-- [ ] 6.1 Implement `PostgresSearchIndex` behind the existing `SearchIndex` port and verify the ranking cascade returns byte-identical results to the local implementation for the same fixture project
-- [ ] 6.2 Add the migration set and a migration runner invoked as a release step, and verify a migration applied to an empty database yields a schema the rebuild populates without manual intervention
-- [ ] 6.3 Implement the full rebuild from the working copy and verify the drop-and-rebuild guarantee: record the results of every lookup, listing, search and read for a fixture project, drop the database, rebuild, and assert every result is identical
-- [ ] 6.4 Verify no durable content reaches only the index: a test enumerates every write use case and asserts each produces a repository commit
-- [ ] 6.5 Implement idempotency-key storage with a bounded lifetime (D11) and verify replay returns the original outcome, a differing body with the same key is refused, and a retried write produces exactly one commit
+- [x] 6.1 Implement `PostgresSearchIndex` behind the existing `SearchIndex` port and verify the ranking cascade returns byte-identical results to the local implementation for the same fixture project
+- [x] 6.2 Add the migration set and a migration runner invoked as a release step, and verify a migration applied to an empty database yields a schema the rebuild populates without manual intervention
+- [x] 6.3 Implement the full rebuild from the working copy and verify the drop-and-rebuild guarantee: record the results of every lookup, listing, search and read for a fixture project, drop the database, rebuild, and assert every result is identical
+- [x] 6.4 Verify no durable content reaches only the index: a test enumerates every write use case and asserts each produces a repository commit
+- [x] 6.5 Implement idempotency-key storage with a bounded lifetime (D11) and verify replay returns the original outcome, a differing body with the same key is refused, and a retried write produces exactly one commit
 
 ## 7. Adapters — the blob mirror
 
-- [ ] 7.1 Implement `S3BlobStore` with content-digest keys and verify identical content from two assets stores once under one key, and that a rename with unchanged content keeps the key
-- [ ] 7.2 Implement idempotent mirroring and atomic visibility, and verify an interrupted upload leaves nothing readable at its key
-- [ ] 7.3 Implement the re-mirror operation from the working copy and verify that emptying the store and re-mirroring restores every view, export and preview mesh under its original key
-- [ ] 7.4 Implement digest verification on read and verify a deliberately corrupted object is reported as corrupt rather than served, and is repaired by re-mirroring
-- [ ] 7.5 Implement signed time-limited single-object link issuance after the authorization decision, and verify: an expired link is refused, a link rewritten to another object is refused, and no link is issued to an actor who may not read the asset
-- [ ] 7.6 Verify a blob with no repository-side source is refused, and that a view removed from the repository stops being listed even while its object remains stored
+- [x] 7.1 Implement `S3BlobStore` with content-digest keys and verify identical content from two assets stores once under one key, and that a rename with unchanged content keeps the key
+- [x] 7.2 Implement idempotent mirroring and atomic visibility, and verify an interrupted upload leaves nothing readable at its key
+- [x] 7.3 Implement the re-mirror operation from the working copy and verify that emptying the store and re-mirroring restores every view, export and preview mesh under its original key
+- [x] 7.4 Implement digest verification on read and verify a deliberately corrupted object is reported as corrupt rather than served, and is repaired by re-mirroring
+- [x] 7.5 Implement signed time-limited single-object link issuance after the authorization decision, and verify: an expired link is refused, a link rewritten to another object is refused, and no link is issued to an actor who may not read the asset
+- [x] 7.6 Verify a blob with no repository-side source is refused, and that a view removed from the repository stops being listed even while its object remains stored
 
 ## 8. Adapters — CyberdyneAuth
 
-- [ ] 8.1 Implement credential verification against the issuer's published keys with issuer, audience and validity checks, and verify expired, wrong-audience and unverifiable credentials are each refused as unauthenticated
-- [ ] 8.2 Implement key-set caching with refresh on unknown key identifier, and verify a credential signed by a newly published key is accepted without restarting or reconfiguring the service
-- [ ] 8.3 Implement the configured group-to-role mapping and verify an unmapped group grants no role, an all-unmapped credential resolves to a role-less actor rather than a refusal, and adding a mapping in configuration alone changes the resolved roles
-- [ ] 8.4 Verify the credential representation never escapes the adapter: a test asserts recorded actions and authorization decisions contain no claim or group name, and that the policy suite runs with the adapter absent
-- [ ] 8.5 Implement bounded offline degradation and verify: a valid unexpired credential is served from cached keys while the issuer is unreachable, a missing credential is refused rather than served anonymously, and requests past the configured window are refused naming the identity service
-- [ ] 8.6 Implement the device-authorization sign-in for the CLI with operating-system keychain storage, and verify the working tree is unchanged after sign-in, no credential exists in any file under the repository, and sign-out removes it
-- [ ] 8.7 Verify `canon validate` still completes on a machine that has never signed in and with every network call configured to fail
-- [ ] 8.8 Implement service-credential authentication for background work and verify scheduled refreshes are recorded as automation naming no person, and that a supplied person identifier has no effect
+- [x] 8.1 Implement credential verification against the issuer's published keys with issuer, audience and validity checks, and verify expired, wrong-audience and unverifiable credentials are each refused as unauthenticated
+- [x] 8.2 Implement key-set caching with refresh on unknown key identifier, and verify a credential signed by a newly published key is accepted without restarting or reconfiguring the service
+- [x] 8.3 Implement the configured group-to-role mapping and verify an unmapped group grants no role, an all-unmapped credential resolves to a role-less actor rather than a refusal, and adding a mapping in configuration alone changes the resolved roles
+- [x] 8.4 Verify the credential representation never escapes the adapter: a test asserts recorded actions and authorization decisions contain no claim or group name, and that the policy suite runs with the adapter absent
+- [x] 8.5 Implement bounded offline degradation and verify: a valid unexpired credential is served from cached keys while the issuer is unreachable, a missing credential is refused rather than served anonymously, and requests past the configured window are refused naming the identity service
+- [x] 8.6 Implement the device-authorization sign-in for the CLI with operating-system keychain storage, and verify the working tree is unchanged after sign-in, no credential exists in any file under the repository, and sign-out removes it
+- [x] 8.7 Verify `canon validate` still completes on a machine that has never signed in and with every network call configured to fail
+- [x] 8.8 Implement service-credential authentication for background work and verify scheduled refreshes are recorded as automation naming no person, and that a supplied person identifier has no effect
 
 ## 9. Adapters — the HTTP surface
 
-- [ ] 9.1 Implement the versioned surface prefix and verify a request with no identifiable version is rejected as invalid rather than served by a default
-- [ ] 9.2 Implement the single outcome-to-status mapping (D10) and verify an exhaustiveness test covering every member of the result union, plus a test asserting no router catches an exception or constructs a status code directly
-- [ ] 9.3 Implement the error body shape (stable identifier, message, subject) and verify two endpoints producing the same outcome return the same status class and body shape
-- [ ] 9.4 Implement generic failure reporting with a correlation identifier and verify no response body contains a stack trace, file system path, connection string or configuration value when an outbound dependency raises
-- [ ] 9.5 Implement the read endpoints for assets, specifications, compiled briefings, validation and lookup, each delegating to the existing use case; verify each endpoint's handler contains no branch on specification content
-- [ ] 9.6 Implement pagination with deterministic ordering, a default and maximum page size, and opaque continuation tokens; verify full traversal of an unchanged data set returns each result exactly once, an oversized page request is bounded, and a token presented by an unauthorised actor is refused
-- [ ] 9.7 Implement the revision precondition on specification-modifying requests and verify a stale write is refused with the current revision and unchanged content, and that an omitted revision is rejected as invalid
-- [ ] 9.8 Wire the human-only registry into the surface and verify a service credential holding every role is refused promotion of an annotation and acceptance of a suggestion
-- [ ] 9.9 Implement the health report and verify it succeeds while the language model endpoint, the document platform and the identity service are all unreachable, and describes each as unavailable
-- [ ] 9.10 Publish the generated interface description and verify it is produced from the implemented endpoints rather than maintained by hand
+- [x] 9.1 Implement the versioned surface prefix and verify a request with no identifiable version is rejected as invalid rather than served by a default
+- [x] 9.2 Implement the single outcome-to-status mapping (D10) and verify an exhaustiveness test covering every member of the result union, plus a test asserting no router catches an exception or constructs a status code directly
+- [x] 9.3 Implement the error body shape (stable identifier, message, subject) and verify two endpoints producing the same outcome return the same status class and body shape
+- [x] 9.4 Implement generic failure reporting with a correlation identifier and verify no response body contains a stack trace, file system path, connection string or configuration value when an outbound dependency raises
+- [x] 9.5 Implement the read endpoints for assets, specifications, compiled briefings, validation and lookup, each delegating to the existing use case; verify each endpoint's handler contains no branch on specification content
+- [x] 9.6 Implement pagination with deterministic ordering, a default and maximum page size, and opaque continuation tokens; verify full traversal of an unchanged data set returns each result exactly once, an oversized page request is bounded, and a token presented by an unauthorised actor is refused
+- [x] 9.7 Implement the revision precondition on specification-modifying requests and verify a stale write is refused with the current revision and unchanged content, and that an omitted revision is rejected as invalid
+- [x] 9.8 Wire the human-only registry into the surface and verify a service credential holding every role is refused promotion of an annotation and acceptance of a suggestion
+- [x] 9.9 Implement the health report and verify it succeeds while the language model endpoint, the document platform and the identity service are all unreachable, and describes each as unavailable
+- [x] 9.10 Publish the generated interface description and verify it is produced from the implemented endpoints rather than maintained by hand
 
 ## 10. Requests and notification end to end
 
