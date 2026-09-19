@@ -405,6 +405,69 @@ gated behind a compose stack, so `check` stays fast enough to run constantly.
 Coverage thresholds apply to the **domain package only** — elsewhere a number just
 produces tests written to move the number.
 
+## Gate Decisions (G1, G2, G4)
+
+> **Status: working assumption, recorded 2026-09-19.** These were derived from
+> decisions already binding above, not chosen freely. They govern `add-web-backend`
+> and everything after it. Override them before M2 starts; after that they are
+> expensive.
+
+### G1 — Server-side validation and the preview pipeline
+
+A **worker in the API deployment** runs the existing `validate_export` use case
+when the working copy fetches a changed export. The preview is emitted by that
+same run and mirrored to blob storage keyed by the export's content hash.
+
+- **Same use case as the CLI and MCP.** No third implementation — that rule does
+  not bend for a worker.
+- **Not in the request path.** Mesh loading is unbounded work; an HTTP handler that
+  waits on it is a timeout with extra steps.
+- **Large exports:** an adopting repository is expected to track `exports/` with Git
+  LFS, and the working copy uses a partial clone fetching LFS objects on demand.
+  Rejected: keeping full history of multi-GB binaries on the volume.
+- **Rejected:** artists uploading previews by hand — it puts a mechanical step back
+  on the person the validator exists to protect.
+
+### G2 — Where a validation outcome durably lives
+
+A validation outcome is **repository content**, written as a file beside the asset
+and committed by the worker.
+
+This is forced, not chosen: `hosted-repository` requires that no write reach only
+the index, `asset-spec` requires that dropping the index loses nothing, and
+`asset-lookup` requires `where_is` to report which export was validated and when.
+An index row satisfies none of those.
+
+- **Evidence this is real:** M1 shipped code that *reads* an asset's validated
+  export and date; nothing in the product *writes* them. That half of `where_is`
+  is currently always empty.
+- **Attribution:** the reporting actor, or automation when there is no person.
+- **Cost accepted:** a commit per validation run. Mitigated by committing only when
+  the verdict or the export hash changes, so a repeated run of an unchanged export
+  writes nothing.
+
+### G4 — Role vocabulary and the operation matrix
+
+The role set is already implemented in the domain (M1):
+`ART_DIRECTOR | ARTIST | DESIGNER | ENGINEER`.
+
+| Operation | Who |
+|---|---|
+| Read a project | any entitled actor, including the local unauthenticated one |
+| Search, lookup, compile, validate | same as read — never role-gated |
+| Create an annotation | any actor with project write access **and** a mapped git identity |
+| Reply in a thread | same |
+| Resolve an issue | its author, or `ART_DIRECTOR` |
+| **Promote to a rule** | **`ART_DIRECTOR` only** — and never an automated caller, for any role |
+| Accept a suggested alias | `ART_DIRECTOR`, or the owner of the relevant discipline |
+| Transition an asset's status | the owner of the relevant discipline, or `ART_DIRECTOR` |
+| Raise an asset request | any mapped actor with read access |
+| Accept or decline a request | the assigned discipline owner, or `ART_DIRECTOR` |
+| Author durable content as an agent | **nobody** — refused for every role |
+
+Group→role mapping stays configuration in the CyberdyneAuth adapter; the matrix
+above is domain policy and is decided in the core.
+
 ## Planned Changes
 
 | # | Change | Capabilities | Status |

@@ -124,6 +124,10 @@ S1 ──► add-asset-spec-and-validator ──► M0
 
 ## Gates — decide before the sprint that needs them
 
+> **G1, G2 and G4 now have recorded working assumptions** in `openspec/project.md`
+> ("Gate Decisions"). They were derived from binding decisions rather than chosen
+> freely, and are overridable until M2 starts. **G3 remains open** and is needed by S16.
+
 Each came out of adversarial review of the specs. Each is a data-model or
 architecture call, and each is **cheaper now than after the code exists**.
 
