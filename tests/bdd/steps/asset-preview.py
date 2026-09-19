@@ -27,8 +27,8 @@ from cybercanon.adapters.outbound.mesh import gltf_preview
 from cybercanon.adapters.outbound.mesh.gltf_document import GltfDocument
 from cybercanon.adapters.outbound.mesh.gltf_preview import Carried, describe
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
-from cybercanon.application.errors import OperationFailed
 from cybercanon.application.ports.preview import PreviewUnavailable
+from cybercanon.application.results import Refusal, succeeded
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
 from cybercanon.application.testing.spec_store import InMemorySpecStore
@@ -72,17 +72,18 @@ def preview_run(tmp_path: Path) -> dict[str, Any]:
 
 
 def _validate(run: dict[str, Any], *, emit: bool = True) -> Any:
-    """Validate with preview emission on, recording whichever way it ended."""
-    try:
-        run["outcome"] = validate_export(
-            run["export"],
-            spec_store=run["spec_store"],
-            mesh_inspector=run["mesh_inspector"],
-            blob_store=run["blob_store"],
-            emit_preview=emit,
-        )
-    except OperationFailed as failure:
-        run["failure"] = failure
+    """Validate with preview emission on, recording whichever way it ended (D10)."""
+    result = validate_export(
+        run["export"],
+        spec_store=run["spec_store"],
+        mesh_inspector=run["mesh_inspector"],
+        blob_store=run["blob_store"],
+        emit_preview=emit,
+    )
+    if succeeded(result):
+        run["outcome"] = result.value
+    else:
+        run["failure"] = result
     return run.get("outcome")
 
 
@@ -332,7 +333,7 @@ def _no_preview_was_emitted(preview_run: dict[str, Any]) -> None:
 @then("the validation failure SHALL still be reported")
 def _the_validation_failure_is_reported(preview_run: dict[str, Any]) -> None:
     failure = preview_run.get("failure")
-    assert isinstance(failure, OperationFailed)
+    assert isinstance(failure, Refusal)
     assert EXPORT in failure.message
     assert "outcome" not in preview_run
 

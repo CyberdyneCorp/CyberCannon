@@ -44,6 +44,7 @@ from cybercanon.application.ports.search_index import (
     SearchIndex,
 )
 from cybercanon.application.ports.spec_store import LoadedSpec, ProjectConfig, SpecStore
+from cybercanon.application.results import as_result
 from cybercanon.domain.asset import Links
 
 Fingerprinter = Callable[[str], FileFingerprint | None]
@@ -170,6 +171,7 @@ def directory_of(spec_path: str) -> str:
     return ROOT_DIRECTORY if parent in ("", ".") else parent
 
 
+@as_result
 def rebuild_index(
     root: str = "",
     *,

@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.domain.identity import Actor
 
 
@@ -80,6 +80,9 @@ class IdentityUnavailable(OperationFailed):
     cached actor, then to the local one — so splitting them would add names no
     caller branches on. `subject` carries which of them it was, for the message.
     """
+
+    kind = FailureKind.UNAVAILABLE
+    identifier = "identity.unavailable"
 
     def __init__(self, subject: str, reason: str = "") -> None:
         detail = f": {reason}" if reason else ""

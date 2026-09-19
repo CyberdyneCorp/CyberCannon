@@ -27,6 +27,7 @@ from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
 from cybercanon.adapters.wiring.build import preview_settings
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.domain.effective_spec import merge
 from cybercanon.domain.format_matrix import facts_for
 from cybercanon.domain.mesh_facts import ClipFacts, MeshFormat
@@ -183,7 +184,7 @@ def test_defaults_the_asset_never_declared_reach_the_effective_spec(
 def test_a_project_bone_budget_fails_an_export_the_asset_never_constrained(
     store: GitSpecStore,
 ) -> None:
-    outcome = _container(store, bone_count=120).validate_export(EXPORT)
+    outcome = ran(_container(store, bone_count=120).validate_export(EXPORT))
 
     (violation,) = outcome.report.violations_of(rig.BONE_BUDGET)
     assert violation.expected == "64"
@@ -194,7 +195,7 @@ def test_the_project_severity_table_lowers_a_rule_without_editing_it(
     store: GitSpecStore,
 ) -> None:
     """`naming.pattern_mismatch` is an error by default; this project made it advisory."""
-    outcome = _container(store, objects=("mech_scout_body",)).validate_export(EXPORT)
+    outcome = ran(_container(store, objects=("mech_scout_body",)).validate_export(EXPORT))
 
     (violation,) = outcome.report.violations_of(conventions.NAMING)
     assert violation.severity is Severity.WARNING
@@ -204,7 +205,7 @@ def test_the_project_severity_table_lowers_a_rule_without_editing_it(
 def test_the_compiled_briefing_states_the_same_effective_values(
     store: GitSpecStore,
 ) -> None:
-    text = _container(store).compile_spec(SPEC_PATH).text
+    text = ran(_container(store).compile_spec(SPEC_PATH)).text
 
     assert "**Up axis**: Y" in text
     assert "**Bone budget**: 64" in text
@@ -213,7 +214,7 @@ def test_the_compiled_briefing_states_the_same_effective_values(
 
 
 def test_the_project_briefing_carries_the_shared_constraints(store: GitSpecStore) -> None:
-    briefing = _container(store).compile_project_briefing()
+    briefing = ran(_container(store).compile_project_briefing())
 
     assert briefing.project == "Ronin"
     assert "The silhouette reads at 25 m." in briefing.text

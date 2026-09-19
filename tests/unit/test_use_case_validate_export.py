@@ -14,14 +14,14 @@ The two properties that are easy to get wrong and are asserted below:
 
 from __future__ import annotations
 
-import pytest
-
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.application.ports.mesh_inspector import MeshUnreadable, UnsupportedExport
 from cybercanon.application.ports.preview import PreviewUnavailable
 from cybercanon.application.ports.spec_store import ProjectConfig, SpecNotFound
+from cybercanon.application.results import NotFound, Refusal
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.outcomes import ran, refused
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.validate_export import validate_export
 from cybercanon.domain.asset import Asset, AssetId
@@ -68,10 +68,12 @@ def a_glb(**observed: object) -> MeshFacts:
 
 def test_the_governing_spec_is_discovered_from_the_export_path() -> None:
     """D9 — the CLI does no path arithmetic; the store walks upward."""
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
-        mesh_inspector=an_inspector(a_glb(triangles=11840)),
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
+            mesh_inspector=an_inspector(a_glb(triangles=11840)),
+        )
     )
 
     assert outcome.spec_path == SPEC_PATH
@@ -80,22 +82,29 @@ def test_the_governing_spec_is_discovered_from_the_export_path() -> None:
 
 
 def test_an_export_governed_by_no_spec_is_an_operation_failure() -> None:
-    with pytest.raises(SpecNotFound) as raised:
+    """Returned rather than raised since D10, and *not found* rather than clean."""
+    outcome = refused(
         validate_export(
             ORPHAN_EXPORT,
             spec_store=a_store(),
             mesh_inspector=an_inspector(a_glb(triangles=10), export=ORPHAN_EXPORT),
         )
+    )
 
-    assert ORPHAN_EXPORT in raised.value.message
+    assert isinstance(outcome, NotFound)
+    assert outcome.identifier == SpecNotFound.identifier
+    assert ORPHAN_EXPORT in outcome.message
+    assert outcome.subject == ORPHAN_EXPORT
 
 
 def test_project_defaults_apply_when_the_asset_declares_nothing() -> None:
     """D3 — the merge happens once, before any rule runs."""
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(project=ProjectConfig(defaults=Constraints(up_axis="Z"))),
-        mesh_inspector=an_inspector(a_glb(up_axis="Y")),
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(project=ProjectConfig(defaults=Constraints(up_axis="Z"))),
+            mesh_inspector=an_inspector(a_glb(up_axis="Y")),
+        )
     )
 
     (violation,) = outcome.report.violations_of(conventions.UP_AXIS)
@@ -104,13 +113,15 @@ def test_project_defaults_apply_when_the_asset_declares_nothing() -> None:
 
 
 def test_the_asset_overrides_the_project_default() -> None:
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(
-            an_asset(constraints=Constraints(tri_budget=8000)),
-            project=ProjectConfig(defaults=Constraints(tri_budget=20000)),
-        ),
-        mesh_inspector=an_inspector(a_glb(triangles=11840)),
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(
+                an_asset(constraints=Constraints(tri_budget=8000)),
+                project=ProjectConfig(defaults=Constraints(tri_budget=20000)),
+            ),
+            mesh_inspector=an_inspector(a_glb(triangles=11840)),
+        )
     )
 
     (violation,) = outcome.report.violations_of(budgets.TRI_BUDGET)
@@ -121,10 +132,12 @@ def test_declared_sockets_reach_the_rules_through_the_use_case() -> None:
     """The closed loop, end to end: design declares it, the export is gated on it."""
     asset = an_asset(design=Design(sockets=(Socket(name="SOCKET_muzzle_l", purpose="vfx"),)))
 
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(asset),
-        mesh_inspector=an_inspector(a_glb(empties=("SOCKET_jet_r",))),
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(asset),
+            mesh_inspector=an_inspector(a_glb(empties=("SOCKET_jet_r",))),
+        )
     )
 
     (violation,) = outcome.report.violations_of(sockets.SOCKET_MISSING)
@@ -136,10 +149,12 @@ def test_identical_facts_from_different_formats_produce_identical_reports() -> N
     """The verdict depends on the facts, never on the file they came from."""
     observed = {"triangles": 14310, "objects": (OBJECT,)}
     reports = tuple(
-        validate_export(
-            EXPORT,
-            spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
-            mesh_inspector=an_inspector(facts_for(source_format, **observed)),
+        ran(
+            validate_export(
+                EXPORT,
+                spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
+                mesh_inspector=an_inspector(facts_for(source_format, **observed)),
+            )
         ).report
         for source_format in (MeshFormat.GLB, MeshFormat.GLTF)
     )
@@ -161,8 +176,10 @@ def test_an_unrecognised_field_is_reported_and_the_mesh_is_still_validated() -> 
     )
     store.add(SPEC_PATH, an_asset(constraints=Constraints(tri_budget=12000)), warnings=(warning,))
 
-    outcome = validate_export(
-        EXPORT, spec_store=store, mesh_inspector=an_inspector(a_glb(triangles=14310))
+    outcome = ran(
+        validate_export(
+            EXPORT, spec_store=store, mesh_inspector=an_inspector(a_glb(triangles=14310))
+        )
     )
 
     assert outcome.spec_warnings == (warning,)
@@ -178,22 +195,21 @@ def test_an_unreadable_export_fails_the_operation_naming_the_file() -> None:
     inspector = InMemoryMeshInspector()
     inspector.add_unreadable(EXPORT, "unexpected end of file")
 
-    with pytest.raises(MeshUnreadable) as raised:
-        validate_export(EXPORT, spec_store=a_store(), mesh_inspector=inspector)
+    outcome = refused(validate_export(EXPORT, spec_store=a_store(), mesh_inspector=inspector))
 
-    assert EXPORT in raised.value.message
-    assert "unexpected end of file" in raised.value.message
+    assert outcome.identifier == MeshUnreadable.identifier
+    assert EXPORT in outcome.message
+    assert "unexpected end of file" in outcome.message
 
 
 def test_an_unsupported_format_is_refused_by_name_not_validated() -> None:
     inspector = InMemoryMeshInspector()
     inspector.add_unsupported(EXPORT, "3DS")
 
-    with pytest.raises(UnsupportedExport) as raised:
-        validate_export(EXPORT, spec_store=a_store(), mesh_inspector=inspector)
+    outcome = refused(validate_export(EXPORT, spec_store=a_store(), mesh_inspector=inspector))
 
-    assert "3DS" in raised.value.message
-    assert isinstance(raised.value, OperationFailed)
+    assert "3DS" in outcome.message
+    assert outcome.kind is FailureKind.INVALID
 
 
 def test_every_operation_failure_is_one_kind_of_exception() -> None:
@@ -204,6 +220,17 @@ def test_every_operation_failure_is_one_kind_of_exception() -> None:
     assert not issubclass(PreviewUnavailable, OperationFailed)
 
 
+def test_every_operation_failure_reaches_the_caller_as_one_kind_of_value() -> None:
+    """D10 — and the seam stays one seam because the vocabulary is one union."""
+    inspector = InMemoryMeshInspector()
+    inspector.add_unreadable(EXPORT, "unexpected end of file")
+
+    assert isinstance(
+        refused(validate_export(EXPORT, spec_store=a_store(), mesh_inspector=inspector)),
+        Refusal,
+    )
+
+
 # --------------------------------------------------------------------------
 # 4.4 — preview emission, guarded (D7)
 # --------------------------------------------------------------------------
@@ -212,8 +239,10 @@ def test_every_operation_failure_is_one_kind_of_exception() -> None:
 def test_no_preview_is_emitted_unless_it_is_asked_for() -> None:
     inspector = an_inspector(a_glb(triangles=11840, objects=(OBJECT,)))
 
-    outcome = validate_export(
-        EXPORT, spec_store=a_store(), mesh_inspector=inspector, blob_store=InMemoryBlobStore()
+    outcome = ran(
+        validate_export(
+            EXPORT, spec_store=a_store(), mesh_inspector=inspector, blob_store=InMemoryBlobStore()
+        )
     )
 
     assert outcome.preview is None
@@ -224,12 +253,14 @@ def test_a_preview_is_emitted_from_the_read_validation_already_paid_for() -> Non
     inspector = an_inspector(a_glb(triangles=11840, objects=(OBJECT,)))
     blobs = InMemoryBlobStore()
 
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(),
-        mesh_inspector=inspector,
-        blob_store=blobs,
-        emit_preview=True,
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(),
+            mesh_inspector=inspector,
+            blob_store=blobs,
+            emit_preview=True,
+        )
     )
 
     assert inspector.inspected == [EXPORT]
@@ -245,12 +276,14 @@ def test_a_failing_emitter_leaves_a_passing_run_passing() -> None:
     inspector = an_inspector(a_glb(triangles=11840))
     inspector.fail_preview(EXPORT, PreviewUnavailable("decimation would drop the clips"))
 
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
-        mesh_inspector=inspector,
-        blob_store=InMemoryBlobStore(),
-        emit_preview=True,
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
+            mesh_inspector=inspector,
+            blob_store=InMemoryBlobStore(),
+            emit_preview=True,
+        )
     )
 
     assert outcome.passed
@@ -264,12 +297,14 @@ def test_a_preview_failure_is_a_distinct_condition_not_a_violation() -> None:
     inspector = an_inspector(a_glb(triangles=11840))
     inspector.fail_preview(EXPORT)
 
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(),
-        mesh_inspector=inspector,
-        blob_store=InMemoryBlobStore(),
-        emit_preview=True,
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(),
+            mesh_inspector=inspector,
+            blob_store=InMemoryBlobStore(),
+            emit_preview=True,
+        )
     )
 
     assert outcome.report.violations == ()
@@ -281,12 +316,14 @@ def test_an_unreachable_blob_store_cannot_fail_a_validation() -> None:
     blobs = InMemoryBlobStore()
     blobs.fail_with(ConnectionError("minio is unreachable"))
 
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
-        mesh_inspector=an_inspector(a_glb(triangles=11840)),
-        blob_store=blobs,
-        emit_preview=True,
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
+            mesh_inspector=an_inspector(a_glb(triangles=11840)),
+            blob_store=blobs,
+            emit_preview=True,
+        )
     )
 
     assert outcome.passed
@@ -296,12 +333,14 @@ def test_an_unreachable_blob_store_cannot_fail_a_validation() -> None:
 
 
 def test_a_preview_never_rescues_a_failing_run_either() -> None:
-    outcome = validate_export(
-        EXPORT,
-        spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
-        mesh_inspector=an_inspector(a_glb(triangles=14310)),
-        blob_store=InMemoryBlobStore(),
-        emit_preview=True,
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=a_store(an_asset(constraints=Constraints(tri_budget=12000))),
+            mesh_inspector=an_inspector(a_glb(triangles=14310)),
+            blob_store=InMemoryBlobStore(),
+            emit_preview=True,
+        )
     )
 
     assert outcome.preview is not None
@@ -313,7 +352,7 @@ def test_an_unreadable_export_emits_no_preview_at_all() -> None:
     inspector.add_unreadable(EXPORT, "not a glTF container")
     blobs = InMemoryBlobStore()
 
-    with pytest.raises(MeshUnreadable):
+    refused(
         validate_export(
             EXPORT,
             spec_store=a_store(),
@@ -321,6 +360,7 @@ def test_an_unreadable_export_emits_no_preview_at_all() -> None:
             blob_store=blobs,
             emit_preview=True,
         )
+    )
 
     assert inspector.previewed == []
     assert blobs.preview_for(ASSET_ID) is None

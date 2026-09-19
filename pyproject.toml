@@ -19,6 +19,9 @@ dependencies = [
     # compiler anywhere we run. Lift the cap when an arm64 wheel returns.
     "dracopy>=2.0,<2.1",
     "fastmcp>=2.0",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.53.0",
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]

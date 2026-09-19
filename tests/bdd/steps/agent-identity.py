@@ -39,6 +39,7 @@ from pytest_bdd import given, scenario, then, when
 
 from cybercanon.application.ports.identity_provider import Credential, IdentityUnavailable
 from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.index_assets import rebuild_index
@@ -868,8 +869,8 @@ def _two_authors_absent_from_the_mapping(session: dict[str, Any]) -> None:
 
 @when("the project's unmapped authors are requested")
 def _the_unmapped_authors_are_requested(session: dict[str, Any]) -> None:
-    session["unmapped"] = list_unmapped_authors(
-        session["authors"], spec_store=session["store"], root=""
+    session["unmapped"] = ran(
+        list_unmapped_authors(session["authors"], spec_store=session["store"], root="")
     )
 
 
@@ -990,7 +991,7 @@ def an_indexed_project(session: dict[str, Any], owner: str) -> None:
     store.add(SPEC_PATH, an_owned_asset(owner))
     store.set_actor_mapping(ActorMapping((RAFA,)))
     index = InMemorySearchIndex()
-    rebuild_index(spec_store=store, search_index=index)
+    ran(rebuild_index(spec_store=store, search_index=index))
     session["store"] = store
     session["index"] = index
 
@@ -1010,8 +1011,8 @@ def _an_asset_owned_by_nobody_mapped(session: dict[str, Any]) -> None:
 
 @when("the asset's location is requested")
 def _the_assets_location_is_requested(session: dict[str, Any]) -> None:
-    session["answer"] = where_is(
-        "mech_scout", spec_store=session["store"], search_index=session["index"]
+    session["answer"] = ran(
+        where_is("mech_scout", spec_store=session["store"], search_index=session["index"])
     )
 
 
@@ -1047,7 +1048,7 @@ def _one_person_in_three_places(session: dict[str, Any]) -> None:
 
 @when("each of those is presented")
 def _each_presentation_is_taken(session: dict[str, Any]) -> None:
-    answer = where_is("mech_scout", spec_store=session["store"], search_index=session["index"])
+    answer = ran(where_is("mech_scout", spec_store=session["store"], search_index=session["index"]))
     session["presentations"] = {
         "owner": answer.owner(ART).display,
         "commit author": resolve_git_author(session["mapping"], COMMITTED_AS).display,

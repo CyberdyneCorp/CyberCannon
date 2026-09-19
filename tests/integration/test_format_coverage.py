@@ -47,7 +47,7 @@ from game_repo import (
 
 from cybercanon.adapters.wiring.build import build_container
 from cybercanon.adapters.wiring.container import Container
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.testing.outcomes import ran, refused
 from cybercanon.domain.format_matrix import ContentKind, available_for
 from cybercanon.domain.mesh_facts import MeshFormat
 from cybercanon.domain.report import Report
@@ -72,10 +72,14 @@ def container(repo: GameRepo) -> Container:
     return build_container(repo.root)
 
 
+def _report(container: Container, export: str) -> Report:
+    return ran(container.validate_export(export)).report
+
+
 @pytest.fixture(scope="module")
 def reports(container: Container) -> dict[MeshFormat, Report]:
     """The same asset, validated once per supported format."""
-    return {fmt: container.validate_export(export).report for fmt, export in QUAD_EXPORTS.items()}
+    return {fmt: _report(container, export) for fmt, export in QUAD_EXPORTS.items()}
 
 
 def _accounted_for(report: Report) -> set[str]:
@@ -276,11 +280,10 @@ def test_a_format_with_no_row_is_refused_rather_than_partly_reported(
     """
     (repo.root / UNSUPPORTED_EXPORT).write_bytes(b"BLENDER-v500")
 
-    with pytest.raises(OperationFailed) as refused:
-        container.validate_export(UNSUPPORTED_EXPORT)
+    outcome = refused(container.validate_export(UNSUPPORTED_EXPORT))
 
-    assert "blend" in refused.value.message
-    assert UNSUPPORTED_EXPORT in str(refused.value.subject)
+    assert "blend" in outcome.message
+    assert UNSUPPORTED_EXPORT in outcome.subject
 
 
 def test_the_comparison_is_not_an_artifact_of_one_asset(container: Container) -> None:

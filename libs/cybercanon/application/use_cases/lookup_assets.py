@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from difflib import get_close_matches
 
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.application.ports.search_index import (
     ABSENT,
     IndexedAsset,
@@ -40,6 +40,7 @@ from cybercanon.application.ports.search_index import (
     SearchIndex,
 )
 from cybercanon.application.ports.spec_store import SpecStore
+from cybercanon.application.results import as_result
 from cybercanon.application.use_cases.index_assets import (
     Fingerprinter,
     current_entry,
@@ -100,6 +101,9 @@ class UnknownAsset(OperationFailed):
     that if "no such asset" is distinguishable from "an asset with nothing
     recorded".
     """
+
+    kind = FailureKind.NOT_FOUND
+    identifier = "asset.unknown"
 
     def __init__(self, asset_id: str, project: str | None = None) -> None:
         scope = f" in project {project!r}" if project else ""
@@ -256,6 +260,7 @@ class SearchAnswer:
         return len(self.hits)
 
 
+@as_result
 def where_is(
     asset_id: str,
     *,
@@ -293,6 +298,7 @@ def where_is(
     )
 
 
+@as_result
 def list_assets(
     *,
     spec_store: SpecStore,
@@ -320,6 +326,7 @@ def list_assets(
     )
 
 
+@as_result
 def search_assets(
     term: str,
     *,
@@ -350,6 +357,7 @@ def recorded_owners(listing: AssetListing) -> tuple[str, ...]:
     return tuple(dict.fromkeys(recorded))
 
 
+@as_result
 def recorded_misses(
     *,
     search_index: SearchIndex,
@@ -363,6 +371,7 @@ def recorded_misses(
     return search_index.misses(project)
 
 
+@as_result
 def spec_path_for(
     asset_id: str,
     *,
@@ -391,6 +400,7 @@ def spec_path_for(
     return fresh.entry.spec_path
 
 
+@as_result
 def nearest_ids(
     asset_id: str,
     *,

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.diff_spec import SpecDifference
 from cybercanon.application.use_cases.index_assets import UnreadableSpec
 from cybercanon.application.use_cases.lookup_assets import (
@@ -184,13 +184,13 @@ def render_validation(outcome: ValidationOutcome) -> str:
 # --------------------------------------------------------------------------
 
 
-def render_failure(error: OperationFailed, nearest: Sequence[str] = ()) -> str:
+def render_failure(refusal: Refusal, nearest: Sequence[str] = ()) -> str:
     """Why a tool could not answer, and what would resolve it.
 
     Never an empty success and never the end of the session: a recoverable
     failure is an ordinary response whose content happens to be an explanation.
     """
-    return _document((f"**Could not answer:** {error.message}", _nearest(nearest)))
+    return _document((f"**Could not answer:** {refusal.message}", _nearest(nearest)))
 
 
 # --------------------------------------------------------------------------

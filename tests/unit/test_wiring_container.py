@@ -23,6 +23,7 @@ from cybercanon.adapters.wiring.container import USE_CASES, Container
 from cybercanon.application.ports.spec_store import ProjectConfig
 from cybercanon.application.testing import build_fakes
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.compile_spec import CompiledBriefing, CompiledSpec
 from cybercanon.application.use_cases.lint_spec import LintReport
@@ -89,7 +90,7 @@ def test_the_container_resolves_every_use_case(container: Container, use_case: s
 
 
 def test_it_validates_an_export_through_the_ports_it_was_given(container: Container) -> None:
-    outcome = container.validate_export(EXPORT)
+    outcome = ran(container.validate_export(EXPORT))
     assert isinstance(outcome, ValidationOutcome)
     assert outcome.asset_id == ASSET_ID
     assert outcome.spec_path == SPEC_PATH
@@ -98,21 +99,21 @@ def test_it_validates_an_export_through_the_ports_it_was_given(container: Contai
 
 def test_it_emits_a_preview_only_when_asked(container: Container) -> None:
     """Preview emission is opt-in and, either way, cannot move the verdict (D7)."""
-    assert container.validate_export(EXPORT).preview is None
-    assert container.validate_export(EXPORT, emit_preview=True).preview is not None
+    assert ran(container.validate_export(EXPORT)).preview is None
+    assert ran(container.validate_export(EXPORT, emit_preview=True)).preview is not None
 
 
 def test_it_lints_one_specification_and_a_whole_tree(container: Container) -> None:
-    one = container.lint_specs([SPEC_PATH])
-    everything = container.lint_project("")
+    one = ran(container.lint_specs([SPEC_PATH]))
+    everything = ran(container.lint_project(""))
     assert isinstance(one, LintReport)
     assert one.checked == (SPEC_PATH,)
     assert everything.checked == (SPEC_PATH,)
 
 
 def test_it_compiles_an_asset_and_the_project_briefing(container: Container) -> None:
-    compiled = container.compile_spec(SPEC_PATH)
-    briefing = container.compile_project_briefing()
+    compiled = ran(container.compile_spec(SPEC_PATH))
+    briefing = ran(container.compile_project_briefing())
     assert isinstance(compiled, CompiledSpec)
     assert isinstance(briefing, CompiledBriefing)
     assert compiled.asset_id == ASSET_ID
@@ -131,6 +132,6 @@ def test_the_blob_store_is_optional(container: Container) -> None:
         spec_store=container.spec_store,
         mesh_inspector=container.mesh_inspector,
     )
-    outcome = without.validate_export(EXPORT, emit_preview=True)
+    outcome = ran(without.validate_export(EXPORT, emit_preview=True))
     assert outcome.passed
     assert outcome.preview is None

@@ -164,7 +164,10 @@ def test_deleting_the_file_and_rebuilding_restores_every_answer(tmp_path: Path) 
 
     rebuilt = _index(tmp_path)
 
-    assert (rebuilt.list_assets(project=PROJECT), rebuilt.search("mech", project=PROJECT)) == before
+    assert (
+        rebuilt.list_assets(project=PROJECT),
+        rebuilt.search("mech", project=PROJECT),
+    ) == before
 
 
 def test_an_index_with_no_file_yet_builds_one(tmp_path: Path) -> None:

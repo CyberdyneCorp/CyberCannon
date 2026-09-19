@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.diff_spec import UNCHANGED, compare, diff_spec
 from cybercanon.domain.asset import Asset, AssetId, Links
@@ -55,7 +56,7 @@ def reduced_budget(asset: Asset = SCOUT, budget: int = 9000) -> Asset:
 def test_a_reduced_budget_renders_as_previous_then_current() -> None:
     store = a_store(previous=SCOUT, current=reduced_budget())
 
-    difference = diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store)
+    difference = ran(diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store))
 
     change = difference.change("triangle budget")
     assert change is not None
@@ -69,7 +70,7 @@ def test_a_reduced_budget_renders_as_previous_then_current() -> None:
 def test_an_unchanged_specification_says_so() -> None:
     store = a_store()
 
-    difference = diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store)
+    difference = ran(diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store))
 
     assert difference.is_unchanged
     assert difference.changes == ()
@@ -86,7 +87,7 @@ def test_durable_content_of_every_block_is_compared() -> None:
     )
     store = a_store(previous=SCOUT, current=moved)
 
-    difference = diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store)
+    difference = ran(diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store))
 
     labels = {change.label for change in difference.changes}
 
@@ -126,7 +127,7 @@ def test_comparison_is_semantic_rather_than_textual() -> None:
 def test_a_repository_without_that_history_degrades_with_a_message() -> None:
     store = a_store(previous=None)
 
-    difference = diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store)
+    difference = ran(diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store))
 
     assert not difference.available
     assert difference.changes == ()
@@ -138,7 +139,7 @@ def test_a_repository_without_that_history_degrades_with_a_message() -> None:
 def test_an_unknown_revision_degrades_rather_than_raising() -> None:
     store = a_store()
 
-    difference = diff_spec(SPEC_PATH, "0000000", spec_store=store)
+    difference = ran(diff_spec(SPEC_PATH, "0000000", spec_store=store))
 
     assert not difference.available
     assert "0000000" in difference.message
@@ -148,7 +149,7 @@ def test_an_unknown_revision_degrades_rather_than_raising() -> None:
 def test_the_asset_is_still_identified_when_history_is_unavailable() -> None:
     store = a_store(previous=None)
 
-    difference = diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store)
+    difference = ran(diff_spec(SPEC_PATH, BEFORE_REVISION, spec_store=store))
 
     assert difference.asset_id == "mech_scout"
     assert difference.path == SPEC_PATH

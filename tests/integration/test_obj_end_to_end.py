@@ -25,6 +25,7 @@ from canon_fixtures import mesh as fixtures
 from cybercanon.adapters.outbound.git.discovery import GIT_DIR
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.validate_export import validate_export
 from cybercanon.domain.mesh_facts import MeshFormat
 from cybercanon.domain.rules import animation, budgets, conventions, format_fitness, rig, sockets
@@ -98,10 +99,12 @@ def repository(tmp_path: Path) -> Path:
 
 
 def _validate(repository: Path, export: str):
-    return validate_export(
-        export,
-        spec_store=GitSpecStore(repository),
-        mesh_inspector=TrimeshInspector(root=repository),
+    return ran(
+        validate_export(
+            export,
+            spec_store=GitSpecStore(repository),
+            mesh_inspector=TrimeshInspector(root=repository),
+        )
     )
 
 

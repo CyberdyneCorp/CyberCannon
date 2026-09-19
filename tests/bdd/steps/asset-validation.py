@@ -31,10 +31,11 @@ from typer.testing import CliRunner
 from cybercanon.adapters.inbound.cli import payload, rendering
 from cybercanon.adapters.inbound.cli.app import build_app
 from cybercanon.adapters.wiring.container import Container
-from cybercanon.application.errors import OperationFailed
 from cybercanon.application.ports.mesh_inspector import MeshUnreadable, UnsupportedExport
+from cybercanon.application.results import Refusal, succeeded
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.validate_export import ValidationOutcome, validate_export
 from cybercanon.domain.asset import Asset, AssetId
@@ -841,11 +842,12 @@ def _a_local_store() -> InMemorySpecStore:
 
 
 def _validate(validation: dict[str, Any], **ports: Any) -> None:
-    """Run the use case, recording the verdict or the operation failure."""
-    try:
-        validation["outcome"] = validate_export(EXPORT, **ports)
-    except OperationFailed as failure:
-        validation["failure"] = failure
+    """Run the use case, recording the verdict or the refusal it returned (D10)."""
+    result = validate_export(EXPORT, **ports)
+    if succeeded(result):
+        validation["outcome"] = result.value
+    else:
+        validation["failure"] = result
 
 
 @given("the identity provider and all remote services are unreachable")
@@ -888,8 +890,7 @@ def _an_export_in_an_uncovered_format(validation: dict[str, Any]) -> None:
 @then("the system SHALL report an unsupported export format naming the format")
 def _the_unsupported_format_is_named(validation: dict[str, Any]) -> None:
     failure = validation["failure"]
-    assert isinstance(failure, UnsupportedExport)
-    assert failure.format_name == "3DS"
+    assert failure.identifier == UnsupportedExport.identifier
     assert "3DS" in failure.message
 
 
@@ -897,7 +898,7 @@ def _the_unsupported_format_is_named(validation: dict[str, Any]) -> None:
 @then("the overall outcome SHALL be failing")
 def _no_verdict_was_produced(validation: dict[str, Any]) -> None:
     """An operation that could not run has no verdict — and never a passing one."""
-    assert isinstance(validation["failure"], OperationFailed)
+    assert isinstance(validation["failure"], Refusal)
     assert "outcome" not in validation
 
 
@@ -911,9 +912,9 @@ def _a_file_that_is_not_a_mesh(validation: dict[str, Any]) -> None:
 @then("the system SHALL report a failure naming the file and the reason")
 def _the_failure_names_the_file_and_the_reason(validation: dict[str, Any]) -> None:
     failure = validation["failure"]
-    assert isinstance(failure, MeshUnreadable)
-    assert failure.export == EXPORT
-    assert failure.reason == "unexpected end of file"
+    assert failure.identifier == MeshUnreadable.identifier
+    assert failure.subject == EXPORT
+    assert "unexpected end of file" in failure.message
     assert EXPORT in failure.message
 
 
@@ -998,7 +999,7 @@ def _validated_from_two_surfaces(validation: dict[str, Any]) -> None:
     result = CliRunner().invoke(build_app(container), ["validate", "--json", EXPORT])
     assert result.exit_code == 1, result.output
     validation["from_cli"] = json.loads(result.stdout)["results"][0]["violations"]
-    validation["from_use_case"] = container.validate_export(EXPORT).report.violations
+    validation["from_use_case"] = ran(container.validate_export(EXPORT)).report.violations
 
 
 @then("both SHALL report the same violations with the same severities")

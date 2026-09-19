@@ -47,6 +47,7 @@ from cybercanon.application.ports.spec_store import (
     SpecNotFound,
     SpecStore,
 )
+from cybercanon.application.results import as_result
 from cybercanon.domain.effective_spec import EffectiveSpec, merge
 from cybercanon.domain.format_matrix import UnsupportedExportFormat, available_for
 from cybercanon.domain.mesh_facts import MeshFacts
@@ -88,6 +89,7 @@ class ValidationOutcome:
         return self.report.asset_id
 
 
+@as_result
 def validate_export(
     export: str,
     *,

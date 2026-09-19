@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from cybercanon.application.ports.spec_store import SpecStore
+from cybercanon.application.results import as_result
 from cybercanon.application.use_cases.briefing import (
     render_asset_briefing,
     render_project_briefing,
@@ -55,6 +56,7 @@ class CompiledBriefing:
     text: str
 
 
+@as_result
 def compile_spec(spec_path: str, *, spec_store: SpecStore) -> CompiledSpec:
     """Compile one asset's specification into its briefing."""
     loaded = spec_store.load(spec_path)
@@ -68,6 +70,7 @@ def compile_spec(spec_path: str, *, spec_store: SpecStore) -> CompiledSpec:
     )
 
 
+@as_result
 def compile_project_briefing(root: str = "", *, spec_store: SpecStore) -> CompiledBriefing:
     """Compile the project's standing rules alone — no asset's concept, no annotations.
 

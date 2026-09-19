@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from cybercanon.application.ports.spec_store import LoadedSpec, ProjectConfig, SpecStore
+from cybercanon.application.results import as_result
 from cybercanon.domain.actor_checks import check_mapping
 from cybercanon.domain.spec_checks import SpecDeclaration, check_asset, check_duplicate_ids
 from cybercanon.domain.violations import Severity, SpecViolation
@@ -94,6 +95,7 @@ class LintReport:
         return tuple(finding for finding in self.all_findings if finding.path == path)
 
 
+@as_result
 def lint_specs(paths: Sequence[str], *, spec_store: SpecStore) -> LintReport:
     """Lint one specification file or many.
 
@@ -111,6 +113,7 @@ def lint_specs(paths: Sequence[str], *, spec_store: SpecStore) -> LintReport:
     return LintReport(checked=tuple(spec.path for spec in loaded), findings=findings)
 
 
+@as_result
 def lint_project(root: str, *, spec_store: SpecStore) -> LintReport:
     """Lint every specification at or below `root`, and the actor mapping with them.
 
@@ -120,14 +123,15 @@ def lint_project(root: str, *, spec_store: SpecStore) -> LintReport:
     how to print. It needs no identity and no network to validate, exactly like
     every other file here.
     """
-    report = lint_specs(spec_store.specs_under(root), spec_store=spec_store)
+    report = lint_specs.raising(spec_store.specs_under(root), spec_store=spec_store)
     return LintReport(
         checked=report.checked,
         findings=report.findings,
-        mapping=lint_actor_mapping(root, spec_store=spec_store),
+        mapping=lint_actor_mapping.raising(root, spec_store=spec_store),
     )
 
 
+@as_result
 def lint_actor_mapping(root: str = "", *, spec_store: SpecStore) -> tuple[LintFinding, ...]:
     """The structural checks over `.canon/actors.yaml` (D12).
 

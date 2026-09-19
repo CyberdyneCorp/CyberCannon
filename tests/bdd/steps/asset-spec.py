@@ -42,6 +42,7 @@ from pytest_bdd import given, scenario, then, when
 from cybercanon.adapters.outbound.git.discovery import GIT_DIR
 from cybercanon.adapters.outbound.git.schema import RULE_UNKNOWN_FIELD
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.index_assets import rebuild_index
@@ -637,14 +638,14 @@ def every_answer(store: InMemorySpecStore, index: InMemorySearchIndex) -> dict[s
     """Every lookup and search this project can answer, as one comparable value."""
     return {
         "lookups": {
-            asset_id: where_is(asset_id, spec_store=store, search_index=index)
+            asset_id: ran(where_is(asset_id, spec_store=store, search_index=index))
             for asset_id in (ASSET_ID, "crate")
         },
         "searches": {
-            term: search_assets(term, search_index=index).asset_ids
+            term: ran(search_assets(term, search_index=index)).asset_ids
             for term in (ASSET_ID, "drone", "Supply", "crate")
         },
-        "listing": list_assets(spec_store=store, search_index=index).asset_ids,
+        "listing": ran(list_assets(spec_store=store, search_index=index)).asset_ids,
     }
 
 
@@ -654,7 +655,7 @@ def _a_derived_index_exists(spec: dict[str, Any]) -> None:
     for path, asset in INDEXED_ASSETS:
         store.add(path, asset)
     index = InMemorySearchIndex()
-    rebuild_index(spec_store=store, search_index=index)
+    ran(rebuild_index(spec_store=store, search_index=index))
     spec["store"], spec["index"] = store, index
     spec["before"] = every_answer(store, index)
     assert index.list_assets(), "there is an index to delete"
@@ -668,7 +669,7 @@ def _that_index_is_deleted(spec: dict[str, Any]) -> None:
 
 @then("re-scanning the repository SHALL restore it completely")
 def _re_scanning_restores_it(spec: dict[str, Any]) -> None:
-    report = rebuild_index(spec_store=spec["store"], search_index=spec["index"])
+    report = ran(rebuild_index(spec_store=spec["store"], search_index=spec["index"]))
 
     assert report.indexed_count == len(INDEXED_ASSETS)
     assert every_answer(spec["store"], spec["index"]) == spec["before"]

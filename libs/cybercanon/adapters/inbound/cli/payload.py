@@ -20,8 +20,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from cybercanon.application.errors import OperationFailed
 from cybercanon.application.ports.search_index import RecordedMiss
+from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.compile_spec import CompiledSpec
 from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
@@ -122,13 +122,22 @@ def compile_payload(compiled: CompiledSpec, destination: str | None) -> dict[str
     )
 
 
-def failure_payload(command: str, error: OperationFailed) -> dict[str, Any]:
-    """An operation that could not run, as data — never a report with no violations."""
+def failure_payload(command: str, refusal: Refusal) -> dict[str, Any]:
+    """An operation that could not run, as data — never a report with no violations.
+
+    `id` is the stable machine-readable identifier the outcome carries (D10), so
+    a script reading this document branches on the same token an HTTP client
+    would. `message` and `subject` keep the shape they have always had.
+    """
     return _document(
         command,
         passed=False,
         ran=False,
-        error={"message": error.message, "subject": error.subject},
+        error={
+            "id": refusal.identifier,
+            "message": refusal.message,
+            "subject": refusal.subject or None,
+        },
     )
 
 

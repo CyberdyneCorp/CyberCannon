@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.application.ports.preview import PreviewMesh
 from cybercanon.domain.mesh_facts import MeshFacts, MeshFormat
 
@@ -45,6 +45,9 @@ class InspectedMesh:
 class MeshUnreadable(OperationFailed):
     """The file is missing, truncated, or not the mesh its extension claims."""
 
+    kind = FailureKind.NOT_FOUND
+    identifier = "export.unreadable"
+
     def __init__(self, export: str, reason: str) -> None:
         super().__init__(f"{export} could not be read as a mesh: {reason}", export)
         self.export = export
@@ -53,6 +56,9 @@ class MeshUnreadable(OperationFailed):
 
 class UnsupportedExport(OperationFailed):
     """A format the matrix does not cover: refused by name, never assumed (D13)."""
+
+    kind = FailureKind.INVALID
+    identifier = "export.unsupported_format"
 
     def __init__(self, export: str, format_name: str) -> None:
         supported = ", ".join(str(known) for known in MeshFormat)
