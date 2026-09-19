@@ -9,6 +9,7 @@ adds: the rules stay pure domain functions.
 from __future__ import annotations
 
 from cybercanon.application.ports.spec_store import ProjectConfig
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.lint_spec import lint_project, lint_specs
 from cybercanon.domain import spec_checks
@@ -40,7 +41,7 @@ def test_a_clean_specification_passes_with_no_findings() -> None:
         (SCOUT, an_asset(constraints=Constraints(tri_budget=12000, lods=(12000, 4000))))
     )
 
-    report = lint_specs([SCOUT], spec_store=store)
+    report = ran(lint_specs([SCOUT], spec_store=store))
 
     assert report.findings == ()
     assert report.checked == (SCOUT,)
@@ -51,7 +52,7 @@ def test_a_state_that_constrains_nothing_names_the_file_and_the_state() -> None:
     """D12 — `states: [walk]` looked like a specification and enforced nothing."""
     store = a_store((SCOUT, an_asset(design=Design(states=(State(name="walk"),)))))
 
-    (finding,) = lint_specs([SCOUT], spec_store=store).findings
+    (finding,) = ran(lint_specs([SCOUT], spec_store=store)).findings
 
     assert finding.path == SCOUT
     assert finding.rule_id == spec_checks.RULE_STATE_CONSTRAINS_NOTHING
@@ -67,7 +68,7 @@ def test_a_project_clip_naming_convention_makes_the_same_state_checkable() -> No
         ),
     )
 
-    assert lint_specs([SCOUT], spec_store=store).findings == ()
+    assert ran(lint_specs([SCOUT], spec_store=store)).findings == ()
 
 
 def test_an_unanimated_state_is_checkable_on_its_own() -> None:
@@ -75,13 +76,13 @@ def test_an_unanimated_state_is_checkable_on_its_own() -> None:
         (SCOUT, an_asset(design=Design(states=(State(name="destroyed", animated=False),))))
     )
 
-    assert lint_specs([SCOUT], spec_store=store).passed
+    assert ran(lint_specs([SCOUT], spec_store=store)).passed
 
 
 def test_ascending_lods_are_reported_against_the_field_that_declares_them() -> None:
     store = a_store((SCOUT, an_asset(constraints=Constraints(lods=(4000, 12000)))))
 
-    (finding,) = lint_specs([SCOUT], spec_store=store).findings_of(
+    (finding,) = ran(lint_specs([SCOUT], spec_store=store)).findings_of(
         spec_checks.RULE_LODS_NOT_DESCENDING
     )
 
@@ -95,7 +96,7 @@ def test_a_first_lod_above_the_triangle_budget_is_reported() -> None:
         (SCOUT, an_asset(constraints=Constraints(tri_budget=12000, lods=(14000, 4000))))
     )
 
-    (finding,) = lint_specs([SCOUT], spec_store=store).findings_of(
+    (finding,) = ran(lint_specs([SCOUT], spec_store=store)).findings_of(
         spec_checks.RULE_LOD0_OVER_TRI_BUDGET
     )
 
@@ -114,7 +115,7 @@ def test_a_duplicate_id_is_reported_against_every_file_that_declares_it() -> Non
         ),
     )
 
-    findings = lint_specs([SCOUT, MULE], spec_store=store).findings_of(
+    findings = ran(lint_specs([SCOUT, MULE], spec_store=store)).findings_of(
         spec_checks.RULE_DUPLICATE_ID
     )
 
@@ -126,7 +127,7 @@ def test_a_duplicate_id_is_reported_against_every_file_that_declares_it() -> Non
 def test_distinct_ids_produce_no_duplicate_finding() -> None:
     store = a_store((SCOUT, an_asset("mech_scout")), (MULE, an_asset("mule")))
 
-    assert lint_specs([SCOUT, MULE], spec_store=store).findings == ()
+    assert ran(lint_specs([SCOUT, MULE], spec_store=store)).findings == ()
 
 
 def test_a_loading_warning_is_a_finding_with_its_field_location() -> None:
@@ -145,7 +146,7 @@ def test_a_loading_warning_is_a_finding_with_its_field_location() -> None:
         ),
     )
 
-    report = lint_specs([SCOUT], spec_store=store)
+    report = ran(lint_specs([SCOUT], spec_store=store))
 
     (finding,) = report.warnings
     assert finding.path == SCOUT
@@ -159,7 +160,7 @@ def test_linting_a_project_covers_every_specification_under_it() -> None:
         (MULE, an_asset("mule")),
     )
 
-    report = lint_project("", spec_store=store)
+    report = ran(lint_project("", spec_store=store))
 
     assert report.checked == (SCOUT, MULE)
     assert len(report.findings) == 1

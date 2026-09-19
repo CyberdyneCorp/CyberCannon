@@ -24,6 +24,7 @@ import pytest
 from pytest_bdd import given, scenario, then, when
 
 from cybercanon.application.ports.spec_store import ProjectConfig
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.compile_spec import compile_spec
 from cybercanon.application.use_cases.resolve_actor import (
@@ -236,7 +237,7 @@ def _read_with_no_lens(lenses: dict[str, Any]) -> None:
 @then("the response SHALL contain all authored blocks")
 def _the_response_carries_every_block(lenses: dict[str, Any]) -> None:
     body = lenses["response"].body
-    compiled = compile_spec(SPEC_PATH, spec_store=lenses["store"])
+    compiled = ran(compile_spec(SPEC_PATH, spec_store=lenses["store"]))
 
     assert body == compiled.text, "omitting the lens is the whole compilation"
     for content in (PALETTE, MUZZLE, "12000", "/Game/Chars/MechScout", "scout"):

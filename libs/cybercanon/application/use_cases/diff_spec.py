@@ -30,12 +30,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from cybercanon.application.ports.search_index import ABSENT
+from cybercanon.application.ports.search_index import ABSENT, SearchIndex
 from cybercanon.application.ports.spec_store import (
     HistoryUnavailable,
     SpecNotFound,
     SpecStore,
 )
+from cybercanon.application.results import as_result
+from cybercanon.application.use_cases.index_assets import Fingerprinter, no_fingerprints
+from cybercanon.application.use_cases.lookup_assets import spec_path_for
 from cybercanon.domain.asset import Asset, Links
 from cybercanon.domain.concept import Concept
 from cybercanon.domain.constraints import Constraints
@@ -110,6 +113,7 @@ class SpecDifference:
         return len(self.changes)
 
 
+@as_result
 def diff_spec(spec_path: str, revision: str, *, spec_store: SpecStore) -> SpecDifference:
     """Compare a specification with itself at an earlier revision.
 
@@ -138,6 +142,33 @@ def diff_spec(spec_path: str, revision: str, *, spec_store: SpecStore) -> SpecDi
         revision=revision,
         changes=compare(previous.asset, current.asset),
     )
+
+
+@as_result
+def diff_asset_spec(
+    asset_id: str,
+    revision: str,
+    *,
+    spec_store: SpecStore,
+    search_index: SearchIndex,
+    fingerprints: Fingerprinter = no_fingerprints,
+    project: str | None = None,
+) -> SpecDifference:
+    """The same comparison, addressed by identifier rather than by path.
+
+    Two use cases composed — find the file, then diff it — and composed *here*
+    rather than at the composition root. A container that chained them would
+    evaluate the lookup as an argument, so an unknown identifier would escape
+    as an exception instead of arriving as the `NotFound` the surfaces map (D10).
+    """
+    spec_path = spec_path_for.raising(
+        asset_id,
+        spec_store=spec_store,
+        search_index=search_index,
+        fingerprints=fingerprints,
+        project=project,
+    )
+    return diff_spec.raising(spec_path, revision, spec_store=spec_store)
 
 
 def compare(previous: Asset, current: Asset) -> tuple[FieldChange, ...]:
@@ -246,6 +277,7 @@ __all__ = [
     "Fields",
     "SpecDifference",
     "compare",
+    "diff_asset_spec",
     "diff_spec",
     "fields_of",
 ]

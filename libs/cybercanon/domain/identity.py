@@ -8,7 +8,7 @@ performed an action on its behalf. No claim name, group name, token field or
 issuing service reaches this module, which is what makes every authorization
 decision verifiable with no identity service running.
 
-Three kinds of actor exist, and the distinction is about *provenance*, never
+Four kinds of actor exist, and the distinction is about *provenance*, never
 about privilege:
 
 * **person** — resolved from a credential or from the project's actor mapping;
@@ -17,7 +17,12 @@ about privilege:
   in (D4). Reads work offline; anything needing a role does not;
 * **unmapped** — a git author nobody has bound to a person yet (D14). It carries
   the raw email verbatim, holds no roles, and every presentation of it says so.
-  It exists so that authorship is never dropped and never guessed.
+  It exists so that authorship is never dropped and never guessed;
+* **automation** — the actor background work resolves to when there is no live
+  human caller. `auth-integration` requires such work to be recorded *as
+  automation rather than as any person*, and to be refused every operation the
+  project reserves to a person, so it is a kind rather than a person with a
+  convention-based name: a name is something an adapter can forget to apply.
 
 :class:`Attribution` is the last piece and the one with teeth: it pairs the
 responsible person with the instrument, and the actor slot has no default (D5),
@@ -29,6 +34,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+from cybercanon.domain.tenancy import ProjectRef, Tenant, project_ref, tenants_agree
 
 
 class Role(Enum):
@@ -70,13 +77,20 @@ class ActorKind(Enum):
     PERSON = "person"
     LOCAL = "local"
     UNMAPPED = "unmapped"
+    AUTOMATION = "automation"
 
 
 UNMAPPED_MARK = "unmapped"
 """The word every presentation of an unknown actor carries (D14)."""
 
+AUTOMATION_MARK = "automation"
+"""The word every record of an automated caller carries."""
+
 LOCAL_ACTOR_ID = "local"
 LOCAL_ACTOR_NAME = "local (unauthenticated)"
+
+AUTOMATION_ACTOR_ID = "automation"
+AUTOMATION_ACTOR_NAME = "automation (no person)"
 
 
 @dataclass(frozen=True)
@@ -130,6 +144,13 @@ class Actor:
     author resolves to an `Actor` marked `UNMAPPED` carrying the raw email
     verbatim, so no call site has to handle a ``None`` and no renderer can
     present it as an ordinary person.
+
+    `tenant` is the organisation the credential placed this actor in, and it is
+    ``None`` everywhere tenancy does not apply — the command line, the local MCP
+    server, a constructed actor in a unit test. It is a field on the actor
+    rather than a parameter of the decision because `auth-integration` requires
+    the tenant to come from verified claims and from nothing else: a value the
+    policy accepted alongside the actor would be a second door into the answer.
     """
 
     id: ActorId
@@ -138,11 +159,34 @@ class Actor:
     projects: tuple[str, ...] = ()
     kind: ActorKind = ActorKind.PERSON
     unmapped_as: str | None = None
+    tenant: Tenant | None = None
+
+    @property
+    def subject(self) -> str:
+        """The stable subject identifier this actor is known by everywhere.
+
+        The same value :attr:`id` carries, named as the identity service names
+        it. Authorization, attribution and the actors mapping all agree on this
+        string, and none of them may substitute a display name, an email or a
+        chat handle for it.
+        """
+        return self.id.value
 
     @property
     def is_unmapped(self) -> bool:
         """Whether this actor is a git author nobody has bound to a person."""
         return self.kind is ActorKind.UNMAPPED
+
+    @property
+    def is_automation(self) -> bool:
+        """Whether this is background work rather than a person.
+
+        Read by the human-only registry
+        (:mod:`cybercanon.domain.policy`) and by nothing that grants: an
+        automated caller is never *more* able than the person it stands for, and
+        for the operations the project reserves to a person it is less.
+        """
+        return self.kind is ActorKind.AUTOMATION
 
     @property
     def display(self) -> str:
@@ -156,6 +200,18 @@ class Actor:
         if self.is_unmapped and self.unmapped_as:
             return f"{self.unmapped_as} ({UNMAPPED_MARK})"
         return self.display_name
+
+    def may_enter(self, project: str | ProjectRef) -> bool:
+        """Whether this actor's tenant admits this project.
+
+        Separate from :meth:`may_see` because they answer different questions
+        and fail for different reasons: entitlement asks *was this project among
+        the ones the credential resolved*, tenancy asks *does this project even
+        belong to the organisation the credential named*. The policy checks
+        tenancy first, so a cross-tenant address is refused without revealing
+        whether the project exists inside it.
+        """
+        return tenants_agree(self.tenant, project_ref(project))
 
     def holds(self, role: Role) -> bool:
         """Whether this actor holds the role. The only question about roles."""
@@ -206,6 +262,36 @@ def unmapped_actor(identifier: str) -> Actor:
         projects=(),
         kind=ActorKind.UNMAPPED,
         unmapped_as=identifier,
+    )
+
+
+def automation_actor(
+    *,
+    projects: tuple[str, ...] = (),
+    roles: tuple[Role, ...] = (),
+    tenant: Tenant | None = None,
+    identifier: str = AUTOMATION_ACTOR_ID,
+) -> Actor:
+    """The actor background work resolves to: no person, and named as such.
+
+    `roles` is a parameter and not a prohibition, because the point the
+    specification makes is stronger than "automation holds nothing": a service
+    credential holding **every** role is still refused every human-only
+    operation. A constructor that could not express that would make the rule
+    untestable, so the refusal lives in the registry
+    (:mod:`cybercanon.domain.policy`) where no caller can decline to consult it.
+
+    `identifier` is configurable so two background jobs can be told apart in a
+    record; what none of them may be is a person's subject, which is why the
+    kind travels with the id rather than being inferred from how it is spelled.
+    """
+    return Actor(
+        id=ActorId(identifier),
+        display_name=AUTOMATION_ACTOR_NAME,
+        roles=roles,
+        projects=projects,
+        kind=ActorKind.AUTOMATION,
+        tenant=tenant,
     )
 
 
@@ -268,6 +354,9 @@ def attribute(actor: Any, via: AgentId | None = None) -> Attribution:
 
 
 __all__ = [
+    "AUTOMATION_ACTOR_ID",
+    "AUTOMATION_ACTOR_NAME",
+    "AUTOMATION_MARK",
     "LOCAL_ACTOR_ID",
     "LOCAL_ACTOR_NAME",
     "UNMAPPED_MARK",
@@ -278,6 +367,7 @@ __all__ = [
     "Attribution",
     "Role",
     "attribute",
+    "automation_actor",
     "local_actor",
     "unmapped_actor",
 ]

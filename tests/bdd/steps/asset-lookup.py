@@ -33,6 +33,7 @@ from cybercanon.application.ports.search_index import (
     MatchKind,
 )
 from cybercanon.application.ports.spec_store import ProjectConfig
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.diff_spec import UNCHANGED, diff_spec
@@ -112,7 +113,7 @@ def indexed(lookup: dict[str, Any], store: InMemorySpecStore) -> InMemorySearchI
     index = InMemorySearchIndex()
     lookup["store"] = store
     lookup["index"] = index
-    lookup["report"] = rebuild_index(spec_store=store, search_index=index)
+    lookup["report"] = ran(rebuild_index(spec_store=store, search_index=index))
     return index
 
 
@@ -126,14 +127,14 @@ def answers(lookup: dict[str, Any]) -> dict[str, Any]:
     store, index = lookup["store"], lookup["index"]
     return {
         "where_is": {
-            asset_id: where_is(asset_id, spec_store=store, search_index=index)
+            asset_id: ran(where_is(asset_id, spec_store=store, search_index=index))
             for asset_id in ("mech_scout", "crate")
         },
         "search": {
-            term: search_assets(term, search_index=index).asset_ids
+            term: ran(search_assets(term, search_index=index)).asset_ids
             for term in ("mech_scout", "drone", "Supply", "crate")
         },
-        "list": list_assets(spec_store=store, search_index=index, project=PROJECT).asset_ids,
+        "list": ran(list_assets(spec_store=store, search_index=index, project=PROJECT)).asset_ids,
     }
 
 
@@ -240,10 +241,12 @@ def _an_asset_with_a_validated_export(lookup: dict[str, Any]) -> None:
 
 @when("its location is requested")
 def _its_location_is_requested(lookup: dict[str, Any]) -> None:
-    lookup["answer"] = where_is(
-        lookup["asset_id"],
-        spec_store=lookup["store"],
-        search_index=lookup["index"],
+    lookup["answer"] = ran(
+        where_is(
+            lookup["asset_id"],
+            spec_store=lookup["store"],
+            search_index=lookup["index"],
+        )
     )
 
 
@@ -293,12 +296,14 @@ def _assets_are_listed_with_two_filters(lookup: dict[str, Any]) -> None:
             owner_art=DESIGN_OWNER,
         )
     )
-    lookup["listing"] = list_assets(
-        spec_store=lookup["store"],
-        search_index=index,
-        project=PROJECT,
-        status="modeling",
-        owner=ART_OWNER,
+    lookup["listing"] = ran(
+        list_assets(
+            spec_store=lookup["store"],
+            search_index=index,
+            project=PROJECT,
+            status="modeling",
+            owner=ART_OWNER,
+        )
     )
 
 
@@ -338,12 +343,14 @@ def _one_exact_and_one_described(lookup: dict[str, Any]) -> None:
 
 @when("a search for `drone` is performed")
 def _a_search_for_an_alias(lookup: dict[str, Any]) -> None:
-    lookup["answer"] = search_assets("drone", search_index=lookup["index"], project=PROJECT)
+    lookup["answer"] = ran(search_assets("drone", search_index=lookup["index"], project=PROJECT))
 
 
 @when("a search for `mech_scout` is performed")
 def _a_search_for_the_identifier(lookup: dict[str, Any]) -> None:
-    lookup["answer"] = search_assets("mech_scout", search_index=lookup["index"], project=PROJECT)
+    lookup["answer"] = ran(
+        search_assets("mech_scout", search_index=lookup["index"], project=PROJECT)
+    )
 
 
 @then("that asset SHALL be returned")
@@ -367,7 +374,9 @@ def _the_exact_identifier_ranks_first(lookup: dict[str, Any]) -> None:
 def _a_search_that_matches_nothing(lookup: dict[str, Any]) -> None:
     a_repository(lookup)
     lookup["term"] = "hovercraft"
-    lookup["answer"] = search_assets(lookup["term"], search_index=lookup["index"], project=PROJECT)
+    lookup["answer"] = ran(
+        search_assets(lookup["term"], search_index=lookup["index"], project=PROJECT)
+    )
     assert lookup["answer"].is_empty
 
 
@@ -378,7 +387,7 @@ def _the_term_was_recorded(lookup: dict[str, Any]) -> None:
 
 @then("SHALL appear when recorded misses are retrieved")
 def _the_term_is_retrievable(lookup: dict[str, Any]) -> None:
-    misses = recorded_misses(search_index=lookup["index"], project=PROJECT)
+    misses = ran(recorded_misses(search_index=lookup["index"], project=PROJECT))
 
     assert lookup["term"] in {miss.term for miss in misses}
 
@@ -387,13 +396,15 @@ def _the_term_is_retrievable(lookup: dict[str, Any]) -> None:
 def _a_search_that_matches(lookup: dict[str, Any]) -> None:
     a_repository(lookup)
     lookup["term"] = "drone"
-    lookup["answer"] = search_assets(lookup["term"], search_index=lookup["index"], project=PROJECT)
+    lookup["answer"] = ran(
+        search_assets(lookup["term"], search_index=lookup["index"], project=PROJECT)
+    )
     assert not lookup["answer"].is_empty
 
 
 @then("no miss SHALL be recorded for that term")
 def _no_miss_was_recorded(lookup: dict[str, Any]) -> None:
-    misses = recorded_misses(search_index=lookup["index"])
+    misses = ran(recorded_misses(search_index=lookup["index"]))
 
     assert not lookup["answer"].recorded_as_miss
     assert lookup["term"] not in {miss.term for miss in misses}
@@ -415,7 +426,7 @@ def _the_index_is_deleted_and_rebuilt(lookup: dict[str, Any]) -> None:
     index: InMemorySearchIndex = lookup["index"]
     index.clear()
     assert index.list_assets() == (), "the index really was deleted"
-    lookup["report"] = rebuild_index(spec_store=lookup["store"], search_index=index)
+    lookup["report"] = ran(rebuild_index(spec_store=lookup["store"], search_index=index))
 
 
 @then("every lookup and search SHALL return the same results as before")
@@ -439,7 +450,7 @@ def _the_file_wins(lookup: dict[str, Any]) -> None:
         search_index=lookup["index"],
         fingerprints=lambda path: None,
     )
-    rebuilt = rebuild_index(spec_store=lookup["store"], search_index=lookup["index"])
+    rebuilt = ran(rebuild_index(spec_store=lookup["store"], search_index=lookup["index"]))
     entry = lookup["index"].get("mech_scout")
 
     assert rebuilt.indexed_count == 2
@@ -454,10 +465,12 @@ def _an_index_built_before_an_edit(lookup: dict[str, Any]) -> None:
     store = a_store()
     index = InMemorySearchIndex()
     lookup["store"], lookup["index"] = store, index
-    rebuild_index(
-        spec_store=store,
-        search_index=index,
-        fingerprints=lambda path: _fingerprint(path, 10),
+    ran(
+        rebuild_index(
+            spec_store=store,
+            search_index=index,
+            fingerprints=lambda path: _fingerprint(path, 10),
+        )
     )
     store.add(SCOUT_PATH, SCOUT.renamed("Recon Mech"))
     lookup["asset_id"] = "mech_scout"
@@ -465,11 +478,13 @@ def _an_index_built_before_an_edit(lookup: dict[str, Any]) -> None:
 
 @when("that asset is looked up")
 def _that_asset_is_looked_up(lookup: dict[str, Any]) -> None:
-    lookup["answer"] = where_is(
-        lookup["asset_id"],
-        spec_store=lookup["store"],
-        search_index=lookup["index"],
-        fingerprints=lambda path: _fingerprint(path, 99),
+    lookup["answer"] = ran(
+        where_is(
+            lookup["asset_id"],
+            spec_store=lookup["store"],
+            search_index=lookup["index"],
+            fingerprints=lambda path: _fingerprint(path, 99),
+        )
     )
 
 
@@ -492,7 +507,7 @@ def _a_project_with_a_malformed_file(lookup: dict[str, Any]) -> None:
 
 @when("the index is rebuilt")
 def _the_index_is_rebuilt(lookup: dict[str, Any]) -> None:
-    lookup["report"] = rebuild_index(spec_store=lookup["store"], search_index=lookup["index"])
+    lookup["report"] = ran(rebuild_index(spec_store=lookup["store"], search_index=lookup["index"]))
 
 
 @then("the command SHALL report the count of indexed assets and name the malformed file")
@@ -521,7 +536,7 @@ def _a_budget_reduced_since_a_revision(lookup: dict[str, Any]) -> None:
 
 @when("the change since that revision is requested")
 def _the_change_since_that_revision(lookup: dict[str, Any]) -> None:
-    lookup["difference"] = diff_spec(SCOUT_PATH, REVISION, spec_store=lookup["store"])
+    lookup["difference"] = ran(diff_spec(SCOUT_PATH, REVISION, spec_store=lookup["store"]))
 
 
 @then(
@@ -543,7 +558,7 @@ def _the_budget_change_is_stated(lookup: dict[str, Any]) -> None:
 def _nothing_changed_since_the_revision(lookup: dict[str, Any]) -> None:
     store = a_store((SCOUT_PATH, SCOUT))
     store.add_revision(SCOUT_PATH, REVISION, SCOUT)
-    lookup["difference"] = diff_spec(SCOUT_PATH, REVISION, spec_store=store)
+    lookup["difference"] = ran(diff_spec(SCOUT_PATH, REVISION, spec_store=store))
 
 
 @then("the response SHALL state that the specification is unchanged")

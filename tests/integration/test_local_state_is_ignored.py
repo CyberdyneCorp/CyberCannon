@@ -30,6 +30,7 @@ from cybercanon.adapters.outbound.sqlite.search_index import (
     SqliteSearchIndex,
 )
 from cybercanon.application.ports.search_index import FileFingerprint
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.index_assets import rebuild_index
 from cybercanon.application.use_cases.lookup_assets import search_assets, where_is
 from cybercanon.application.use_cases.validate_export import validate_export
@@ -98,15 +99,17 @@ def test_a_validate_index_search_cycle_leaves_the_working_tree_clean(committed_r
     index = SqliteSearchIndex(committed_repo)
     fingerprints = _fingerprint(committed_repo)
 
-    validate_export(
-        MECH_EXPORT, spec_store=store, mesh_inspector=TrimeshInspector(root=committed_repo)
+    ran(
+        validate_export(
+            MECH_EXPORT, spec_store=store, mesh_inspector=TrimeshInspector(root=committed_repo)
+        )
     )
-    report = rebuild_index("", spec_store=store, search_index=index, fingerprints=fingerprints)
-    located = where_is(
-        "mech_scout", spec_store=store, search_index=index, fingerprints=fingerprints
+    report = ran(rebuild_index("", spec_store=store, search_index=index, fingerprints=fingerprints))
+    located = ran(
+        where_is("mech_scout", spec_store=store, search_index=index, fingerprints=fingerprints)
     )
-    found = search_assets("mech_scout", search_index=index)
-    missed = search_assets(MISSING_TERM, search_index=index)
+    found = ran(search_assets("mech_scout", search_index=index))
+    missed = ran(search_assets(MISSING_TERM, search_index=index))
 
     assert report.indexed_count == 3
     assert located.asset_id == "mech_scout"

@@ -25,6 +25,7 @@ from cybercanon.adapters.outbound.git.schema import RULE_UNKNOWN_FIELD, SCHEMA_V
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
 from cybercanon.application.ports.spec_store import SpecNotFound, SpecUnreadable
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.validate_export import validate_export
 from cybercanon.domain.status import Status
 
@@ -138,11 +139,13 @@ def test_a_spec_with_an_unrecognised_field_still_validates_its_mesh(tmp_path: Pa
     store = _repository(tmp_path, COMMENTED_SPEC + "  shinyness: 3\n")
     fixtures.write_skinned_glb(tmp_path / EXPORT)
 
-    outcome = validate_export(
-        EXPORT,
-        spec_store=store,
-        mesh_inspector=TrimeshInspector(root=tmp_path),
-        blob_store=FsBlobStore(tmp_path / ".canon/cache"),
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=store,
+            mesh_inspector=TrimeshInspector(root=tmp_path),
+            blob_store=FsBlobStore(tmp_path / ".canon/cache"),
+        )
     )
 
     assert outcome.report.export_format is not None

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import pytest
 
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.lint_spec import (
     lint_actor_mapping,
@@ -61,14 +62,14 @@ def a_binding(subject: str, *emails: str, role: str | None = None) -> ActorBindi
 
 def test_a_project_with_no_mapping_produces_no_findings() -> None:
     """The mapping is optional and additive: its absence is not a defect."""
-    assert lint_actor_mapping(spec_store=a_store()) == ()
+    assert ran(lint_actor_mapping(spec_store=a_store())) == ()
 
 
 def test_a_well_formed_mapping_produces_no_findings() -> None:
     store = a_store()
     store.set_actor_mapping(mapping(a_binding("auth|rafa", RAFA, role="artist")))
 
-    assert lint_actor_mapping(spec_store=store) == ()
+    assert ran(lint_actor_mapping(spec_store=store)) == ()
 
 
 @pytest.mark.parametrize(
@@ -92,7 +93,7 @@ def test_each_structural_defect_is_reported_against_the_mapping_file(
     store = a_store()
     store.set_actor_mapping(built)
 
-    findings = lint_actor_mapping(spec_store=store)
+    findings = ran(lint_actor_mapping(spec_store=store))
 
     assert [finding.rule_id for finding in findings] == [rule_id]
     assert findings[0].path == ACTORS_PATH
@@ -102,7 +103,7 @@ def test_an_unparseable_mapping_is_a_finding_rather_than_an_exception() -> None:
     store = a_store()
     store.set_actor_mapping_unparseable("expected a list of actors")
 
-    findings = lint_actor_mapping(spec_store=store)
+    findings = ran(lint_actor_mapping(spec_store=store))
 
     assert [finding.rule_id for finding in findings] == [RULE_UNPARSEABLE]
     assert ACTORS_PATH in findings[0].violation.message
@@ -113,7 +114,7 @@ def test_the_project_lint_fails_over_a_broken_mapping() -> None:
     store = a_store()
     store.set_actor_mapping(mapping(a_binding("auth|rafa", RAFA), a_binding("auth|other", RAFA)))
 
-    report = lint_project("", spec_store=store)
+    report = ran(lint_project("", spec_store=store))
 
     assert not report.passed
     assert report.errors
@@ -123,9 +124,9 @@ def test_the_project_lint_fails_over_a_broken_mapping() -> None:
 def test_the_mapping_is_never_counted_as_a_specification_file() -> None:
     """Adding an identity file must not change how many assets a project has."""
     store = a_store()
-    without = lint_project("", spec_store=store)
+    without = ran(lint_project("", spec_store=store))
     store.set_actor_mapping(mapping(a_binding("auth|rafa", RAFA)))
-    with_mapping = lint_project("", spec_store=store)
+    with_mapping = ran(lint_project("", spec_store=store))
 
     assert without.checked == with_mapping.checked == (SPEC_PATH,)
     assert with_mapping.mapping == ()
@@ -140,8 +141,8 @@ def test_linting_named_files_says_nothing_about_the_mapping() -> None:
     store = a_store()
     store.set_actor_mapping(mapping(a_binding("auth|rafa", RAFA), a_binding("auth|other", RAFA)))
 
-    named = lint_specs([SPEC_PATH], spec_store=store)
+    named = ran(lint_specs([SPEC_PATH], spec_store=store))
 
     assert named.mapping == ()
     assert named.passed
-    assert not lint_project("", spec_store=store).passed
+    assert not ran(lint_project("", spec_store=store)).passed

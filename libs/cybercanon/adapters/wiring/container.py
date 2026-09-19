@@ -23,21 +23,21 @@ Two properties this module is shaped by:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from cybercanon.application.errors import OperationFailed
 from cybercanon.application.ports.blob_store import BlobStore
 from cybercanon.application.ports.mesh_inspector import MeshInspector
 from cybercanon.application.ports.search_index import RecordedMiss, SearchIndex
 from cybercanon.application.ports.spec_store import ProjectConfig, SpecStore
+from cybercanon.application.results import Result, Unavailable
 from cybercanon.application.use_cases.compile_spec import (
     CompiledBriefing,
     CompiledSpec,
     compile_project_briefing,
     compile_spec,
 )
-from cybercanon.application.use_cases.diff_spec import SpecDifference, diff_spec
+from cybercanon.application.use_cases.diff_spec import SpecDifference, diff_asset_spec
 from cybercanon.application.use_cases.index_assets import (
     Fingerprinter,
     RebuildReport,
@@ -58,7 +58,6 @@ from cybercanon.application.use_cases.lookup_assets import (
     list_assets,
     nearest_ids,
     recorded_misses,
-    recorded_owners,
     search_assets,
     spec_path_for,
     where_is,
@@ -68,7 +67,7 @@ from cybercanon.application.use_cases.resolve_actor import (
     AuthorSource,
     Resolution,
     UnmappedAuthors,
-    list_unmapped_authors,
+    list_unmapped_people,
     no_authors,
 )
 from cybercanon.application.use_cases.spec_lens import (
@@ -83,6 +82,15 @@ NO_INDEX = (
     "this container was built without a search index; lookup, search and "
     "specification reads by identifier need one"
 )
+
+INDEX_UNAVAILABLE = Unavailable(identifier="index.unavailable", message=NO_INDEX)
+"""What a container built for validation alone answers to a lookup (D10).
+
+A returned refusal rather than a raise, because it reaches an inbound adapter
+like every other outcome: a pre-commit hook wired with no index and a hosted
+surface whose index is still rebuilding get the same vocabulary, and neither
+surface needs an `except` to render it.
+"""
 
 USE_CASES: tuple[str, ...] = (
     "validate_export",
@@ -130,7 +138,9 @@ class Container:
 
     # -- validation ------------------------------------------------------
 
-    def validate_export(self, export: str, *, emit_preview: bool = False) -> ValidationOutcome:
+    def validate_export(
+        self, export: str, *, emit_preview: bool = False
+    ) -> Result[ValidationOutcome]:
         """One export against its governing specification."""
         return validate_export(
             export,
@@ -142,25 +152,25 @@ class Container:
 
     # -- specification files ---------------------------------------------
 
-    def lint_specs(self, paths: Sequence[str]) -> LintReport:
+    def lint_specs(self, paths: Sequence[str]) -> Result[LintReport]:
         """The structural checks over the specification files themselves."""
         return lint_specs(paths, spec_store=self.spec_store)
 
-    def lint_project(self, root: str = "") -> LintReport:
+    def lint_project(self, root: str = "") -> Result[LintReport]:
         """The same checks over every specification at or below `root`."""
         return lint_project(root, spec_store=self.spec_store)
 
-    def lint_actor_mapping(self, root: str = "") -> tuple[LintFinding, ...]:
+    def lint_actor_mapping(self, root: str = "") -> Result[tuple[LintFinding, ...]]:
         """The structural checks over `.canon/actors.yaml` on their own (D12)."""
         return lint_actor_mapping(root, spec_store=self.spec_store)
 
     # -- compilation -----------------------------------------------------
 
-    def compile_spec(self, spec_path: str) -> CompiledSpec:
+    def compile_spec(self, spec_path: str) -> Result[CompiledSpec]:
         """One asset's specification, compiled into its briefing."""
         return compile_spec(spec_path, spec_store=self.spec_store)
 
-    def compile_project_briefing(self, root: str = "") -> CompiledBriefing:
+    def compile_project_briefing(self, root: str = "") -> Result[CompiledBriefing]:
         """The project's standing rules, with no asset in them."""
         return compile_project_briefing(root, spec_store=self.spec_store)
 
@@ -184,12 +194,17 @@ class Container:
         """The project this working copy is, as the index and the entitlement spell it."""
         return self.project().name or ""
 
-    @property
-    def index(self) -> SearchIndex:
-        """The search index, or a named failure — never a silent empty answer."""
+    def over_index[T](self, operation: Callable[[SearchIndex], Result[T]]) -> Result[T]:
+        """Run a use case that needs the index, or say this container has none.
+
+        The one branch in this module, and it is about wiring rather than about
+        an asset: *was this container built for lookup*. Every method below that
+        needs an index goes through it, so "no index" is one sentence in one
+        place instead of ten.
+        """
         if self.search_index is None:
-            raise OperationFailed(NO_INDEX)
-        return self.search_index
+            return INDEX_UNAVAILABLE
+        return operation(self.search_index)
 
     # -- identity (D4) ---------------------------------------------------
 
@@ -201,7 +216,7 @@ class Container:
         """
         return (self.actor_resolver or ActorResolver(project=self.project_name)).resolve()
 
-    def unmapped_authors(self, root: str = "") -> UnmappedAuthors:
+    def unmapped_authors(self, root: str = "") -> Result[UnmappedAuthors]:
         """The project's git authors and recorded owners the mapping does not bind.
 
         Two sources because a project has two kinds of author: the people in its
@@ -209,22 +224,28 @@ class Container:
         the people its specification files name as owners. Both are addresses
         that will be rendered as somebody, so both have to be completable.
         """
-        return list_unmapped_authors(
-            (*self.authors(), *recorded_owners(self.list_assets())),
-            spec_store=self.spec_store,
-            root=root,
+        return self.over_index(
+            lambda index: list_unmapped_people(
+                spec_store=self.spec_store,
+                search_index=index,
+                authors=self.authors(),
+                project=self.project_name or None,
+                root=root,
+            )
         )
 
     # -- lookup and search -----------------------------------------------
 
-    def where_is(self, asset_id: str) -> LocationAnswer:
+    def where_is(self, asset_id: str) -> Result[LocationAnswer]:
         """Every recorded location of one asset, with the unrecorded ones named."""
-        return where_is(
-            asset_id,
-            spec_store=self.spec_store,
-            search_index=self.index,
-            fingerprints=self.fingerprints,
-            project=self.project_name or None,
+        return self.over_index(
+            lambda index: where_is(
+                asset_id,
+                spec_store=self.spec_store,
+                search_index=index,
+                fingerprints=self.fingerprints,
+                project=self.project_name or None,
+            )
         )
 
     def list_assets(
@@ -233,78 +254,105 @@ class Container:
         status: str | None = None,
         owner: str | None = None,
         tag: str | None = None,
-    ) -> AssetListing:
+    ) -> Result[AssetListing]:
         """The project's assets, narrowed by every filter that was given."""
-        return list_assets(
-            spec_store=self.spec_store,
-            search_index=self.index,
-            project=self.project_name or None,
-            status=status,
-            owner=owner,
-            tag=tag,
+        return self.over_index(
+            lambda index: list_assets(
+                spec_store=self.spec_store,
+                search_index=index,
+                project=self.project_name or None,
+                status=status,
+                owner=owner,
+                tag=tag,
+            )
         )
 
-    def search_assets(self, term: str) -> SearchAnswer:
+    def search_assets(self, term: str) -> Result[SearchAnswer]:
         """The ranked cascade of D9, with a zero-result term recorded locally."""
-        return search_assets(term, search_index=self.index, project=self.project_name or None)
-
-    def nearest_assets(self, asset_id: str) -> tuple[str, ...]:
-        """The indexed identifiers closest to one nobody recognised."""
-        return nearest_ids(asset_id, search_index=self.index, project=self.project_name or None)
-
-    def recorded_misses(self) -> tuple[RecordedMiss, ...]:
-        """Every search term that matched nothing, with how often it was asked."""
-        return recorded_misses(search_index=self.index, project=self.project_name or None)
-
-    def rebuild_index(self, root: str = "") -> RebuildReport:
-        """Scan every specification under `root` and rewrite the project's rows."""
-        return rebuild_index(
-            root,
-            spec_store=self.spec_store,
-            search_index=self.index,
-            fingerprints=self.fingerprints,
+        return self.over_index(
+            lambda index: search_assets(term, search_index=index, project=self.project_name or None)
         )
 
-    def spec_path_for(self, asset_id: str) -> str:
+    def nearest_assets(self, asset_id: str) -> Result[tuple[str, ...]]:
+        """The indexed identifiers closest to one nobody recognised."""
+        return self.over_index(
+            lambda index: nearest_ids(
+                asset_id, search_index=index, project=self.project_name or None
+            )
+        )
+
+    def recorded_misses(self) -> Result[tuple[RecordedMiss, ...]]:
+        """Every search term that matched nothing, with how often it was asked."""
+        return self.over_index(
+            lambda index: recorded_misses(search_index=index, project=self.project_name or None)
+        )
+
+    def rebuild_index(self, root: str = "") -> Result[RebuildReport]:
+        """Scan every specification under `root` and rewrite the project's rows."""
+        return self.over_index(
+            lambda index: rebuild_index(
+                root,
+                spec_store=self.spec_store,
+                search_index=index,
+                fingerprints=self.fingerprints,
+            )
+        )
+
+    def spec_path_for(self, asset_id: str) -> Result[str]:
         """The specification file one asset is written in, by identifier."""
-        return spec_path_for(
-            asset_id,
-            spec_store=self.spec_store,
-            search_index=self.index,
-            fingerprints=self.fingerprints,
-            project=self.project_name or None,
+        return self.over_index(
+            lambda index: spec_path_for(
+                asset_id,
+                spec_store=self.spec_store,
+                search_index=index,
+                fingerprints=self.fingerprints,
+                project=self.project_name or None,
+            )
         )
 
     # -- lensed reads (D2, D3) -------------------------------------------
 
-    def asset_spec(self, asset_id: str, lens: str | Lens | None = None) -> LensedSpec:
+    def asset_spec(self, asset_id: str, lens: str | Lens | None = None) -> Result[LensedSpec]:
         """One asset's specification as a discipline sees it — authorized first."""
-        return read_asset_spec(
-            asset_id,
-            lens,
-            spec_store=self.spec_store,
-            search_index=self.index,
-            resolution=self.resolve_actor(),
-            project=self.project_name,
-            fingerprints=self.fingerprints,
+        return self.over_index(
+            lambda index: read_asset_spec(
+                asset_id,
+                lens,
+                spec_store=self.spec_store,
+                search_index=index,
+                resolution=self.resolve_actor(),
+                project=self.project_name,
+                fingerprints=self.fingerprints,
+            )
         )
 
-    def open_annotations(self, asset_id: str) -> LensedSpec:
+    def open_annotations(self, asset_id: str) -> Result[LensedSpec]:
         """The threads still open on one asset, and nothing else."""
-        return read_open_annotations(
-            asset_id,
-            spec_store=self.spec_store,
-            search_index=self.index,
-            resolution=self.resolve_actor(),
-            project=self.project_name,
-            fingerprints=self.fingerprints,
+        return self.over_index(
+            lambda index: read_open_annotations(
+                asset_id,
+                spec_store=self.spec_store,
+                search_index=index,
+                resolution=self.resolve_actor(),
+                project=self.project_name,
+                fingerprints=self.fingerprints,
+            )
         )
 
     # -- history (D10) ---------------------------------------------------
 
-    def diff_spec(self, asset_id: str, revision: str) -> SpecDifference:
+    def diff_spec(self, asset_id: str, revision: str) -> Result[SpecDifference]:
         """How one asset's specification has moved since a revision."""
-        return diff_spec(self.spec_path_for(asset_id), revision, spec_store=self.spec_store)
+        return self.over_index(
+            lambda index: diff_asset_spec(
+                asset_id,
+                revision,
+                spec_store=self.spec_store,
+                search_index=index,
+                fingerprints=self.fingerprints,
+                project=self.project_name or None,
+            )
+        )
 
 
-__all__ = ["NO_INDEX", "USE_CASES", "Container"]
+__all__ = ["INDEX_UNAVAILABLE", "NO_INDEX", "USE_CASES", "Container"]

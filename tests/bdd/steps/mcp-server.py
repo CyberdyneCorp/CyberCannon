@@ -49,6 +49,7 @@ from cybercanon.application.ports.identity_provider import ResolvedIdentity
 from cybercanon.application.ports.search_index import FileFingerprint
 from cybercanon.application.ports.spec_store import ProjectConfig
 from cybercanon.application.testing import build_fakes
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.index_assets import Fingerprinter
 from cybercanon.application.use_cases.resolve_actor import ActorResolver, IdentityCache
 from cybercanon.application.use_cases.spec_lens import Lens
@@ -520,7 +521,7 @@ def _request_the_specification(mcp: dict[str, Any]) -> None:
 @then("the response SHALL be the markdown briefing a person would read")
 def _the_response_is_the_briefing(mcp: dict[str, Any]) -> None:
     response = mcp["response"]
-    compiled = mcp["container"].compile_spec(SPEC_PATH)
+    compiled = ran(mcp["container"].compile_spec(SPEC_PATH))
 
     assert response.strip() == compiled.text.strip(), "one compilation, not a second renderer"
     assert response.startswith("#")

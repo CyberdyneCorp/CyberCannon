@@ -36,6 +36,7 @@ from cybercanon.adapters.inbound.mcp.tools import TOOL_NAMES, advertised, build_
 from cybercanon.adapters.wiring.container import USE_CASES, Container
 from cybercanon.application.ports.spec_store import ProjectConfig
 from cybercanon.application.testing import build_fakes
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.index_assets import entry_for
 from cybercanon.domain.asset import Asset, AssetId
 from cybercanon.domain.constraints import Constraints
@@ -134,10 +135,10 @@ def test_both_surfaces_read_the_same_store(container: Container, server: FastMCP
     answer = call(server, "where_is", {"asset_id": ASSET_ID})
 
     assert ASSET_ID in answer
-    assert container.where_is(ASSET_ID).asset_id == ASSET_ID
+    assert ran(container.where_is(ASSET_ID)).asset_id == ASSET_ID
 
     container.spec_store.add(LATER_SPEC, an_asset(LATER_ID, "Barrel"))
-    container.rebuild_index()
+    ran(container.rebuild_index())
 
     assert LATER_ID in call(server, "list_assets", {})
-    assert LATER_ID in container.list_assets().asset_ids
+    assert LATER_ID in ran(container.list_assets()).asset_ids

@@ -29,9 +29,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.application.ports.search_index import SearchIndex
 from cybercanon.application.ports.spec_store import SpecStore
+from cybercanon.application.results import as_result
 from cybercanon.application.use_cases.briefing import NOTHING_DECLARED
 from cybercanon.application.use_cases.compile_spec import CompiledSpec, compile_spec
 from cybercanon.application.use_cases.index_assets import Fingerprinter, no_fingerprints
@@ -136,6 +137,9 @@ only, so no projection over it can produce a closed one.
 class UnknownLens(OperationFailed):
     """A lens outside the defined set. Refused, and the valid ones are named."""
 
+    kind = FailureKind.INVALID
+    identifier = "lens.unknown"
+
     def __init__(self, lens: str) -> None:
         super().__init__(
             f"{lens!r} is not a lens; the available lenses are "
@@ -147,6 +151,9 @@ class UnknownLens(OperationFailed):
 
 class ReadRefused(OperationFailed):
     """The caller may not read this project. Decided before the lens is looked at."""
+
+    kind = FailureKind.FORBIDDEN
+    identifier = "project.read_refused"
 
     def __init__(self, reason: str, subject: str | None = None) -> None:
         super().__init__(reason, subject)
@@ -202,7 +209,7 @@ def compile_spec_for_lens(
     if decision.refused:
         raise ReadRefused(decision.reason, subject=spec_path)
     chosen = _as_lens(lens)
-    compiled = compile_spec(spec_path, spec_store=spec_store)
+    compiled = compile_spec.raising(spec_path, spec_store=spec_store)
     return project_lens(compiled, chosen)
 
 
@@ -251,6 +258,7 @@ def notice_for(lens: Lens, asset_id: str) -> str:
     )
 
 
+@as_result
 def read_asset_spec(
     asset_id: str,
     lens: str | Lens | None = None,
@@ -282,6 +290,7 @@ def read_asset_spec(
     )
 
 
+@as_result
 def read_open_annotations(
     asset_id: str,
     *,
@@ -305,7 +314,7 @@ def read_open_annotations(
         project=project,
         fingerprints=fingerprints,
     )
-    return project_open_issues(compile_spec(path, spec_store=spec_store))
+    return project_open_issues(compile_spec.raising(path, spec_store=spec_store))
 
 
 def project_open_issues(compiled: CompiledSpec) -> LensedSpec:
@@ -336,7 +345,7 @@ def _authorized_path(
     decision = may_read(resolution, project)
     if decision.refused:
         raise ReadRefused(decision.reason, subject=asset_id)
-    return spec_path_for(
+    return spec_path_for.raising(
         asset_id,
         spec_store=spec_store,
         search_index=search_index,

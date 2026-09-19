@@ -23,9 +23,14 @@ not, the product has the bug it exists to prevent.
 
 Two seams, each existing exactly once:
 
-* **Exit codes** — :func:`_run` is the only place a process exit is decided, and
-  the only `except OperationFailed` in the CLI (`0` clean, `1` error-severity
-  violations, `2` could not run).
+* **Exit codes** — :func:`_run` is the only place a process exit is decided (`0`
+  clean, `1` error-severity violations, `2` could not run). A use case now
+  *returns* its refusal rather than raising it (D10), so what :func:`_run` reads
+  is a :class:`~cybercanon.application.results.Result`; the single
+  `except OperationFailed` it keeps is for the two port calls this module makes
+  outside a use case — reading the project configuration and asking discovery
+  which asset owns a changed file — and it puts them into the same vocabulary
+  through :func:`~cybercanon.application.results.classify` rather than beside it.
 * **Output** — :func:`_emit` is the only place anything is written. In
   `--json` mode standard output carries the structured document and nothing
   else; prose, diagnostics and failures go to standard error.
@@ -47,6 +52,7 @@ from cybercanon.adapters.inbound.cli import rendering
 from cybercanon.adapters.inbound.cli.exit_codes import COULD_NOT_RUN, exit_code
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.errors import OperationFailed
+from cybercanon.application.results import Ok, Result, classify, first_refusal, succeeded
 from cybercanon.application.use_cases.compile_spec import COMPILED_FILENAME
 from cybercanon.application.use_cases.lint_spec import LintReport
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
@@ -91,6 +97,10 @@ class Produced:
     payload: dict[str, Any]
     text: str
     passed: bool
+
+
+Command = Callable[[], Result[Produced]]
+"""One command's work: either what it produced, or the refusal that stopped it."""
 
 
 def build_app(container: Container, container_for: ContainerFor | None = None) -> typer.Typer:
@@ -188,16 +198,31 @@ def build_app(container: Container, container_for: ContainerFor | None = None) -
 # --------------------------------------------------------------------------
 
 
-def _run(command: str, json_output: bool, operation: Callable[[], Produced]) -> None:
+def _run(command: str, json_output: bool, operation: Command) -> None:
     """The exit-code seam: the only place this process decides how it ends (D11)."""
-    try:
-        produced = operation()
-    except OperationFailed as error:
-        failed = payloads.failure_payload(command, error)
-        _emit(json_output, failed, rendering.render_failure(error), diagnostic=True)
-        raise typer.Exit(COULD_NOT_RUN) from None
+    result = _attempted(operation)
+    if not succeeded(result):
+        failed = payloads.failure_payload(command, result)
+        _emit(json_output, failed, rendering.render_failure(result), diagnostic=True)
+        raise typer.Exit(COULD_NOT_RUN)
+    produced = result.value
     _emit(json_output, produced.payload, produced.text)
     raise typer.Exit(exit_code(produced.passed))
+
+
+def _attempted(operation: Command) -> Result[Produced]:
+    """The command's answer, with a port failure put into the same vocabulary.
+
+    The CLI reads two things through the container that are not use cases — the
+    project configuration, for the directory a path is relative to, and
+    discovery, for which asset a changed file belongs to. Both are port calls and
+    both still raise, so this is where they join the outcome union rather than
+    bypassing it.
+    """
+    try:
+        return operation()
+    except OperationFailed as error:
+        return classify(error)
 
 
 def _emit(
@@ -217,70 +242,103 @@ def _emit(
 # --------------------------------------------------------------------------
 
 
-def _validate(container: Container, exports: Sequence[Path], preview: bool) -> Produced:
-    outcomes = [
+def _validate(container: Container, exports: Sequence[Path], preview: bool) -> Result[Produced]:
+    results = tuple(
         container.validate_export(export, emit_preview=preview)
         for export in _repo_paths(container, exports)
-    ]
-    return Produced(
-        payload=payloads.validation_payload(outcomes),
-        text=rendering.render_validations(outcomes),
-        passed=all(outcome.passed for outcome in outcomes),
+    )
+    refused = first_refusal(results)
+    if refused is not None:
+        return refused
+    outcomes = [result.value for result in results if succeeded(result)]
+    return Ok(
+        Produced(
+            payload=payloads.validation_payload(outcomes),
+            text=rendering.render_validations(outcomes),
+            passed=all(outcome.passed for outcome in outcomes),
+        )
     )
 
 
-def _compile(container: Container, spec: Path, out: Path | None, to_stdout: bool) -> Produced:
+def _compile(
+    container: Container, spec: Path, out: Path | None, to_stdout: bool
+) -> Result[Produced]:
     (path,) = _repo_paths(container, (spec,))
-    compiled = container.compile_spec(path)
+    result = container.compile_spec(path)
+    if not succeeded(result):
+        return result
+    compiled = result.value
     destination = None if to_stdout else _destination(container, compiled.source, out)
     written = None if destination is None else str(destination)
     if destination is not None:
         _write(destination, compiled.text)
     text = compiled.text if written is None else rendering.render_compiled(compiled.source, written)
-    return Produced(
-        payload=payloads.compile_payload(compiled, written),
-        text=text,
-        passed=True,
+    return Ok(
+        Produced(
+            payload=payloads.compile_payload(compiled, written),
+            text=text,
+            passed=True,
+        )
     )
 
 
-def _check(container: Container, path: Path) -> Produced:
+def _check(container: Container, path: Path) -> Result[Produced]:
     (root,) = _repo_paths(container, (path,))
-    report = container.lint_project(root)
+    result = container.lint_project(root)
+    if not succeeded(result):
+        return result
+    report = result.value
     notes = container.project(root).warnings
-    return Produced(
-        payload=payloads.lint_payload(report, notes),
-        text=_check_text(report, notes),
-        passed=report.passed,
+    return Ok(
+        Produced(
+            payload=payloads.lint_payload(report, notes),
+            text=_check_text(report, notes),
+            passed=report.passed,
+        )
     )
 
 
-def _rebuild(container: Container, path: Path) -> Produced:
+def _rebuild(container: Container, path: Path) -> Result[Produced]:
     (root,) = _repo_paths(container, (path,))
-    report = container.rebuild_index(root)
-    return Produced(
-        payload=payloads.rebuild_payload(report),
-        text=rendering.render_rebuild(report),
-        passed=report.is_complete,
+    result = container.rebuild_index(root)
+    if not succeeded(result):
+        return result
+    report = result.value
+    return Ok(
+        Produced(
+            payload=payloads.rebuild_payload(report),
+            text=rendering.render_rebuild(report),
+            passed=report.is_complete,
+        )
     )
 
 
-def _misses(container: Container) -> Produced:
-    recorded = container.recorded_misses()
-    return Produced(
-        payload=payloads.misses_payload(recorded),
-        text=rendering.render_misses(recorded),
-        passed=True,
+def _misses(container: Container) -> Result[Produced]:
+    result = container.recorded_misses()
+    if not succeeded(result):
+        return result
+    recorded = result.value
+    return Ok(
+        Produced(
+            payload=payloads.misses_payload(recorded),
+            text=rendering.render_misses(recorded),
+            passed=True,
+        )
     )
 
 
-def _unmapped(container: Container, path: Path) -> Produced:
+def _unmapped(container: Container, path: Path) -> Result[Produced]:
     (root,) = _repo_paths(container, (path,))
-    authors = container.unmapped_authors(root)
-    return Produced(
-        payload=payloads.unmapped_payload(authors),
-        text=rendering.render_unmapped(authors),
-        passed=not authors.violations,
+    result = container.unmapped_authors(root)
+    if not succeeded(result):
+        return result
+    authors = result.value
+    return Ok(
+        Produced(
+            payload=payloads.unmapped_payload(authors),
+            text=rendering.render_unmapped(authors),
+            passed=not authors.violations,
+        )
     )
 
 
@@ -297,17 +355,24 @@ def _serve(container: Container) -> None:
     tools.serve(container)
 
 
-def _changed(container: Container, files: Sequence[Path]) -> Produced:
+def _changed(container: Container, files: Sequence[Path]) -> Result[Produced]:
     specs, exports = _owning_assets(container, files)
     if not specs:
-        return Produced(payload=payloads.nothing_changed_payload(), text=NOTHING_TO_DO, passed=True)
-    lint = container.lint_specs(specs)
-    outcomes = [container.validate_export(export) for export in exports]
-    passed = lint.passed and all(outcome.passed for outcome in outcomes)
-    return Produced(
-        payload=payloads.changed_payload(specs, outcomes, lint),
-        text=_changed_text(lint, outcomes),
-        passed=passed,
+        return Ok(
+            Produced(payload=payloads.nothing_changed_payload(), text=NOTHING_TO_DO, passed=True)
+        )
+    attempted = (container.lint_specs(specs), *(container.validate_export(e) for e in exports))
+    refused = first_refusal(attempted)
+    if refused is not None:
+        return refused
+    lint, *validated = [result.value for result in attempted if succeeded(result)]
+    passed = lint.passed and all(outcome.passed for outcome in validated)
+    return Ok(
+        Produced(
+            payload=payloads.changed_payload(specs, validated, lint),
+            text=_changed_text(lint, validated),
+            passed=passed,
+        )
     )
 
 

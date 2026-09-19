@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from cybercanon.application.ports.spec_store import ProjectConfig
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.compile_spec import compile_spec
 from cybercanon.application.use_cases.resolve_actor import (
@@ -170,7 +171,7 @@ def test_a_field_presented_by_two_lenses_is_byte_identical_in_both(store, entitl
 
 
 def test_the_projection_is_a_pure_function_of_one_compiled_specification(store) -> None:
-    compiled = compile_spec(SPEC_PATH, spec_store=store)
+    compiled = ran(compile_spec(SPEC_PATH, spec_store=store))
 
     projections = {lens: project_lens(compiled, lens) for lens in Lens}
 
@@ -204,7 +205,7 @@ def test_the_modeling_lens_omits_the_concept_block(store, entitled) -> None:
 
 def test_an_absent_lens_returns_the_whole_specification(store, entitled) -> None:
     full = read(store, entitled).body
-    compiled = compile_spec(SPEC_PATH, spec_store=store)
+    compiled = ran(compile_spec(SPEC_PATH, spec_store=store))
 
     assert full == compiled.text
     for block in ("Concept", "Design", "Engineering constraints", "Open issues", "Links"):

@@ -21,6 +21,7 @@ import pytest
 
 from cybercanon.application.ports.identity_provider import Credential, IdentityUnavailable
 from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.resolve_actor import (
     IDENTITY_CLAIM_PARAMETERS,
@@ -381,7 +382,7 @@ def test_unmapped_authors_are_listed_once_each(store: InMemorySpecStore) -> None
     store.set_actor_mapping(MAPPING)
     seen = (WORK_EMAIL, "ana@cyberdyne.com", "ANA@cyberdyne.com", "zoe@contractor.io")
 
-    found = list_unmapped_authors(seen, spec_store=store, root="")
+    found = ran(list_unmapped_authors(seen, spec_store=store, root=""))
 
     assert found.emails == ("ana@cyberdyne.com", "zoe@contractor.io")
     assert len(found) == 2
@@ -392,7 +393,7 @@ def test_unmapped_authors_carry_the_mapping_violations(store: InMemorySpecStore)
     """A broken file lists every author as unmapped and says why."""
     store.set_actor_mapping_unparseable("not a mapping")
 
-    found = list_unmapped_authors((WORK_EMAIL,), spec_store=store)
+    found = ran(list_unmapped_authors((WORK_EMAIL,), spec_store=store))
 
     assert found.emails == (WORK_EMAIL,)
     assert [violation.rule_id for violation in found.violations] == [RULE_UNPARSEABLE]

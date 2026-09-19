@@ -9,6 +9,7 @@ briefing, and nothing that changes between two runs of the same input.
 from __future__ import annotations
 
 from cybercanon.application.ports.spec_store import ProjectConfig
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.compile_spec import compile_project_briefing, compile_spec
 from cybercanon.domain.annotations import Anchor3D, Annotation, AnnotationKind
@@ -51,7 +52,7 @@ def compiled(asset: Asset, project: ProjectConfig | None = None) -> str:
     store.add(SPEC_PATH, asset)
     if project is not None:
         store.set_project(project)
-    return compile_spec(SPEC_PATH, spec_store=store).text
+    return ran(compile_spec(SPEC_PATH, spec_store=store)).text
 
 
 # --------------------------------------------------------------------------
@@ -188,7 +189,7 @@ def test_the_compilation_records_what_it_was_derived_from() -> None:
     store = InMemorySpecStore()
     store.add(SPEC_PATH, an_asset())
 
-    result = compile_spec(SPEC_PATH, spec_store=store)
+    result = ran(compile_spec(SPEC_PATH, spec_store=store))
 
     assert result.asset_id == "mech_scout"
     assert result.source == SPEC_PATH
@@ -215,7 +216,7 @@ def a_project_store() -> InMemorySpecStore:
 
 
 def test_the_project_briefing_carries_the_shared_constraints_and_the_golden_rules() -> None:
-    briefing = compile_project_briefing("", spec_store=a_project_store())
+    briefing = ran(compile_project_briefing("", spec_store=a_project_store()))
 
     assert briefing.project == "Ironwood"
     assert "Every design field constrains art" in briefing.text
@@ -224,7 +225,7 @@ def test_the_project_briefing_carries_the_shared_constraints_and_the_golden_rule
 
 
 def test_the_project_briefing_contains_no_asset_annotation() -> None:
-    briefing = compile_project_briefing("", spec_store=a_project_store())
+    briefing = ran(compile_project_briefing("", spec_store=a_project_store()))
 
     assert OPEN_TEXT not in briefing.text
     assert "mech_scout" not in briefing.text
@@ -233,6 +234,6 @@ def test_the_project_briefing_contains_no_asset_annotation() -> None:
 def test_the_project_briefing_is_deterministic_too() -> None:
     store = a_project_store()
 
-    assert compile_project_briefing("", spec_store=store) == compile_project_briefing(
-        "", spec_store=store
+    assert ran(compile_project_briefing("", spec_store=store)) == ran(
+        compile_project_briefing("", spec_store=store)
     )

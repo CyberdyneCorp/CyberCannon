@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Protocol
 
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.domain.actors import ACTORS_PATH, EMPTY_MAPPING, ActorMapping
 from cybercanon.domain.asset import Asset
 from cybercanon.domain.constraints import Constraints
@@ -101,6 +101,9 @@ class ProjectConfig:
 class SpecNotFound(OperationFailed):
     """No specification governs that path. Named, never assumed to be clean."""
 
+    kind = FailureKind.NOT_FOUND
+    identifier = "spec.not_found"
+
     def __init__(self, subject: str) -> None:
         super().__init__(
             f"no asset.yaml governs {subject}; add one beside the asset or "
@@ -111,6 +114,9 @@ class SpecNotFound(OperationFailed):
 
 class SpecUnreadable(OperationFailed):
     """The file is there and cannot be turned into an asset."""
+
+    kind = FailureKind.INVALID
+    identifier = "spec.unreadable"
 
     def __init__(self, subject: str, reason: str) -> None:
         super().__init__(f"{subject} could not be read as a specification: {reason}", subject)
@@ -125,6 +131,9 @@ class HistoryUnavailable(OperationFailed):
     requested range and keeps the session alive, which is the degraded answer
     the design prefers to a broken tool.
     """
+
+    kind = FailureKind.UNAVAILABLE
+    identifier = "history.unavailable"
 
     def __init__(self, subject: str, revision: str, reason: str = "") -> None:
         detail = f": {reason}" if reason else ""

@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from cybercanon.application.errors import OperationFailed
 from cybercanon.application.ports.search_index import RecordedMiss
+from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
 from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
@@ -105,9 +105,9 @@ def render_project_notes(notes: Sequence[SpecViolation]) -> str:
     return "\n".join((".canon/project.yaml", *(_spec_warning(note) for note in notes)))
 
 
-def render_failure(error: OperationFailed) -> str:
+def render_failure(refusal: Refusal) -> str:
     """An operation that could not run — never a verdict, never a passing report."""
-    return f"canon: {error.message}"
+    return f"canon: {refusal.message}"
 
 
 def render_compiled(source: str, destination: str | None) -> str:

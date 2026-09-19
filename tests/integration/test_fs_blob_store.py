@@ -22,6 +22,7 @@ from cybercanon.adapters.outbound.git.discovery import GIT_DIR
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
 from cybercanon.application.ports.preview import PreviewMesh
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.validate_export import validate_export
 
 pytestmark = pytest.mark.integration
@@ -73,12 +74,14 @@ def test_a_validation_run_writes_a_traceable_preview(tmp_path: Path) -> None:
     fixtures.write_skinned_glb(tmp_path / EXPORT)
     blobs = FsBlobStore(tmp_path / ".canon/cache")
 
-    outcome = validate_export(
-        EXPORT,
-        spec_store=GitSpecStore(tmp_path),
-        mesh_inspector=TrimeshInspector(root=tmp_path),
-        blob_store=blobs,
-        emit_preview=True,
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=GitSpecStore(tmp_path),
+            mesh_inspector=TrimeshInspector(root=tmp_path),
+            blob_store=blobs,
+            emit_preview=True,
+        )
     )
 
     assert outcome.preview_failure is None

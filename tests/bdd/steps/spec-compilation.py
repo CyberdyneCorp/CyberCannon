@@ -25,6 +25,7 @@ from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.spec_store import ProjectConfig
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.compile_spec import compile_project_briefing, compile_spec
 from cybercanon.domain.annotations import Anchor3D, Annotation, AnnotationKind
@@ -81,7 +82,7 @@ def _seed(compilation: dict[str, Any], asset: Asset, project: ProjectConfig | No
 
 
 def _compile(compilation: dict[str, Any]) -> str:
-    return compile_spec(SPEC_PATH, spec_store=compilation["spec_store"]).text
+    return ran(compile_spec(SPEC_PATH, spec_store=compilation["spec_store"])).text
 
 
 # --------------------------------------------------------------------------
@@ -262,13 +263,15 @@ def _the_project_briefing_is_compiled(compilation: dict[str, Any]) -> None:
             golden_rules=("Every design field constrains art, constrains code, or is checkable.",),
         ),
     )
-    compilation["text"] = compile_project_briefing("", spec_store=compilation["spec_store"]).text
+    compilation["text"] = ran(
+        compile_project_briefing("", spec_store=compilation["spec_store"])
+    ).text
 
 
 def _one_off(compilation: dict[str, Any], asset: Asset) -> str:
     store = InMemorySpecStore()
     store.add(SPEC_PATH, asset)
-    return compile_spec(SPEC_PATH, spec_store=store).text
+    return ran(compile_spec(SPEC_PATH, spec_store=store)).text
 
 
 # --------------------------------------------------------------------------

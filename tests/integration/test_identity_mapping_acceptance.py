@@ -30,6 +30,7 @@ from pathlib import Path
 import pytest
 
 from cybercanon.adapters.wiring.build import build_container
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.lookup_assets import ART, CODE, DESIGN
 from cybercanon.domain.actors import resolve_git_author
 from cybercanon.domain.identity import UNMAPPED_MARK
@@ -130,7 +131,7 @@ def history(tmp_path_factory: pytest.TempPathFactory, repo_root: Path) -> Path:
 @pytest.fixture(scope="module")
 def container(history: Path):  # type: ignore[no-untyped-def]
     built = build_container(history)
-    built.rebuild_index()
+    ran(built.rebuild_index())
     return built
 
 
@@ -140,7 +141,7 @@ def container(history: Path):  # type: ignore[no-untyped-def]
 
 
 def test_a_mapped_owner_is_named_as_the_person_in_the_location_answer(container) -> None:  # type: ignore[no-untyped-def]
-    owner = container.where_is(MECH).owner(ART)
+    owner = ran(container.where_is(MECH)).owner(ART)
 
     assert owner.recorded == RAFA
     assert owner.display == RAFA_NAME
@@ -148,9 +149,9 @@ def test_a_mapped_owner_is_named_as_the_person_in_the_location_answer(container)
 
 
 def test_the_same_person_renders_identically_in_a_listing(container) -> None:  # type: ignore[no-untyped-def]
-    (row,) = [row for row in container.list_assets().rows if row.asset_id == MECH]
+    (row,) = [row for row in ran(container.list_assets()).rows if row.asset_id == MECH]
 
-    assert row.owner(ART).display == container.where_is(MECH).owner(ART).display
+    assert row.owner(ART).display == ran(container.where_is(MECH)).owner(ART).display
 
 
 def test_the_same_person_renders_identically_as_a_commit_author(container, history: Path) -> None:  # type: ignore[no-untyped-def]
@@ -160,7 +161,10 @@ def test_the_same_person_renders_identically_as_a_commit_author(container, histo
 
     assert RAFA in authors
     assert resolve_git_author(mapping, RAFA).display == RAFA_NAME
-    assert resolve_git_author(mapping, RAFA).display == container.where_is(MECH).owner(ART).display
+    assert (
+        resolve_git_author(mapping, RAFA).display
+        == ran(container.where_is(MECH)).owner(ART).display
+    )
 
 
 # --------------------------------------------------------------------------
@@ -169,7 +173,7 @@ def test_the_same_person_renders_identically_as_a_commit_author(container, histo
 
 
 def test_an_unmapped_owner_shows_the_raw_address_marked_unmapped(container) -> None:  # type: ignore[no-untyped-def]
-    owner = container.where_is(MECH).owner(DESIGN)
+    owner = ran(container.where_is(MECH)).owner(DESIGN)
 
     assert owner.is_unmapped
     assert DANI in owner.display
@@ -180,7 +184,7 @@ def test_an_unmapped_commit_author_and_owner_are_both_listed_for_completion(
     container,  # type: ignore[no-untyped-def]
 ) -> None:
     """History and specification content are both sources of somebody to bind."""
-    listed = container.unmapped_authors().emails
+    listed = ran(container.unmapped_authors()).emails
 
     assert CONTRACTOR in listed, "a commit author nobody bound must be listed"
     assert DANI in listed, "a recorded owner nobody bound must be listed"
@@ -206,7 +210,7 @@ def test_the_command_lists_them_with_no_credential_and_no_identity_service(
 def test_a_near_miss_address_is_never_resolved_to_the_similar_mapped_person(
     container,  # type: ignore[no-untyped-def]
 ) -> None:
-    owner = container.where_is(MECH).owner(CODE)
+    owner = ran(container.where_is(MECH)).owner(CODE)
 
     assert owner.recorded == NEAR_MISS
     assert owner.is_unmapped

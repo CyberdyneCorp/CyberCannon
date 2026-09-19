@@ -25,9 +25,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from cybercanon.domain.identity import Actor, AgentId
+from cybercanon.domain.tenancy import ProjectRef, project_ref
 
 DURABLE_CONTENT = "durable specification content"
 """What agents may never author: constraints, silhouette rules, the spec itself."""
+
+WRONG_TENANT = "belongs to another tenant"
+"""Why a cross-organisation address is refused, in the words the refusal uses.
+
+Deliberately the same sentence whether the project exists or not: a refusal that
+distinguished them would answer "does this organisation have a project called
+`x`" to anybody who asked.
+"""
 
 
 @dataclass(frozen=True)
@@ -54,32 +63,61 @@ ALLOWED = Decision(allowed=True)
 """The unremarkable answer, shared because it carries no case-specific words."""
 
 
-def may_read_project(actor: Actor, project: str) -> Decision:
+def may_read_project(actor: Actor, project: str | ProjectRef) -> Decision:
     """Whether this actor may read this project's specifications.
 
-    The one rule: the project is among the ones the actor was resolved with.
-    The local unauthenticated actor passes it because it is resolved with the
-    project on this machine (D4), not because its kind is checked here — a kind
-    that skipped the test would be a privilege only automated callers could
-    reach, and there is no such thing.
+    Two rules, checked in this order:
+
+    1. **tenancy** — when the project names a tenant, it must be the actor's.
+       A project that names none asks no tenancy question, which is the case on
+       an artist's laptop and the reason the command line never acquired one;
+    2. **entitlement** — the project is among the ones the actor was resolved
+       with. The local unauthenticated actor passes it because it is resolved
+       with the project on this machine (D4), not because its kind is checked
+       here — a kind that skipped the test would be a privilege only automated
+       callers could reach, and there is no such thing.
+
+    Tenancy comes first so that an address in another organisation is refused
+    without the answer depending on whether a project of that name exists there.
     """
-    if actor.may_see(project):
+    subject = project_ref(project)
+    if not actor.may_enter(subject):
+        return Decision(
+            allowed=False,
+            reason=f"project {subject.name!r} {WRONG_TENANT}",
+        )
+    if actor.may_see(subject.name):
         return ALLOWED
     return Decision(
         allowed=False,
-        reason=f"{actor.display} may not read project {project!r}",
+        reason=f"{actor.display} may not read project {subject.name!r}",
     )
 
 
 def may_author_durable_content(actor: Actor, via: AgentId | None = None) -> Decision:
     """Whether this caller may create, modify or delete durable spec content.
 
-    `actor` is present for the refusal's wording and for nothing else: the
-    answer does not consult its roles, because the specification refuses an
-    automated caller *regardless of the roles held by the actor it acts as*. A
-    caller that reads the roles would eventually find one worth making an
+    Two ways a caller is automated and both are refused: an agent acting as a
+    person (`via`), and a service credential acting as nobody
+    (:attr:`~cybercanon.domain.identity.Actor.is_automation`). The second
+    arrived with the hosted surface, where background work authenticates with no
+    person behind it; without it, "no agent may author durable content" would be
+    enforced against the honest caller that declares its instrument and not
+    against the one that has none.
+
+    Neither branch consults the actor's roles, because the specification refuses
+    an automated caller *regardless of the roles held by the actor it acts as*.
+    A caller that read the roles would eventually find one worth making an
     exception for.
     """
+    if actor.is_automation:
+        return Decision(
+            allowed=False,
+            reason=(
+                f"{actor.display} may not author {DURABLE_CONTENT}; "
+                "background work reports, and a person decides"
+            ),
+        )
     if via is None:
         return ALLOWED
     return Decision(
@@ -95,6 +133,7 @@ def may_author_durable_content(actor: Actor, via: AgentId | None = None) -> Deci
 __all__ = [
     "ALLOWED",
     "DURABLE_CONTENT",
+    "WRONG_TENANT",
     "Decision",
     "may_author_durable_content",
     "may_read_project",

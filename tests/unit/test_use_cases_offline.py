@@ -18,6 +18,7 @@ from cybercanon.application.ports.preview import PreviewUnavailable
 from cybercanon.application.ports.spec_store import ProjectConfig
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.compile_spec import compile_project_briefing, compile_spec
 from cybercanon.application.use_cases.validate_export import validate_export
@@ -69,12 +70,14 @@ def test_validation_completes_and_reports_normally_while_everything_remote_is_do
 ) -> None:
     inspector.fail_preview(EXPORT, PreviewUnavailable("no compressor on this machine"))
 
-    outcome = validate_export(
-        EXPORT,
-        spec_store=spec_store,
-        mesh_inspector=inspector,
-        blob_store=severed_blobs,
-        emit_preview=True,
+    outcome = ran(
+        validate_export(
+            EXPORT,
+            spec_store=spec_store,
+            mesh_inspector=inspector,
+            blob_store=severed_blobs,
+            emit_preview=True,
+        )
     )
 
     assert outcome.report.violations_of(budgets.TRI_BUDGET)
@@ -88,14 +91,16 @@ def test_the_verdict_is_the_same_with_the_remote_ports_up_and_down(
     severed_blobs: InMemoryBlobStore,
 ) -> None:
     """Offline is not a degraded mode: it is the same decision, byte for byte."""
-    offline = validate_export(
-        EXPORT,
-        spec_store=spec_store,
-        mesh_inspector=inspector,
-        blob_store=severed_blobs,
-        emit_preview=True,
+    offline = ran(
+        validate_export(
+            EXPORT,
+            spec_store=spec_store,
+            mesh_inspector=inspector,
+            blob_store=severed_blobs,
+            emit_preview=True,
+        )
     )
-    online = validate_export(EXPORT, spec_store=spec_store, mesh_inspector=inspector)
+    online = ran(validate_export(EXPORT, spec_store=spec_store, mesh_inspector=inspector))
 
     assert offline.report == online.report
 
@@ -107,15 +112,15 @@ def test_compilation_succeeds_and_is_identical_with_every_remote_port_raising(
     with pytest.raises(ConnectionError):
         severed_blobs.preview_for("mech_scout")
 
-    first = compile_spec(SPEC_PATH, spec_store=spec_store)
-    second = compile_spec(SPEC_PATH, spec_store=spec_store)
+    first = ran(compile_spec(SPEC_PATH, spec_store=spec_store))
+    second = ran(compile_spec(SPEC_PATH, spec_store=spec_store))
 
     assert first.text == second.text
     assert "Scout Mech" in first.text
 
 
 def test_the_project_briefing_compiles_offline_too(spec_store: InMemorySpecStore) -> None:
-    briefing = compile_project_briefing("", spec_store=spec_store)
+    briefing = ran(compile_project_briefing("", spec_store=spec_store))
 
     assert briefing.project == "Ironwood"
     assert "- **Up axis**: Z" in briefing.text

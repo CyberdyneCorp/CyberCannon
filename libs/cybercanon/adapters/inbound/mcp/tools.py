@@ -25,11 +25,13 @@ nothing here to disagree with.
   before the lens is looked at (D3), inside the use case, which is what makes it
   safe to let a caller send any lens string it likes.
 
-Failures are answers. A recoverable failure — an unknown identifier, a malformed
-specification, a revision the repository cannot reach — comes back as prose
-naming the cause and, where one exists, the action that resolves it. Nothing
-below raises out of a tool, because an exception would end an agent's session
-over a typo.
+Failures are answers, and since D10 they are answers *by construction*: a use
+case returns one of seven outcomes rather than raising, so an unknown
+identifier, a malformed specification or a revision the repository cannot reach
+arrives here as a value and leaves as prose naming the cause and, where one
+exists, the action that resolves it. Nothing below raises out of a tool, because
+an exception would end an agent's session over a typo — and nothing below
+catches one either.
 
 The transport is standard input and output, and there is no other. The server
 never opens a listening port: hosting it would mean CORS, an open socket and a
@@ -46,7 +48,7 @@ from fastmcp import FastMCP
 
 from cybercanon.adapters.inbound.mcp import rendering
 from cybercanon.adapters.wiring.container import Container
-from cybercanon.application.errors import OperationFailed
+from cybercanon.application.results import Result, succeeded
 from cybercanon.application.use_cases.index_assets import UnreadableSpec
 from cybercanon.application.use_cases.spec_lens import Lens
 
@@ -107,27 +109,37 @@ class ReadSurface:
     unreadable: tuple[UnreadableSpec, ...] = field(default_factory=tuple)
 
     def refresh(self) -> None:
-        """Rebuild the derived index and remember what would not parse."""
-        self.unreadable = self.container.rebuild_index().unreadable
+        """Rebuild the derived index and remember what would not parse.
 
-    def answer(self, render: Callable[[], str], asset_id: str = "") -> str:
+        A container with no index answers a refusal rather than a report, and
+        the server still starts: the index is how lookups are answered, not what
+        makes the process viable.
+        """
+        rebuilt = self.container.rebuild_index()
+        self.unreadable = rebuilt.value.unreadable if succeeded(rebuilt) else ()
+
+    def answer[T](self, result: Result[T], render: Callable[[T], str], asset_id: str = "") -> str:
         """One tool's response: what the renderer produced, or why it could not.
 
-        The only `except` in the adapter, and it is deliberately the only one: a
-        tool that raised would end the session, and `mcp-server` requires a
-        recoverable failure to leave it usable.
+        The one place an outcome becomes prose, and there is no `except` in it
+        any more — the use case handed back a refusal, so the adapter reads it
+        the way it reads a report.
         """
-        try:
-            return render()
-        except OperationFailed as failure:
-            return rendering.render_failure(failure, self.nearest(asset_id))
+        if succeeded(result):
+            return render(result.value)
+        return rendering.render_failure(result, self.nearest(asset_id))
 
     def nearest(self, asset_id: str) -> tuple[str, ...]:
-        """The indexed identifiers closest to one nobody recognised."""
-        try:
-            return self.container.nearest_assets(asset_id) if asset_id else ()
-        except OperationFailed:
+        """The indexed identifiers closest to one nobody recognised.
+
+        An empty tuple when there is no index or nothing close: a suggestion is
+        a courtesy on top of a refusal, and a refusal is never worsened by one
+        being unavailable.
+        """
+        if not asset_id:
             return ()
+        nearest = self.container.nearest_assets(asset_id)
+        return nearest.value if succeeded(nearest) else ()
 
 
 def build_server(container: Container, *, name: str = SERVER_NAME) -> FastMCP:
@@ -166,9 +178,7 @@ def _lookup_tools(server: FastMCP, surface: ReadSurface) -> None:
     @server.tool(run_in_thread=IN_THREAD)
     def where_is(asset_id: str) -> str:
         """Where an asset's directory, source file, export and engine path live."""
-        return surface.answer(
-            lambda: rendering.render_location(container.where_is(asset_id)), asset_id
-        )
+        return surface.answer(container.where_is(asset_id), rendering.render_location, asset_id)
 
     @server.tool(run_in_thread=IN_THREAD)
     def list_assets(
@@ -178,16 +188,16 @@ def _lookup_tools(server: FastMCP, surface: ReadSurface) -> None:
     ) -> str:
         """The project's assets as a compact table, filtered by status, owner or tag."""
         return surface.answer(
-            lambda: rendering.render_listing(
-                container.list_assets(status=status, owner=owner, tag=tag), surface.unreadable
-            )
+            container.list_assets(status=status, owner=owner, tag=tag),
+            lambda listing: rendering.render_listing(listing, surface.unreadable),
         )
 
     @server.tool(run_in_thread=IN_THREAD)
     def search_assets(term: str) -> str:
         """Assets matching a term by identifier, name, alias, tag or description."""
         return surface.answer(
-            lambda: rendering.render_search(container.search_assets(term), surface.nearest(term))
+            container.search_assets(term),
+            lambda found: rendering.render_search(found, surface.nearest(term)),
         )
 
 
@@ -197,29 +207,25 @@ def _spec_tools(server: FastMCP, surface: ReadSurface) -> None:
     @server.tool(run_in_thread=IN_THREAD)
     def get_asset_spec(asset_id: str, lens: str | None = None) -> str:
         """An asset's compiled specification, optionally narrowed to one discipline."""
-        return surface.answer(
-            lambda: rendering.render_spec(container.asset_spec(asset_id, lens)), asset_id
-        )
+        return surface.answer(container.asset_spec(asset_id, lens), rendering.render_spec, asset_id)
 
     @server.tool(run_in_thread=IN_THREAD)
     def get_constraints(asset_id: str) -> str:
         """What an export of this asset must satisfy, including its required sockets."""
         return surface.answer(
-            lambda: rendering.render_spec(container.asset_spec(asset_id, Lens.MODELING)), asset_id
+            container.asset_spec(asset_id, Lens.MODELING), rendering.render_spec, asset_id
         )
 
     @server.tool(run_in_thread=IN_THREAD)
     def get_open_annotations(asset_id: str) -> str:
         """The threads still open on an asset. Resolved and promoted ones are absent."""
-        return surface.answer(
-            lambda: rendering.render_spec(container.open_annotations(asset_id)), asset_id
-        )
+        return surface.answer(container.open_annotations(asset_id), rendering.render_spec, asset_id)
 
     @server.tool(run_in_thread=IN_THREAD)
     def diff_spec(asset_id: str, revision: str) -> str:
         """How an asset's specification has changed since a revision."""
         return surface.answer(
-            lambda: rendering.render_difference(container.diff_spec(asset_id, revision)), asset_id
+            container.diff_spec(asset_id, revision), rendering.render_difference, asset_id
         )
 
 
@@ -229,9 +235,7 @@ def _validation_tools(server: FastMCP, surface: ReadSurface) -> None:
     @server.tool(run_in_thread=IN_THREAD)
     def validate_export(export: str) -> str:
         """Validate an export against its specification — the same check `canon` runs."""
-        return surface.answer(
-            lambda: rendering.render_validation(container.validate_export(export))
-        )
+        return surface.answer(container.validate_export(export), rendering.render_validation)
 
 
 _REGISTRARS: Sequence[Callable[[FastMCP, ReadSurface], None]] = (

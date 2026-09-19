@@ -41,7 +41,10 @@ from cybercanon.application.ports.identity_provider import (
     IdentityProvider,
     ResolvedIdentity,
 )
+from cybercanon.application.ports.search_index import SearchIndex
 from cybercanon.application.ports.spec_store import SpecStore
+from cybercanon.application.results import as_result
+from cybercanon.application.use_cases.lookup_assets import list_assets, recorded_owners
 from cybercanon.domain.actor_checks import provider_disagreement
 from cybercanon.domain.actors import (
     ActorBinding,
@@ -414,6 +417,7 @@ class UnmappedAuthors:
         return len(self.authors)
 
 
+@as_result
 def list_unmapped_authors(
     emails: Sequence[str], *, spec_store: SpecStore, root: str = ""
 ) -> UnmappedAuthors:
@@ -432,6 +436,31 @@ def list_unmapped_authors(
     )
 
 
+@as_result
+def list_unmapped_people(
+    *,
+    spec_store: SpecStore,
+    search_index: SearchIndex,
+    authors: Sequence[str] = (),
+    project: str | None = None,
+    root: str = "",
+) -> UnmappedAuthors:
+    """Every address this project will render as somebody and cannot yet name.
+
+    Two sources, because a project has two kinds of author: the people in its
+    git history, which the composition root collects, and the people its
+    specification files name as owners, which come from the listing. Composed
+    here rather than at the composition root for the reason
+    :func:`~cybercanon.application.use_cases.diff_spec.diff_asset_spec` gives —
+    a chained call evaluates the first as an argument, and its failure would
+    escape the second's outcome vocabulary entirely.
+    """
+    listing = list_assets.raising(spec_store=spec_store, search_index=search_index, project=project)
+    return list_unmapped_authors.raising(
+        (*authors, *recorded_owners(listing)), spec_store=spec_store, root=root
+    )
+
+
 __all__ = [
     "DEFAULT_TTL_SECONDS",
     "IDENTITY_CLAIM_PARAMETERS",
@@ -447,6 +476,7 @@ __all__ = [
     "Resolution",
     "UnmappedAuthors",
     "list_unmapped_authors",
+    "list_unmapped_people",
     "may_act_in_role",
     "may_read",
     "no_authors",
