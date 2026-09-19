@@ -28,11 +28,12 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from cybercanon.adapters.inbound.http import outcomes, pagination
+from cybercanon.adapters.inbound.http import logs, outcomes, pagination
 from cybercanon.adapters.inbound.http import surface as wiring
 from cybercanon.adapters.inbound.http.versioning import VERSION
 from cybercanon.application.ports.idempotency import RecordedOutcome
 from cybercanon.application.results import Ok, Result, refuse
+from cybercanon.application.use_cases.deployment_status import IndexRead, served_from_index
 from cybercanon.application.use_cases.idempotency import once
 from cybercanon.domain.policy import Operation
 
@@ -46,12 +47,20 @@ def answered[T](
     render: outcomes.Rendering = outcomes.identity,
     *,
     paging: Callable[[Result[T]], Result[Any]] | None = None,
+    index: IndexRead = IndexRead.NONE,
 ) -> JSONResponse:
     """One read, from the address to the response, through the shared use case.
 
     A paged endpoint hands in `paging` and leaves `render` alone: the page has
     already rendered its items by then, and rendering twice would wrap each one
     in the shape of the other.
+
+    `index` says how much of the index this read needs to be complete, and it is
+    consulted only while that project is being rebuilt (`deployment-operations`,
+    task 5.7): an endpoint served from the working copy declares
+    :attr:`~cybercanon.application.use_cases.deployment_status.IndexRead.NONE`
+    and keeps answering through a rebuild, which is the specified behaviour
+    rather than a nicety.
     """
     prepared = prepared_for(surface, request, project, operation)
     if not isinstance(prepared, Ok):
@@ -62,7 +71,8 @@ def answered[T](
         lambda container: read(wiring.as_actor(container, actor.actor, actor.git_emails)),
         clock=surface.clock,
     )
-    answer = result if paging is None else paging(result)
+    answered_from = result if paging is None else paging(result)
+    answer = served_from_index(answered_from, project=project, journal=surface.journal, read=index)
     return outcomes.respond(
         answer, render, version=VERSION, extra=wiring.freshness_fields(freshness)
     )
@@ -82,12 +92,14 @@ def prepared_for(
     the actor. Each refusal is returned as itself, which is what keeps a domain
     refusal from being reported as an internal error.
     """
+    logs.remember(request, logs.PROJECT_STATE, project)
     hosted = wiring.project_of(surface, project)
     if not isinstance(hosted, Ok):
         return hosted
     actor = wiring.acting(surface, request)
     if not isinstance(actor, Ok):
         return actor
+    logs.remember(request, logs.ACTOR_STATE, actor.value.actor.id.value)
     refusal = wiring.permitted(actor.value.actor, operation, wiring.subject_for(project))
     if refusal is not None:
         return refusal

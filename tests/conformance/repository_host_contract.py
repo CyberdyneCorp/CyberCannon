@@ -13,6 +13,8 @@ implementation can satisfy by accident:
   invented;
 * a **rejected push leaves the commit local**, which is what D6's retry
   re-evaluates, and a push that lands puts it on the remote;
+* a **listing of the paths at a revision** is pinned exactly as a read is, and
+  comes back in one deterministic order whoever produced it (D7);
 * **recovery discards what the remote does not have and says what it discarded.**
 
 `GitRepositoryHost` joins by adding one factory (group 5 of this change); the
@@ -132,6 +134,32 @@ class RepositoryHostContract:
         implementation.fetch(PROJECT, confirmed_at=LATER)
 
         assert implementation.read(PROJECT, SPEC, before) == ORIGINAL
+
+    def test_the_paths_at_a_revision_are_listed_in_one_deterministic_order(
+        self, implementation: RepositoryHost
+    ) -> None:
+        """The enumeration a listing of repository content stands on (D7)."""
+        ready = _ready(implementation)
+
+        assert implementation.paths_at(PROJECT, ready) == tuple(sorted(CORPUS))
+
+    def test_a_listing_at_an_unreachable_revision_is_named_rather_than_empty(
+        self, implementation: RepositoryHost
+    ) -> None:
+        _ready(implementation)
+
+        with pytest.raises(RevisionUnreachable):
+            implementation.paths_at(PROJECT, Revision("no-such-revision"))
+
+    def test_a_listing_is_pinned_to_its_revision_exactly_as_a_read_is(
+        self, implementation: RepositoryHost
+    ) -> None:
+        before = _ready(implementation)
+        implementation.push_to_remote(PROJECT, "props/crate/asset.yaml", ORIGINAL)
+        after = implementation.fetch(PROJECT, confirmed_at=LATER).revision
+
+        assert "props/crate/asset.yaml" not in implementation.paths_at(PROJECT, before)
+        assert "props/crate/asset.yaml" in implementation.paths_at(PROJECT, after)
 
     # -- fetching (D4) ---------------------------------------------------
 

@@ -17,25 +17,57 @@ max_complexity := "15"
 default:
     @just --list
 
-# Install the Python environment from the committed lock file.
+# The SvelteKit application, and the package manager it is run with. pnpm comes
+# from corepack, which ships with node, so a developer and CI need node and
+# nothing else; the version is pinned by `packageManager` in the app's
+# package.json, which is what makes `corepack pnpm` reproducible.
+web_dir := "apps/cybercanon/web"
+pnpm := "COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm"
+
+# Install the Python environment and the frontend one, both from committed
+# lock files. `--frozen`/`--frozen-lockfile` on both halves for the same reason:
+# CI, the image build and a developer's machine must resolve identically.
 setup:
     uv sync --frozen
+    cd {{ web_dir }} && {{ pnpm }} install --frozen-lockfile
 
 # Everything CI runs, in CI's order: lint, the layering contract, complexity,
 # the generated features, unit + BDD + conformance + integration + both
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~91 s on a warm checkout (2233 tests, 657 scenarios, 0 absent).
+# Measured runtime: ~150 s on a warm checkout (2564 tests, 657 scenarios, 0 absent),
+# of which the frontend's own suites (`web-check`) are ~8 s including the
+# production build the code-splitting assertion reads.
 # Groups 6 and 7 of add-web-backend added a real PostgreSQL (pgserver) and a real
 # S3 API (moto) to the conformance and integration layers; that is most of the
 # increase, and it is the cost of the two hosted adapters being checked rather
 # than described. Group 8 added an in-process CyberdyneAuth (`tools/canon_issuer`)
 # for the same reason and at almost no cost: it signs with cached RSA keys and
-# opens no socket.
+# opens no socket. Groups 10 and 11 added the cross-surface equivalence suite and
+# the recovery and concurrency drills, which run real git, a real PostgreSQL and a
+# real S3 API against one project — the claim M2 makes is only worth its drill.
+# Groups 1 and 2 of add-coolify-deployment added the boot-time configuration
+# refusal, the readiness classification, the status surface and the access log —
+# all in memory, so they cost about a second between them. Groups 3 to 5 added
+# the container artifacts and the two secret scans (fast: the whole object
+# database is under a megabyte), the migration release step and the
+# `drop → migrate → rebuild` recovery against a real PostgreSQL, and the
+# persistent-state suite, which stages real working copies and runs a real
+# `uvicorn` to assert that a failed release leaves the previous version serving.
+# That last one is where most of the added time is, and it is the only way to
+# assert a property about processes.
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
-check: lint imports complexity features test spec
+#
+# `web` joined the list in sprint S9, with the application shell: the address
+# scheme, the closed route-state set, the typed client and the invalidation map
+# are decided in TypeScript, and a suite `check` does not run is a suite CI
+# never runs. It installs the frontend's own locked dependencies, so it needs
+# node and nothing else. The structural constraints that must bite even when
+# node is absent — D1's ViewModel boundary, D4's design-system rule, D7's import
+# boundary — are in tests/tooling/test_web_structure.py and run under `test`.
+check: lint imports complexity features test web-check spec
 
 # ruff — style and formatting.
 lint:
@@ -86,9 +118,18 @@ test-integration *args:
 
 # End to end: Playwright over the web app, plus subprocess runs of `canon`.
 # Deliberately outside `just check` (D6) — browsers and a compose stack are too
-# slow to run constantly, and CI runs this recipe in its own job. The browsers,
-# the compose stack and the trace artifacts are group 6 of add-test-strategy
-# (sprint S9); until then this runs the e2e layer as it stands.
+# slow to run constantly, and CI runs this recipe in its own job.
+#
+# The recipe stays one command because everything it needs, it brings up itself:
+# the browsers are installed by the run (tests/e2e/conftest.py) and the stack is
+# started and torn down by it (tests/e2e/stack.py, deploy/e2e/compose.yaml). Set
+# CANON_E2E_BASE_URL to run against a stack that is already up instead; with
+# neither that variable nor docker, the browser suites skip and say so rather
+# than reporting green over nothing.
+#
+# A failing run leaves its trace, screenshot and video under reports/e2e/ (6.4);
+# a passing one leaves nothing, because artifacts nobody keeps are not there on
+# the day one is needed.
 test-e2e *args:
     uv run --locked pytest -m e2e {{ args }}
 
@@ -107,6 +148,18 @@ api *args:
 # nothing, which is what makes a retried deploy safe.
 migrate *args:
     uv run --locked python -m cybercanon.api.migrate {{ args }}
+
+# `drop → migrate → rebuild` — the recovery for an index that was lost or left
+# at a schema no migration can advance (add-coolify-deployment D5). There is no
+# backup and there will not be one: the index is derived, so the working copies
+# named here are what it is rebuilt from.
+#
+#     just recover-index /data/worktrees/ronin
+#
+# It reads CANON_DATABASE_URL from the same configuration the service reads, and
+# it is the procedure `docs/recovery.md` documents rather than a second one.
+recover-index *args:
+    uv run --locked python -m cybercanon.api.recover {{ args }}
 
 # Run the FastMCP read server over stdio for the repository this is run in.
 # An agent client spawns `canon mcp serve` directly — this recipe is the way a
@@ -132,6 +185,24 @@ features:
 # openspec validate --all --strict.
 spec:
     npx --yes @fission-ai/openspec@{{ openspec_version }} validate --all --strict
+
+# Run the SvelteKit dev server against the API named by PUBLIC_CANON_API_URL.
+web *args:
+    cd {{ web_dir }} && {{ pnpm }} run dev {{ args }}
+
+# Build the application the way a deployment builds it.
+web-build:
+    cd {{ web_dir }} && {{ pnpm }} install --frozen-lockfile
+    cd {{ web_dir }} && {{ pnpm }} run build
+
+# The frontend's own checks: svelte-check over the whole application, then its
+# unit suites — the address scheme (D3), the closed route-state set (D6), the
+# typed client, the invalidation map (D2) and the code-splitting assertion,
+# which builds the application and reads the client manifest (D7).
+web-check:
+    cd {{ web_dir }} && {{ pnpm }} install --frozen-lockfile
+    cd {{ web_dir }} && {{ pnpm }} run check
+    cd {{ web_dir }} && {{ pnpm }} run test
 
 # Apply every unformatted fix ruff can make.
 format:

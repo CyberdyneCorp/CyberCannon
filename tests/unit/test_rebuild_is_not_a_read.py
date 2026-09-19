@@ -108,12 +108,14 @@ def test_the_read_modules_are_the_ones_on_disk(repo_root: Path) -> None:
     assert present - listed == {
         "authenticate",
         "briefing",
+        "deployment_status",
         "hosted_repository",
         "idempotency",
         "index_assets",
         "lint_spec",
         "requests",
         "resolve_actor",
+        "service_health",
         "sign_in",
     }
 

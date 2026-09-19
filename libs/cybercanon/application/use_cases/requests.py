@@ -31,30 +31,38 @@ records one through :func:`~cybercanon.application.ports.notifier.notify_quietly
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
 from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.application.ports.clock import Clock, system_clock
+from cybercanon.application.ports.dismissals import Dismissal, Dismissals
 from cybercanon.application.ports.notifier import Notification, Notifier, notify_quietly
 from cybercanon.application.ports.repository_host import RepositoryHost
-from cybercanon.application.results import as_result
+from cybercanon.application.ports.spec_store import SpecStore
+from cybercanon.application.results import Ok, Result, as_result
 from cybercanon.application.use_cases.hosted_repository import Edit, write_back
-from cybercanon.domain.actors import GitAuthor
-from cybercanon.domain.asset import AssetId
+from cybercanon.domain.actors import ActorMapping, GitAuthor, resolve_git_author
+from cybercanon.domain.asset import Asset, AssetId
 from cybercanon.domain.identity import ActorId
 from cybercanon.domain.requests import (
+    NO_OWNERS,
     AssetRequest,
     Discipline,
+    DisciplineOwners,
     EventKind,
     RefusalKind,
     RequestEvent,
     RequestId,
     RequestState,
+    assignee_for,
     may_transition,
+    owners_declared_by,
     reassign,
     transition,
 )
+from cybercanon.domain.requests import raise_request as build_request
 from cybercanon.domain.revisions import ContentHash
 from cybercanon.domain.status import Status
 
@@ -97,6 +105,24 @@ class RequestUnreadable(OperationFailed):
     def __init__(self, path: str, reason: str) -> None:
         super().__init__(f"{path} could not be read as a request: {reason}", path)
         self.reason = reason
+
+
+class RequestInvalid(OperationFailed):
+    """The described request is not one — an empty description, above all.
+
+    The domain refuses it by refusing to construct: *"a request with nothing in
+    it is not a request in a refused state, it is not a request"*. That refusal
+    arrives as a :class:`ValueError`, which is the domain's vocabulary, and this
+    is where it becomes the outcome vocabulary every surface translates (D10) —
+    so *"it SHALL be rejected as invalid"* holds over HTTP without the domain
+    learning what a status code is.
+    """
+
+    kind = FailureKind.INVALID
+    identifier = "request.invalid"
+
+    def __init__(self, subject: str, reason: str) -> None:
+        super().__init__(reason, subject)
 
 
 class RequestNotFound(OperationFailed):
@@ -244,6 +270,318 @@ def read_request(
 ) -> AssetRequest:
     """One request as the repository holds it — the only place it is held."""
     return _load(project, request_id, repository_host)[0]
+
+
+type Locate = Callable[[str], Result[str]]
+"""How an asset identifier becomes the path of the file that declares it.
+
+The lookup the command line performs, handed in rather than repeated: a module
+that derived a specification path from an identifier would be a second opinion
+about where a specification lives.
+"""
+
+
+@dataclass(frozen=True)
+class RequestContext:
+    """One request and the two facts a decision about it needs beside it.
+
+    Both extras come from the asset the request references, and both are read
+    and never written: `discipline_owner` is who policy compares the acting
+    actor against, and `asset_status` is what the fulfilment precondition is
+    evaluated against. A request that references no asset has neither, which is
+    the ordinary case for *something that does not exist yet*.
+    """
+
+    request: AssetRequest
+    discipline_owner: ActorId | None = None
+    asset_status: Status | None = None
+
+
+def discipline_owners(asset: Asset, mapping: ActorMapping) -> DisciplineOwners:
+    """The owners an asset declares, as actors, through `.canon/actors.yaml` (D8).
+
+    An owner the mapping does not bind resolves to nobody rather than to a
+    guess, which is the same answer as declaring none — and the answer D8
+    requires, since assigning a request to an address nobody can be reached at
+    would be worse than reporting that it needs an owner.
+    """
+    return owners_declared_by(asset, _resolvable(asset, mapping))
+
+
+def _resolvable(asset: Asset, mapping: ActorMapping) -> dict[str, ActorId]:
+    """The declared addresses that name somebody, as the subjects they name."""
+    declared = (asset.owner_art, asset.owner_design, asset.owner_code)
+    resolved = ((address, resolve_git_author(mapping, address)) for address in declared if address)
+    return {address: actor.id for address, actor in resolved if not actor.is_unmapped}
+
+
+@as_result
+def compose_request(
+    project: str,
+    request_id: RequestId,
+    *,
+    author: ActorId,
+    discipline: Discipline,
+    description: str,
+    at: datetime,
+    asset: AssetId | None = None,
+    asked_for_status: Status | None = None,
+    spec_store: SpecStore | None = None,
+    locate: Locate | None = None,
+) -> AssetRequest:
+    """The request a surface's arguments describe, assigned by the domain cascade.
+
+    Composition is here rather than in an inbound adapter because it is two
+    domain decisions — who owns this discipline, and therefore who this is
+    assigned to — and an adapter that made them would be the second
+    implementation this change exists not to grow. What the adapter supplies is
+    only what it read off the request: the discipline, the words, the asset.
+
+    A project-level owner would be the second step of the cascade; the file that
+    declares one is an open question in `design.md`, so today an asset with no
+    owner for the discipline yields an unassigned request *reported as needing
+    an owner*, which is exactly what `asset-requests` specifies for the case
+    where no owner can be determined.
+    """
+    owners = _owners_of(asset, spec_store=spec_store, locate=locate)
+    try:
+        return build_request(
+            request_id,
+            author=author,
+            discipline=discipline,
+            description=description,
+            at=at,
+            asset=asset,
+            asked_for_status=asked_for_status,
+            assignee=assignee_for(discipline, on_asset=owners, author=author),
+        )
+    except ValueError as rejected:
+        raise RequestInvalid(str(request_id), str(rejected)) from rejected
+
+
+@as_result
+def request_context(
+    project: str,
+    request_id: RequestId,
+    *,
+    repository_host: RepositoryHost,
+    spec_store: SpecStore | None = None,
+    locate: Locate | None = None,
+) -> RequestContext:
+    """One request, with the owner and the asset status a decision needs.
+
+    The asset is read only when the request asked for a status, because that is
+    the only thing the status is needed for and a request whose asset was
+    deleted should still be declinable.
+    """
+    request = _load(project, request_id, repository_host)[0]
+    owners = _owners_of(request.asset, spec_store=spec_store, locate=locate)
+    return RequestContext(
+        request=request,
+        discipline_owner=owners.owner_of(request.discipline),
+        asset_status=_asked_status(request, spec_store=spec_store, locate=locate),
+    )
+
+
+def _owners_of(
+    asset: AssetId | None,
+    *,
+    spec_store: SpecStore | None,
+    locate: Locate | None,
+) -> DisciplineOwners:
+    """Who owns each discipline on that asset, or nobody when there is no asset."""
+    loaded = _loaded(asset, spec_store=spec_store, locate=locate)
+    if loaded is None:
+        return NO_OWNERS
+    return discipline_owners(loaded, spec_store.load_actor_mapping().mapping)  # type: ignore[union-attr]
+
+
+def _asked_status(
+    request: AssetRequest,
+    *,
+    spec_store: SpecStore | None,
+    locate: Locate | None,
+) -> Status | None:
+    """The referenced asset's current lifecycle position, when one is asked for."""
+    if request.asked_for_status is None:
+        return None
+    loaded = _loaded(request.asset, spec_store=spec_store, locate=locate)
+    return loaded.status if loaded is not None else None
+
+
+def _loaded(
+    asset: AssetId | None,
+    *,
+    spec_store: SpecStore | None,
+    locate: Locate | None,
+) -> Asset | None:
+    """The specification that declares that asset, or ``None`` when there is none."""
+    if asset is None or spec_store is None or locate is None:
+        return None
+    path = locate(str(asset))
+    if not isinstance(path, Ok):
+        return None
+    return spec_store.load(path.value).asset
+
+
+@dataclass(frozen=True)
+class UnreadableRequest:
+    """A request file that would not parse, named rather than skipped in silence."""
+
+    path: str
+    reason: str
+
+    def __str__(self) -> str:
+        return f"{self.path}: {self.reason}"
+
+
+@dataclass(frozen=True)
+class RequestListing:
+    """Every request a project holds at one revision, and what would not read.
+
+    The unreadable files travel beside the requests for the same reason a
+    listing of assets carries them: a request somebody hand-edited into invalid
+    JSON is a thing to fix, and dropping it silently would make a listing that
+    is quietly short indistinguishable from a project that is quietly small.
+    """
+
+    project: str
+    requests: tuple[AssetRequest, ...] = ()
+    unreadable: tuple[UnreadableRequest, ...] = ()
+
+    @property
+    def ids(self) -> tuple[RequestId, ...]:
+        return tuple(request.id for request in self.requests)
+
+
+@dataclass(frozen=True)
+class UnreadItems:
+    """What one person has not yet looked at, derived and never stored (D9).
+
+    There is no notification entity: this is a query over the project's
+    requests, narrowed to the ones where this person is the assignee or the
+    author, minus the ones they have dismissed. `count` is beside `items`
+    because `asset-requests` requires notification to be *countable*, and a
+    caller that counted a page would count the page.
+    """
+
+    project: str
+    actor: ActorId
+    items: tuple[AssetRequest, ...] = ()
+
+    @property
+    def count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True)
+class Dismissed:
+    """One person saying they have seen one item. Index state, and losable (D9)."""
+
+    project: str
+    actor: ActorId
+    request_id: RequestId
+    at: datetime
+
+
+@as_result
+def list_requests(
+    project: str,
+    *,
+    repository_host: RepositoryHost,
+) -> RequestListing:
+    """Every request in the project, read from the repository at one revision.
+
+    There is no index row to read instead, and that is D7 working rather than a
+    gap: requests are repository content, so the listing is a tree listing at
+    the served revision followed by one read per file. Every answer therefore
+    survives the index being dropped, because the index was never asked.
+    """
+    revision = repository_host.head(project)
+    paths = [
+        path
+        for path in repository_host.paths_at(project, revision)
+        if path.startswith(f"{REQUESTS_DIR}/") and path.endswith(".json")
+    ]
+    read = [(path, repository_host.read(project, path, revision)) for path in paths]
+    return _listed(project, [(path, content) for path, content in read if content is not None])
+
+
+def _listed(project: str, files: Sequence[tuple[str, bytes]]) -> RequestListing:
+    """The requests those files hold, and the ones that would not parse."""
+    requests: list[AssetRequest] = []
+    unreadable: list[UnreadableRequest] = []
+    for path, content in files:
+        try:
+            requests.append(from_document(content, path))
+        except RequestUnreadable as failure:
+            unreadable.append(UnreadableRequest(path=path, reason=failure.reason))
+    return RequestListing(
+        project=project,
+        requests=tuple(sorted(requests, key=lambda request: str(request.id))),
+        unreadable=tuple(unreadable),
+    )
+
+
+def concerns(request: AssetRequest, actor: ActorId) -> bool:
+    """Whether this person is one of the two `asset-requests` names.
+
+    *"that person and the request's author SHALL be able to see it as an unread
+    item"* — the assignee and the author, and nobody else. A watcher list would
+    be a notification entity, which D9 says there is not.
+    """
+    return actor in (request.assignee, request.author)
+
+
+@as_result
+def unread_items(
+    project: str,
+    actor: ActorId,
+    *,
+    repository_host: RepositoryHost,
+    dismissals: Dismissals,
+) -> UnreadItems:
+    """This person's unread items: a derived query minus their dismissals (D9).
+
+    Nothing is stored to answer this, which is the whole of D9. The requests
+    come from the repository and the dismissals from the index, and the two are
+    combined here rather than in a table, so an index rebuild costs a person
+    their dismissals and never an item.
+    """
+    listing = list_requests.raising(project, repository_host=repository_host)
+    dismissed = dismissals.dismissed_by(actor, project)
+    return UnreadItems(
+        project=project,
+        actor=actor,
+        items=tuple(
+            request
+            for request in listing.requests
+            if concerns(request, actor) and str(request.id) not in dismissed
+        ),
+    )
+
+
+@as_result
+def dismiss_item(
+    project: str,
+    actor: ActorId,
+    request_id: RequestId,
+    *,
+    repository_host: RepositoryHost,
+    dismissals: Dismissals,
+    clock: Clock = system_clock,
+) -> Dismissed:
+    """Mark one item as seen by one person, and by nobody else (D9).
+
+    The request is read first so that dismissing something that does not exist
+    is a not-found rather than a flag nobody will ever look at again. Nothing is
+    committed: a read receipt in git would be a commit per glance, in a history
+    that is supposed to be worth reading.
+    """
+    _load(project, request_id, repository_host)
+    at = clock()
+    dismissals.dismiss(Dismissal(project=project, actor=actor, subject=str(request_id), at=at))
+    return Dismissed(project=project, actor=actor, request_id=request_id, at=at)
 
 
 def _record(
@@ -400,15 +738,29 @@ def _optional[T](value: object, build: type[T]) -> T | None:
 __all__ = [
     "DOCUMENT_VERSION",
     "REQUESTS_DIR",
+    "Dismissed",
+    "Locate",
     "RecordedRequest",
+    "RequestContext",
+    "RequestInvalid",
+    "RequestListing",
     "RequestNotFound",
     "RequestRejected",
     "RequestUnreadable",
+    "UnreadItems",
+    "UnreadableRequest",
     "assign_request",
+    "compose_request",
+    "concerns",
+    "discipline_owners",
+    "dismiss_item",
     "from_document",
+    "list_requests",
     "path_for",
     "raise_request",
     "read_request",
+    "request_context",
     "to_document",
     "transition_request",
+    "unread_items",
 ]

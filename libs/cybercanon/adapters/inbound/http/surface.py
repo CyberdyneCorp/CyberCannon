@@ -39,17 +39,21 @@ from fastapi import Request
 
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.clock import Clock, system_clock
+from cybercanon.application.ports.dismissals import Dismissals
 from cybercanon.application.ports.idempotency import IdempotencyStore
 from cybercanon.application.ports.identity_provider import Credential, IdentityProvider
+from cybercanon.application.ports.notifier import Notifier
 from cybercanon.application.ports.repository_host import RepositoryHost
 from cybercanon.application.results import Forbidden, NotFound, Ok, Refusal, Result, Unavailable
 from cybercanon.application.use_cases.authenticate import Authenticated, authenticate
+from cybercanon.application.use_cases.deployment_status import DeploymentJournal
 from cybercanon.application.use_cases.hosted_repository import (
     DEFAULT_INTERVAL,
     Freshness,
     read_at_revision,
 )
 from cybercanon.application.use_cases.resolve_actor import AlreadyResolved, Resolution, verified_as
+from cybercanon.application.use_cases.service_health import ComponentStatus
 from cybercanon.domain.identity import Actor
 from cybercanon.domain.policy import Operation, Subject, decide
 
@@ -70,27 +74,20 @@ NOT_CONFIGURED = (
 )
 
 
-@dataclass(frozen=True)
-class Dependency:
-    """One thing the process observes, and what it observed (task 9.9).
+Dependency = ComponentStatus
+"""One thing the process observes, and what it observed (task 9.9).
 
-    Descriptive, never a gate. `http-api` requires readiness to *"separately
-    describe the state of each dependency it observes"* precisely so that a
-    degraded dependency is visible **without** withholding traffic; which
-    dependencies may withhold it is `deployment-operations`' decision and not
-    this change's.
-    """
-
-    name: str
-    available: bool
-    detail: str = ""
-
-    @property
-    def state(self) -> str:
-        return "available" if self.available else "unavailable"
+The value object is
+:class:`~cybercanon.application.use_cases.service_health.ComponentStatus`, and
+the name here is the one `http-api` used for it before
+`deployment-operations` existed. It is an alias rather than a second class on
+purpose: which dependencies may withhold traffic is that capability's decision,
+taken over these values, and two shapes would let the surface describe one thing
+and the readiness rule classify another.
+"""
 
 
-type Observe = Callable[[], Sequence[Dependency]]
+type Observe = Callable[[], Sequence[ComponentStatus]]
 """How the composition root reports what it can currently see."""
 
 
@@ -127,7 +124,10 @@ class Surface:
     projects: Mapping[str, HostedProject] = field(default_factory=dict)
     identity_provider: IdentityProvider | None = None
     idempotency: IdempotencyStore | None = None
+    dismissals: Dismissals | None = None
+    notifier: Notifier | None = None
     observe: Observe = observes_nothing
+    journal: DeploymentJournal = field(default_factory=DeploymentJournal)
     clock: Clock = system_clock
 
     def project_names(self) -> tuple[str, ...]:
@@ -291,6 +291,7 @@ __all__ = [
     "POLICY_REFUSED",
     "UNKNOWN_PROJECT",
     "Dependency",
+    "DeploymentJournal",
     "HostedProject",
     "Observe",
     "Read",

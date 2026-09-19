@@ -31,9 +31,16 @@ from cybercanon.application.use_cases.lookup_assets import (
     OwnerPresentation,
     SearchAnswer,
 )
+from cybercanon.application.use_cases.requests import (
+    Dismissed,
+    RecordedRequest,
+    RequestListing,
+    UnreadItems,
+)
 from cybercanon.application.use_cases.spec_lens import LensedSpec
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.domain.report import NotEvaluated, Report
+from cybercanon.domain.requests import AssetRequest, RequestEvent
 from cybercanon.domain.violations import SpecViolation, Violation
 
 
@@ -181,6 +188,90 @@ def written(outcome: WriteOutcome) -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------
+# Asset requests (D7) — repository content, rendered like any other read
+# --------------------------------------------------------------------------
+
+
+def asset_request(request: AssetRequest) -> dict[str, Any]:
+    """One request, whole: what was asked, who owns it, and everything it did.
+
+    The history travels with it rather than behind a second address, because it
+    *is* the request — D7 keeps the state history in the file, and a caller that
+    had to ask twice would be able to render a state nobody was attributed for.
+    """
+    return {
+        "id": str(request.id),
+        "author": str(request.author),
+        "discipline": str(request.discipline),
+        "description": request.description,
+        "asset": _named(request.asset),
+        "asked_for": _named(request.asked_for_status),
+        "assignee": _named(request.assignee),
+        "state": str(request.state),
+        "terminal": request.is_terminal,
+        "needs_owner": request.needs_owner,
+        "history": [request_event(event) for event in request.history],
+    }
+
+
+def request_event(event: RequestEvent) -> dict[str, Any]:
+    """One thing that happened to a request: what, who, when."""
+    return {
+        "kind": str(event.kind),
+        "actor": str(event.actor),
+        "at": event.at.isoformat(),
+        "state": _named(event.state),
+        "assignee": _named(event.assignee),
+        "reason": event.reason,
+    }
+
+
+def recorded_request(recorded: RecordedRequest) -> dict[str, Any]:
+    """A request as it now stands, and the commit that recorded it (D7).
+
+    The revision is the commit the transition became, so *"every transition is a
+    commit"* is visible to the caller rather than only to `git log`.
+    """
+    return {"request": asset_request(recorded.request), "revision": recorded.revision}
+
+
+def request_listing(listing: RequestListing) -> dict[str, Any]:
+    """Every request a project holds, with the files that would not read named."""
+    return {
+        "project": listing.project,
+        "requests": [asset_request(request) for request in listing.requests],
+        "unreadable": [
+            {"path": entry.path, "reason": entry.reason} for entry in listing.unreadable
+        ],
+    }
+
+
+def unread_items(items: UnreadItems) -> dict[str, Any]:
+    """One person's unread items, counted — never anybody else's (D9)."""
+    return {
+        "project": items.project,
+        "actor": str(items.actor),
+        "count": items.count,
+        "items": [asset_request(request) for request in items.items],
+    }
+
+
+def dismissal(dismissed: Dismissed) -> dict[str, Any]:
+    """One person saying they have seen one item, and when."""
+    return {
+        "project": dismissed.project,
+        "actor": str(dismissed.actor),
+        "request": str(dismissed.request_id),
+        "at": dismissed.at.isoformat(),
+    }
+
+
+def _named(value: Any) -> str | None:
+    """How an optional identifier renders: its own spelling, or nothing at all."""
+    return str(value) if value is not None else None
+
+
 def not_evaluated(entry: NotEvaluated) -> dict[str, Any]:
     return {
         "rule_id": entry.rule_id,
@@ -190,17 +281,23 @@ def not_evaluated(entry: NotEvaluated) -> dict[str, Any]:
 
 
 __all__ = [
+    "asset_request",
     "asset_row",
     "compiled",
+    "dismissal",
     "lensed",
     "location",
     "lookup",
     "not_evaluated",
     "owner",
     "project_briefing",
+    "recorded_request",
     "report",
+    "request_event",
+    "request_listing",
     "search",
     "spec_violation",
+    "unread_items",
     "validation",
     "violation",
     "written",

@@ -138,9 +138,15 @@ architecture call, and each is **cheaper now than after the code exists**.
 | **G3** | Asset creation, spec editing, and which status transitions are legal and by whom | **S16** | The only specified way to create an `asset.yaml` today is an image upload. `concept-ingestion` says a status change "remains a separate explicit human action" — an action specified nowhere. |
 | **G4** | The role vocabulary and the operation→role matrix | **S6** | Five capabilities reference "the defined role set", "the art director role", "project write access". None defines them. Permissions are the last thing you want to redefine after commits are attributed and groups mapped in production. |
 
-Two smaller contradictions also await a call: an unmapped read-only actor can raise
-an asset request that must become a commit `hosted-repository` refuses; and whether a
-replaced concept view carries its annotations or orphans them.
+One smaller contradiction still awaits a call: whether a replaced concept view
+carries its annotations or orphans them.
+
+The other — an unmapped read-only actor raising an asset request that must become a
+commit `hosted-repository` refuses — was **resolved in M2, in favour of the stricter
+reading**: raising a request needs read access *and* a mapped git identity, the
+refusal names the missing `.canon/actors.yaml` entry, and the reasoning is recorded
+under "Gate Decisions (G4)" in `openspec/project.md`. The two specification deltas
+still disagree on it, and one of them is wrong.
 
 ---
 

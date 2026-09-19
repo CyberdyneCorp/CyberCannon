@@ -20,9 +20,9 @@ port adds its fake here in the same breath. Everything downstream — the
 wiring. ``add-asset-spec-and-validator`` registers the three the validator needs:
 ``spec_store``, ``mesh_inspector`` and ``blob_store``. ``add-mcp-read-server``
 adds the two the read surface needs: ``identity_provider`` and ``search_index``.
-``add-web-backend`` adds the two the hosted surface needs: ``repository_host``
-and ``notifier``, plus the two CyberdyneAuth brings for the command line:
-``credential_store`` and ``interactive_sign_in``.
+``add-web-backend`` adds the three the hosted surface needs: ``repository_host``,
+``notifier`` and ``dismissals``, plus the two CyberdyneAuth brings for the
+command line: ``credential_store`` and ``interactive_sign_in``.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from typing import Any
 
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.credential_store import InMemoryCredentialStore
+from cybercanon.application.testing.dismissals import InMemoryDismissals
 from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
 from cybercanon.application.testing.interactive_sign_in import InMemoryInteractiveSignIn
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
@@ -48,6 +49,7 @@ FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType(
     {
         "blob_store": InMemoryBlobStore,
         "credential_store": InMemoryCredentialStore,
+        "dismissals": InMemoryDismissals,
         "identity_provider": InMemoryIdentityProvider,
         "interactive_sign_in": InMemoryInteractiveSignIn,
         "mesh_inspector": InMemoryMeshInspector,
@@ -83,6 +85,7 @@ __all__ = [
     "FakeFactory",
     "InMemoryBlobStore",
     "InMemoryCredentialStore",
+    "InMemoryDismissals",
     "InMemoryIdentityProvider",
     "InMemoryInteractiveSignIn",
     "InMemoryMeshInspector",

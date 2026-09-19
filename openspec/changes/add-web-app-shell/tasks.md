@@ -2,42 +2,42 @@
 
 ## 1. Application shell and routing
 
-- [ ] 1.1 Scaffold `apps/cybercanon/web/` as a SvelteKit + TypeScript application and verify `just web` serves it from a clean checkout after `just setup`
+- [x] 1.1 Scaffold `apps/cybercanon/web/` as a SvelteKit + TypeScript application and verify `just web` serves it from a clean checkout after `just setup`
 - [ ] 1.2 Add the two `@cyberdynecorp` packages against the GitHub registry and verify the foundation styles load and a library component renders
-- [ ] 1.3 Define the address scheme for project, asset and surface (D3) and verify each address resolves to its screen and reloads unchanged
-- [ ] 1.4 Implement the closed route-state set — content, empty, forbidden, not-found, degraded, failed (D6) — and verify a route cannot resolve outside it
-- [ ] 1.5 Implement route-level code splitting so the viewer scene module loads only on the viewer surface (D7) and verify the browser route's bundle excludes it
-- [ ] 1.6 Add the D1 structural test asserting no ViewModel exists outside the annotation module
-- [ ] 1.7 Add the D4 test failing the build when a local component reimplements a design-system primitive, with an explicit waiver mechanism requiring an upstream reference
+- [x] 1.3 Define the address scheme for project, asset and surface (D3) and verify each address resolves to its screen and reloads unchanged
+- [x] 1.4 Implement the closed route-state set — content, empty, forbidden, not-found, degraded, failed (D6) — and verify a route cannot resolve outside it
+- [x] 1.5 Implement route-level code splitting so the viewer scene module loads only on the viewer surface (D7) and verify the browser route's bundle excludes it
+- [x] 1.6 Add the D1 structural test asserting no ViewModel exists outside the annotation module
+- [x] 1.7 Add the D4 test failing the build when a local component reimplements a design-system primitive, with an explicit waiver mechanism requiring an upstream reference
 
 ## 2. Typed API client and server-state cache
 
-- [ ] 2.1 Generate or hand-write the typed client for the `http-api` surface under `lib/api/` and verify its types match the API's documented shapes
-- [ ] 2.2 Implement the single query cache keyed by resource (D2) and verify no component or ViewModel holds server state directly
-- [ ] 2.3 Implement the invalidation map and verify, per write path, that a test asserts exactly which cached resources it invalidates
-- [ ] 2.4 Implement uniform handling of the API's outcome vocabulary (not found, forbidden, unauthenticated, invalid, conflict, unavailable) mapping each to a route state, and verify each maps to its intended screen
+- [x] 2.1 Generate or hand-write the typed client for the `http-api` surface under `lib/api/` and verify its types match the API's documented shapes
+- [x] 2.2 Implement the single query cache keyed by resource (D2) and verify no component or ViewModel holds server state directly
+- [x] 2.3 Implement the invalidation map and verify, per write path, that a test asserts exactly which cached resources it invalidates
+- [x] 2.4 Implement uniform handling of the API's outcome vocabulary (not found, forbidden, unauthenticated, invalid, conflict, unavailable) mapping each to a route state, and verify each maps to its intended screen
 
 ## 3. Session experience
 
-- [ ] 3.1 Implement the unauthenticated landing offering sign-in with no project or asset content visible, and verify no content leaks before authentication
-- [ ] 3.2 Implement return-to-intended-address after sign-in and verify a deep link to an asset arrives there after authenticating
-- [ ] 3.3 Implement in-place re-authentication holding the in-flight request with its payload (D5) and verify an annotation typed before expiry is submitted intact afterwards
-- [ ] 3.4 Verify declining re-authentication leaves the input on screen and unsubmitted
-- [ ] 3.5 Implement sign-out clearing all cached project and asset content and verify nothing remains reachable without signing in again
-- [ ] 3.6 Display the acting identity on every authenticated screen and verify it matches the session's person
+- [x] 3.1 Implement the unauthenticated landing offering sign-in with no project or asset content visible, and verify no content leaks before authentication
+- [x] 3.2 Implement return-to-intended-address after sign-in and verify a deep link to an asset arrives there after authenticating
+- [x] 3.3 Implement in-place re-authentication holding the in-flight request with its payload (D5) and verify an annotation typed before expiry is submitted intact afterwards
+- [x] 3.4 Verify declining re-authentication leaves the input on screen and unsubmitted
+- [x] 3.5 Implement sign-out clearing all cached project and asset content and verify nothing remains reachable without signing in again
+- [x] 3.6 Display the acting identity on every authenticated screen and verify it matches the session's person
 - [ ] 3.7 Implement the early warning for a person with no mapped git identity, naming the unavailable actions, and verify it appears before any write is attempted
-- [ ] 3.8 Verify reads continue during an identity provider outage with the unavailability stated
+- [x] 3.8 Verify reads continue during an identity provider outage with the unavailability stated
 
 ## 4. Asset browser and search
 
-- [ ] 4.1 Implement the project-scoped listing showing name, identifier, status and owners, and verify against a project of mixed statuses
-- [ ] 4.2 Implement filtering by status, owner and tag using the specified filters, with each active filter visible and individually removable; verify removing one leaves the others applied
-- [ ] 4.3 Put filter and query state in the address (D3) and verify a filtered listing opened by another person shows the same filters
-- [ ] 4.4 Render search results in the order the specified ranking returns, with no client-side re-sorting; verify with a query matching by identifier and by description
-- [ ] 4.5 Disclose alias, tag and description matches, and mark results matching an unaccepted suggestion; verify each disclosure
-- [ ] 4.6 Implement the no-results screen stating the query and offering to clear filters, and the distinct filters-excluded-matches variant; verify both
-- [ ] 4.7 Implement the no-assets-yet screen naming how an asset comes to exist, and verify it on an empty project
-- [ ] 4.8 Implement degraded search disclosure for a rebuilding index and an unavailable delegated search, and verify partial results are never presented as complete
+- [x] 4.1 Implement the project-scoped listing showing name, identifier, status and owners, and verify against a project of mixed statuses
+- [x] 4.2 Implement filtering by status, owner and tag using the specified filters, with each active filter visible and individually removable; verify removing one leaves the others applied
+- [x] 4.3 Put filter and query state in the address (D3) and verify a filtered listing opened by another person shows the same filters
+- [x] 4.4 Render search results in the order the specified ranking returns, with no client-side re-sorting; verify with a query matching by identifier and by description
+- [x] 4.5 Disclose alias, tag and description matches, and mark results matching an unaccepted suggestion; verify each disclosure
+- [x] 4.6 Implement the no-results screen stating the query and offering to clear filters, and the distinct filters-excluded-matches variant; verify both
+- [x] 4.7 Implement the no-assets-yet screen naming how an asset comes to exist, and verify it on an empty project
+- [x] 4.8 Implement degraded search disclosure for a rebuilding index and an unavailable delegated search, and verify partial results are never presented as complete
 
 ## 5. Project navigation
 

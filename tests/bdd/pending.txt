@@ -126,9 +126,6 @@ asset-browser :: Listing shows state without opening an asset
 asset-browser :: No results
 asset-browser :: Order comes from the specified ranking
 asset-browser :: Suggestion match is disclosed as unaccepted
-asset-requests :: Assignee sees an unread item
-asset-requests :: Dismissal is per person
-asset-requests :: Requests survive an index rebuild
 asset-spec :: Anchor survives a remesh
 asset-spec :: Missing part yields an orphan, not a wrong placement
 asset-spec :: Promotion retires the annotation
@@ -170,46 +167,19 @@ concept-ingestion :: Thumbnails stay out of the repository
 concept-ingestion :: Two images cannot claim the same slot
 concept-ingestion :: Uploading generates nothing
 deployment-operations :: A component restarts without taking the others down
-deployment-operations :: A configuration file is not consulted
-deployment-operations :: A lost index does NOT withhold traffic
-deployment-operations :: A lost working copy does withhold traffic
 deployment-operations :: A never-ready new version does not replace the old one
 deployment-operations :: A retiring instance drains before terminating
-deployment-operations :: A silently failing fetch is detectable
 deployment-operations :: Abandoned write-back leaves no partial edit
-deployment-operations :: Artifact inspection reveals no secret
 deployment-operations :: Blob volume destroyed
-deployment-operations :: Blobs outlive a restart
-deployment-operations :: Changing a setting requires no new artifact
 deployment-operations :: Continuous availability across a deploy
-deployment-operations :: Degradation during recovery is bounded and visible
 deployment-operations :: Drills are executed, not assumed
-deployment-operations :: Failed migration aborts the release
-deployment-operations :: Freshness is answerable per project
 deployment-operations :: Hosting the agent surface is a specification change
-deployment-operations :: Identity provider outage does not block a deploy
 deployment-operations :: Index volume destroyed
-deployment-operations :: Live but not ready during warm-up
-deployment-operations :: Liveness performs no dependency access
 deployment-operations :: Local tools work with the hosted environment unreachable
-deployment-operations :: Malformed value is refused at boot, not at first request
-deployment-operations :: Migrations do not run per instance
-deployment-operations :: Missing setting names itself
-deployment-operations :: Model gateway outage does not block a deploy
 deployment-operations :: No network listener for the agent server
-deployment-operations :: Not ready withholds traffic instead of restarting
-deployment-operations :: Only one write-back touches a project's working copy at a time
-deployment-operations :: Optional configuration absent is not a startup failure
 deployment-operations :: Promotion preserves the digest
-deployment-operations :: Recovery from a broken schema is a rebuild
-deployment-operations :: Redeploy preserves state
-deployment-operations :: Repository inspection reveals no secret
 deployment-operations :: Rollback selects a previously built artifact
-deployment-operations :: Secret values are not echoed
-deployment-operations :: Stale index is visible as stale
-deployment-operations :: Success is reported only for a landed commit
 deployment-operations :: The inventory is enumerable and complete
-deployment-operations :: The schema version is reportable after a failure
 deployment-operations :: The web application does not require the API to become ready
 deployment-operations :: Working copy destroyed
 deployment-operations :: Write-back completes within the drain window
@@ -258,10 +228,6 @@ document-platform :: Title follows a rename at the source
 document-platform :: Unconfigured deployment works
 document-platform :: Unresolved link is still usable
 document-platform :: Viewer not permitted
-http-api :: A domain refusal is not an internal error
-http-api :: Compilation agrees across surfaces
-http-api :: Lookup agrees across surfaces
-http-api :: Validation agrees across surfaces
 llm-integration :: Authentication failure is not retried
 llm-integration :: Cause is reported
 llm-integration :: Compiled specification unaffected

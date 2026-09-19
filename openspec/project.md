@@ -368,6 +368,13 @@ repository. The decision, taken 2026-09-17:
 Owned by `add-web-backend` (`hosted-repository`); operational recovery when a
 working copy is lost or diverges is owned by `add-coolify-deployment`.
 
+**Implemented and drilled, M2.** The working copy, the index and the blob mirror
+are all rebuilt from the remote by a drill that destroys all three and compares
+every answer before and after — see [`docs/recovery.md`](../docs/recovery.md).
+The one state that does not survive is a person's notification dismissals, which
+`add-web-backend`'s D9 declares as the single deliberate exception rather than
+discovering later.
+
 ## Testing — three layers, and the specs are the source
 
 The spec deltas hold **657 GIVEN/WHEN/THEN scenarios**. They are not documentation:
@@ -467,6 +474,19 @@ The role set is already implemented in the domain (M1):
 
 Group→role mapping stays configuration in the CyberdyneAuth adapter; the matrix
 above is domain policy and is decided in the core.
+
+**"Any mapped actor with read access" is the stricter of two readings, and it is
+deliberate.** `asset-requests` says *"Any actor permitted to read a project SHALL
+be permitted to raise a request within it"*; `hosted-repository` refuses a write
+by a person with no mapped git identity, naming the missing entry, and
+`add-web-backend`'s D7 accepts the consequence in so many words — *"a person who
+has never been mapped cannot even accept a request"*. Both cannot hold for an
+unmapped reader. **Read access *and* a mapped identity** is what is implemented,
+in the domain, for every mutating operation: a request is repository content, an
+unattributable workflow record is the thing the two-identity rule exists to
+prevent, and a refusal that names the missing mapping is fixed by one line in a
+file. The two specification deltas disagree on this point and one of them is
+wrong; the code does not split the difference.
 
 ## Planned Changes
 
