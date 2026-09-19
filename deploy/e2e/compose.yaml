@@ -1,0 +1,113 @@
+# Task 6.2 — the stack the end-to-end suite runs against.
+#
+# This is the **test** stack, not the deployment. The images Coolify promotes
+# are `add-coolify-deployment`'s (sprints S10-S12); what is here is the smallest
+# thing that puts a real browser in front of a real API in front of a real
+# PostgreSQL and a real S3 API, because everything smaller is a suite that
+# checks the mocks agree with each other.
+#
+# It is brought up and torn down by the run itself — `tests/e2e/stack.py` — so
+# `just test-e2e` stays one command and an interrupted run cannot leak a
+# container into the next one.
+#
+# Every service declares a health check, so `docker compose up --wait` is what
+# "it is ready" means here rather than a sleep somebody tuned once.
+
+name: cybercanon-e2e
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: canon
+      POSTGRES_PASSWORD: canon
+      POSTGRES_DB: canon
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U canon -d canon"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      # The index is rebuildable by specification, and an e2e run wants a new
+      # one every time: no volume, so a stale schema cannot survive a run.
+      - /var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: canon
+      MINIO_ROOT_PASSWORD: canon-secret
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /data
+
+  # The repository the working copy is fetched from. Git is the source of truth,
+  # so the stack has to contain one rather than stub it; the seed is the worked
+  # example, served over the git daemon's read-only protocol.
+  repository:
+    image: alpine/git:latest
+    entrypoint: ["/bin/sh", "/seed/serve.sh"]
+    volumes:
+      - ../../examples/ronin:/seed/ronin:ro
+      - ./serve-repository.sh:/seed/serve.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9418"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/e2e/api.Dockerfile
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      repository: {condition: service_healthy}
+    environment:
+      CANON_REPOSITORY_URL: git://repository:9418/ronin
+      CANON_REPOSITORY_BRANCH: main
+      CANON_REPOSITORY_CREDENTIAL: unused-for-the-git-protocol
+      CANON_FETCH_INTERVAL_S: "60"
+      CANON_WEBHOOK_SECRET: e2e-webhook-secret
+      CANON_AUTH_ISSUER: http://api:8000/e2e-issuer
+      CANON_AUTH_AUDIENCE: cybercanon-e2e
+      CANON_AUTH_KEY_SET_URL: http://api:8000/e2e-issuer/jwks.json
+      CANON_AUTH_GROUP_ROLES: art-directors=ART_DIRECTOR,artists=ARTIST
+      CANON_DATABASE_URL: postgresql://canon:canon@postgres:5432/canon  # not-a-credential: created and destroyed by the run
+      CANON_OBJECT_STORE_URL: http://canon:canon-secret@minio:9000/canon-e2e  # not-a-credential: created and destroyed by the run
+      CANON_LINK_EXPIRY_S: "900"
+    ports:
+      # Published because the browser reaches the API from the host, which is
+      # where `PUBLIC_CANON_API_URL` is resolved.
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz')"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/e2e/web.Dockerfile
+    depends_on:
+      api: {condition: service_healthy}
+    environment:
+      PUBLIC_CANON_API_URL: http://localhost:8000
+      PORT: "5173"
+      HOST: "0.0.0.0"
+    ports:
+      # `tests/e2e/stack.py` points the browser here. The API is published too,
+      # because the browser reaches it from the host, not from the network.
+      - "5173:5173"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5173/ || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 40

@@ -5,20 +5,34 @@ environment variables, with no file fallback. Coolify supplies configuration as
 environment; twelve-factor is the native shape here, not an aspiration. No
 secret is ever committed, and no configuration is baked into an image."*
 
-Three properties follow, and each is a test rather than a convention:
+`deployment-operations` then states the carve-out that keeps the rule honest:
+**a project's own settings file inside its working copy is repository content,
+not service configuration.** That file is read through the `SpecStore`, at a
+revision, like every other piece of content; nothing in this module can reach
+it, and nothing in this module can reach any other file either.
+
+Four properties follow, and each is a test rather than a convention:
 
 * **No file is read.** Nothing here opens a path, and nothing falls back to one.
-  A `.env` sitting beside the service is not configuration; it is a file
-  somebody left there, and the day it disagrees with the environment is the day
-  a deployment behaves differently from how it is described.
-* **A missing variable names itself, and so does every other one.** The service
-  refuses to start listing *all* the variables it needs and does not have.
-  Failing on the first one turns configuring a new deployment into a queue of
-  restarts, which is how people end up putting secrets in an image to make the
-  loop shorter.
-* **A secret never renders.** :class:`Secret` keeps its value out of `repr`,
+  A `.env` sitting beside the service, or baked into the image, is not
+  configuration; it is a file somebody left there, and the day it disagrees with
+  the environment is the day a deployment behaves differently from how it is
+  described.
+* **Every offending variable names itself, in one message.** Missing *and*
+  malformed, together, with the shape a malformed one was expected to have. The
+  service refuses to start listing all of them, because failing on the first one
+  turns configuring a new deployment into a queue of restarts — which is how
+  people end up putting secrets in an image to make the loop shorter.
+* **A value is never echoed.** :class:`Secret` keeps its value out of `repr`,
   `str` and therefore out of every log line and stack trace, exactly as
-  :class:`~cybercanon.application.ports.identity_provider.Credential` does.
+  :class:`~cybercanon.application.ports.identity_provider.Credential` does; and
+  a refusal names the setting and the shape it wanted, never what was there. The
+  expected shape is the actionable half, and a message that quoted the value
+  would leak a credential the first time one was mistyped.
+* **Optional configuration is absent, not broken.** The language model settings
+  have a master switch defaulting to off (`project.md`), so a deployment that
+  configures none of them starts, and the features that need one report
+  themselves unavailable rather than taking the service down with them.
 
 The composition root reads this; the inbound HTTP adapter does not. An
 application that needed configuration to answer whether it is alive would make
@@ -29,9 +43,10 @@ the deployable's entry point and the app is built either way.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
 
 from cybercanon.application.errors import FailureKind, OperationFailed
 
@@ -52,7 +67,40 @@ class Secret:
         return bool(self.value)
 
 
-class ConfigurationIncomplete(OperationFailed):
+@dataclass(frozen=True)
+class Problem:
+    """One variable the service cannot start with, and what it wanted instead.
+
+    `present` distinguishes the two cases the specification distinguishes: a
+    setting that is *absent* names itself, and one that is *malformed* names
+    itself **and** the expected shape. Neither carries the value.
+    """
+
+    name: str
+    expected: str
+    present: bool
+
+    def __str__(self) -> str:
+        return f"{self.name} is {'not ' + self.expected if self.present else 'not set'}"
+
+
+class ConfigurationRejected(OperationFailed):
+    """The service cannot start with this environment. Base of the two cases."""
+
+    kind = FailureKind.INVALID
+    identifier = "configuration.rejected"
+
+    def __init__(self, message: str, subject: str, problems: Sequence[Problem]) -> None:
+        super().__init__(message, subject)
+        self.problems = tuple(problems)
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """Every offending variable, in the order they are declared."""
+        return tuple(problem.name for problem in self.problems)
+
+
+class ConfigurationIncomplete(ConfigurationRejected):
     """The service cannot start: these variables are required and absent.
 
     Every one of them, in one message. A loader that stopped at the first
@@ -60,7 +108,6 @@ class ConfigurationIncomplete(OperationFailed):
     restarting until the list runs out.
     """
 
-    kind = FailureKind.INVALID
     identifier = "configuration.incomplete"
 
     def __init__(self, missing: Sequence[str]) -> None:
@@ -70,19 +117,202 @@ class ConfigurationIncomplete(OperationFailed):
             f"variable(s) are not set — {listed}. Configuration is environment "
             "variables with no file fallback.",
             listed,
+            tuple(Problem(name, "", present=False) for name in missing),
         )
         self.missing = tuple(missing)
 
 
-class ConfigurationInvalid(OperationFailed):
-    """A variable is set to something that cannot be read as what it must be."""
+class ConfigurationInvalid(ConfigurationRejected):
+    """At least one variable is set to something that cannot be read as what it must be.
 
-    kind = FailureKind.INVALID
+    Missing variables travel in the same message, because a deployment with one
+    of each has two things to fix and deserves to learn both at once.
+    """
+
     identifier = "configuration.invalid"
 
-    def __init__(self, name: str, value: str, expected: str) -> None:
-        super().__init__(f"{name} is {value!r}, which is not {expected}", name)
-        self.name = name
+    def __init__(self, problems: Sequence[Problem]) -> None:
+        listed = "; ".join(str(problem) for problem in problems)
+        super().__init__(
+            f"the service cannot start: {len(problems)} environment variable(s) "
+            f"are wrong — {listed}. No value is quoted here on purpose.",
+            problems[0].name,
+            problems,
+        )
+        self.name = problems[0].name
+
+    @classmethod
+    def of(cls, name: str, expected: str) -> ConfigurationInvalid:
+        """One malformed setting on its own, for a reader called outside :func:`read`."""
+        return cls((Problem(name, expected, present=True),))
+
+
+# --------------------------------------------------------------------------
+# Readers: one per shape, each raising `ValueError` and naming nothing
+# --------------------------------------------------------------------------
+
+GROUP_SEPARATOR = ","
+PAIR_SEPARATOR = "="
+
+SCHEME_SEPARATOR = "://"
+
+TRUE = ("1", "true", "yes", "on")
+FALSE = ("0", "false", "no", "off")
+
+
+def text(raw: str) -> str:
+    """Any non-empty string. The shape of a name somebody else defined."""
+    return raw
+
+
+def url(raw: str) -> str:
+    """An endpoint with a scheme — `postgresql://…`, `https://…`."""
+    scheme, separator, rest = raw.partition(SCHEME_SEPARATOR)
+    if not separator or not scheme.strip() or not rest.strip():
+        raise ValueError("expected a scheme")
+    return raw
+
+
+def seconds(raw: str) -> timedelta:
+    """A duration in whole, positive seconds."""
+    value = int(raw)
+    if value <= 0:
+        raise ValueError("expected a positive number")
+    return timedelta(seconds=value)
+
+
+def count(raw: str) -> int:
+    """A whole number of attempts, zero included."""
+    value = int(raw)
+    if value < 0:
+        raise ValueError("expected zero or more")
+    return value
+
+
+def flag(raw: str) -> bool:
+    """A switch. Anything else is a misconfiguration, not a quiet `False`."""
+    lowered = raw.strip().lower()
+    if lowered in TRUE:
+        return True
+    if lowered in FALSE:
+        return False
+    raise ValueError("expected a switch")
+
+
+def group_roles(declared: str) -> Mapping[str, str]:
+    """`group=ROLE,group=ROLE` as a mapping, with no opinion about either side.
+
+    Roles are not validated here and groups are not named in code, which is the
+    whole point of D12: an unmapped group grants nothing, and adding a mapping
+    is a configuration change rather than a deploy. A pair this cannot read at
+    all is a configuration error, because silently dropping it would grant
+    nothing while looking like it granted something.
+    """
+    pairs = [entry.strip() for entry in declared.split(GROUP_SEPARATOR) if entry.strip()]
+    mapping: dict[str, str] = {}
+    for pair in pairs:
+        group, separator, role = pair.partition(PAIR_SEPARATOR)
+        if not separator or not group.strip() or not role.strip():
+            raise ConfigurationInvalid.of(GROUP_ROLES, "a list of `group=ROLE` pairs")
+        mapping[group.strip()] = role.strip()
+    return mapping
+
+
+def _pairs(raw: str) -> Mapping[str, str]:
+    """The reader form of :func:`group_roles`, for the declaration table."""
+    return group_roles(raw)
+
+
+# --------------------------------------------------------------------------
+# The declaration: one row per variable, and the only list of them
+# --------------------------------------------------------------------------
+
+type Reader = Callable[[str], Any]
+
+
+@dataclass(frozen=True)
+class Setting:
+    """One environment variable: how it is read, what it is for, whether it is secret.
+
+    `expected` is prose rather than a type, because it is what a person reads at
+    three in the morning when a deployment refused to start.
+    """
+
+    name: str
+    expected: str
+    read: Reader = text
+    required: bool = True
+    secret: bool = False
+    default: Any = None
+
+
+REPOSITORY_URL = "CANON_REPOSITORY_URL"
+REPOSITORY_BRANCH = "CANON_REPOSITORY_BRANCH"
+REPOSITORY_CREDENTIAL = "CANON_REPOSITORY_CREDENTIAL"
+FETCH_INTERVAL = "CANON_FETCH_INTERVAL_S"
+WEBHOOK_SECRET = "CANON_WEBHOOK_SECRET"
+AUTH_ISSUER = "CANON_AUTH_ISSUER"
+AUTH_AUDIENCE = "CANON_AUTH_AUDIENCE"
+AUTH_KEY_SET_URL = "CANON_AUTH_KEY_SET_URL"
+GROUP_ROLES = "CANON_AUTH_GROUP_ROLES"
+DATABASE_URL = "CANON_DATABASE_URL"
+OBJECT_STORE_URL = "CANON_OBJECT_STORE_URL"
+LINK_EXPIRY = "CANON_LINK_EXPIRY_S"
+
+MODEL_ENABLED = "CANON_LLM_ENABLED"
+MODEL_BASE_URL = "CANON_LLM_BASE_URL"
+MODEL_API_KEY = "CANON_LLM_API_KEY"
+MODEL_NAME = "CANON_LLM_MODEL"
+MODEL_VISION_NAME = "CANON_LLM_VISION_MODEL"
+MODEL_TIMEOUT = "CANON_LLM_TIMEOUT_S"
+MODEL_MAX_RETRIES = "CANON_LLM_MAX_RETRIES"
+
+SETTINGS: tuple[Setting, ...] = (
+    Setting(REPOSITORY_URL, "a git remote the service can reach"),
+    Setting(REPOSITORY_BRANCH, "the branch write-backs are committed to"),
+    Setting(REPOSITORY_CREDENTIAL, "a deploy credential for that remote", secret=True),
+    Setting(FETCH_INTERVAL, "a whole number of seconds", read=seconds),
+    Setting(WEBHOOK_SECRET, "the shared secret the git host signs with", secret=True),
+    Setting(AUTH_ISSUER, "the issuer this service trusts"),
+    Setting(AUTH_AUDIENCE, "the audience this service is addressed as"),
+    Setting(AUTH_KEY_SET_URL, "a URL of the form scheme://host/path", read=url),
+    Setting(GROUP_ROLES, "a list of `group=ROLE` pairs", read=_pairs),
+    Setting(DATABASE_URL, "a connection string of the form scheme://host", read=url, secret=True),
+    Setting(OBJECT_STORE_URL, "a URL of the form scheme://host", read=url),
+    Setting(LINK_EXPIRY, "a whole number of seconds", read=seconds),
+    Setting(MODEL_ENABLED, "a switch", read=flag, required=False, default=False),
+    Setting(MODEL_BASE_URL, "an OpenAI-compatible endpoint", read=url, required=False, default=""),
+    Setting(MODEL_API_KEY, "a bearer credential", required=False, secret=True, default=""),
+    Setting(MODEL_NAME, "a model identifier, passed through verbatim", required=False, default=""),
+    Setting(MODEL_VISION_NAME, "a multimodal model identifier", required=False, default=""),
+    Setting(MODEL_TIMEOUT, "a whole number of seconds", read=seconds, required=False),
+    Setting(MODEL_MAX_RETRIES, "a whole number of attempts", read=count, required=False, default=2),
+)
+"""Every variable this service reads, required and optional, in one table.
+
+The required twelve — repository, branch, credential, fetch interval, webhook
+secret, issuer, audience, key set URL, group mapping, database, object store,
+link expiry — are what the service refuses to start without. The seven model
+variables are optional by `project.md`'s rule that *"the system SHALL be fully
+usable with it off"*, and `deploy/README.md` is checked against this table so
+the document and the code cannot drift.
+"""
+
+REQUIRED: tuple[str, ...] = tuple(setting.name for setting in SETTINGS if setting.required)
+"""The variables a boot fails without, in declared order."""
+
+OPTIONAL: tuple[str, ...] = tuple(setting.name for setting in SETTINGS if not setting.required)
+"""The variables whose absence is a feature being off, not a broken deployment."""
+
+SECRETS: tuple[str, ...] = tuple(setting.name for setting in SETTINGS if setting.secret)
+"""The variables whose values may never appear in a message, a log or an artifact."""
+
+DEFAULT_MODEL_TIMEOUT = timedelta(seconds=30)
+
+
+# --------------------------------------------------------------------------
+# The configuration itself
+# --------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -122,71 +352,123 @@ class StorageConfig:
 
 
 @dataclass(frozen=True)
+class ModelConfig:
+    """The language model, which is off until somebody turns it on.
+
+    `project.md`: *"Every LLM feature degrades to absent. Disabled,
+    misconfigured, timing out or rate-limited SHALL all behave the same way: the
+    feature is unavailable and everything else works."* :attr:`available` is
+    that sentence as one expression, so no caller re-derives it.
+    """
+
+    enabled: bool = False
+    base_url: str = ""
+    api_key: Secret = Secret("")
+    model: str = ""
+    vision_model: str = ""
+    timeout: timedelta = DEFAULT_MODEL_TIMEOUT
+    max_retries: int = 2
+
+    @property
+    def available(self) -> bool:
+        """Whether a model-dependent feature can be attempted at all."""
+        return bool(self.enabled and self.base_url and self.model)
+
+    @property
+    def absence(self) -> str:
+        """Why it is unavailable, for the status surface to state."""
+        if not self.enabled:
+            return f"{MODEL_ENABLED} is off"
+        if not self.base_url or not self.model:
+            return f"{MODEL_BASE_URL} and {MODEL_NAME} are not both set"
+        return ""
+
+
+@dataclass(frozen=True)
 class ServiceConfiguration:
     """Everything the hosted service needs, already read and already checked."""
 
     repository: RepositoryConfig
     identity: IdentityConfig
     storage: StorageConfig
-
-
-REQUIRED: tuple[str, ...] = (
-    "CANON_REPOSITORY_URL",
-    "CANON_REPOSITORY_BRANCH",
-    "CANON_REPOSITORY_CREDENTIAL",
-    "CANON_FETCH_INTERVAL_S",
-    "CANON_WEBHOOK_SECRET",
-    "CANON_AUTH_ISSUER",
-    "CANON_AUTH_AUDIENCE",
-    "CANON_AUTH_KEY_SET_URL",
-    "CANON_AUTH_GROUP_ROLES",
-    "CANON_DATABASE_URL",
-    "CANON_OBJECT_STORE_URL",
-    "CANON_LINK_EXPIRY_S",
-)
-"""Every variable the service refuses to start without.
-
-Exactly the twelve task 1.4 enumerates — repository, branch, credential, fetch
-interval, webhook secret, issuer, audience, key set URL, group mapping,
-database, object store, link expiry — as one literal, so "what does this service
-need" has a single answer that a test can read.
-"""
-
-GROUP_SEPARATOR = ","
-PAIR_SEPARATOR = "="
+    model: ModelConfig = ModelConfig()
 
 
 def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
-    """Read the configuration, or refuse to start naming everything that is missing.
+    """Read the configuration, or refuse to start naming everything that is wrong.
 
     `environment` defaults to the process environment and is a parameter only so
     a test can hand in a mapping — never so a caller can supply a file. There is
     no path in this signature and no path in this module.
     """
     source = os.environ if environment is None else environment
-    missing = tuple(name for name in REQUIRED if not source.get(name, "").strip())
-    if missing:
-        raise ConfigurationIncomplete(missing)
+    values = read(source)
     return ServiceConfiguration(
         repository=RepositoryConfig(
-            url=source["CANON_REPOSITORY_URL"],
-            branch=source["CANON_REPOSITORY_BRANCH"],
-            credential=Secret(source["CANON_REPOSITORY_CREDENTIAL"]),
-            fetch_interval=_seconds(source, "CANON_FETCH_INTERVAL_S"),
-            webhook_secret=Secret(source["CANON_WEBHOOK_SECRET"]),
+            url=values[REPOSITORY_URL],
+            branch=values[REPOSITORY_BRANCH],
+            credential=Secret(values[REPOSITORY_CREDENTIAL]),
+            fetch_interval=values[FETCH_INTERVAL],
+            webhook_secret=Secret(values[WEBHOOK_SECRET]),
         ),
         identity=IdentityConfig(
-            issuer=source["CANON_AUTH_ISSUER"],
-            audience=source["CANON_AUTH_AUDIENCE"],
-            key_set_url=source["CANON_AUTH_KEY_SET_URL"],
-            group_roles=group_roles(source["CANON_AUTH_GROUP_ROLES"]),
+            issuer=values[AUTH_ISSUER],
+            audience=values[AUTH_AUDIENCE],
+            key_set_url=values[AUTH_KEY_SET_URL],
+            group_roles=values[GROUP_ROLES],
         ),
         storage=StorageConfig(
-            database_url=Secret(source["CANON_DATABASE_URL"]),
-            object_store_url=source["CANON_OBJECT_STORE_URL"],
-            link_expiry=_seconds(source, "CANON_LINK_EXPIRY_S"),
+            database_url=Secret(values[DATABASE_URL]),
+            object_store_url=values[OBJECT_STORE_URL],
+            link_expiry=values[LINK_EXPIRY],
+        ),
+        model=ModelConfig(
+            enabled=values[MODEL_ENABLED],
+            base_url=values[MODEL_BASE_URL],
+            api_key=Secret(values[MODEL_API_KEY]),
+            model=values[MODEL_NAME],
+            vision_model=values[MODEL_VISION_NAME],
+            timeout=values[MODEL_TIMEOUT] or DEFAULT_MODEL_TIMEOUT,
+            max_retries=values[MODEL_MAX_RETRIES],
         ),
     )
+
+
+def read(source: Mapping[str, str]) -> Mapping[str, Any]:
+    """Every declared setting, read once, or one refusal carrying all the problems."""
+    values: dict[str, Any] = {}
+    problems: list[Problem] = []
+    for setting in SETTINGS:
+        problem = _value_of(setting, source, values)
+        if problem is not None:
+            problems.append(problem)
+    if problems:
+        raise refusal(problems)
+    return values
+
+
+def _value_of(
+    setting: Setting, source: Mapping[str, str], values: dict[str, Any]
+) -> Problem | None:
+    """Read one setting into `values`, or say what is wrong with it."""
+    raw = source.get(setting.name, "").strip()
+    if not raw:
+        if setting.required:
+            return Problem(setting.name, setting.expected, present=False)
+        values[setting.name] = setting.default
+        return None
+    try:
+        values[setting.name] = setting.read(raw)
+    except (ValueError, ConfigurationRejected):
+        return Problem(setting.name, setting.expected, present=True)
+    return None
+
+
+def refusal(problems: Sequence[Problem]) -> ConfigurationRejected:
+    """The one error a refused boot raises: incomplete when nothing was malformed."""
+    if all(not problem.present for problem in problems):
+        return ConfigurationIncomplete(tuple(problem.name for problem in problems))
+    return ConfigurationInvalid(tuple(problems))
 
 
 def missing_from(environment: Mapping[str, str]) -> tuple[str, ...]:
@@ -194,50 +476,29 @@ def missing_from(environment: Mapping[str, str]) -> tuple[str, ...]:
     return tuple(name for name in REQUIRED if not environment.get(name, "").strip())
 
 
-def group_roles(declared: str) -> Mapping[str, str]:
-    """`group=ROLE,group=ROLE` as a mapping, with no opinion about either side.
-
-    Roles are not validated here and groups are not named in code, which is the
-    whole point of D12: an unmapped group grants nothing, and adding a mapping
-    is a configuration change rather than a deploy. A pair this cannot read at
-    all is a configuration error, because silently dropping it would grant
-    nothing while looking like it granted something.
-    """
-    pairs = [entry.strip() for entry in declared.split(GROUP_SEPARATOR) if entry.strip()]
-    mapping: dict[str, str] = {}
-    for pair in pairs:
-        group, separator, role = pair.partition(PAIR_SEPARATOR)
-        if not separator or not group.strip() or not role.strip():
-            raise ConfigurationInvalid("CANON_AUTH_GROUP_ROLES", pair, "a `group=ROLE` pair")
-        mapping[group.strip()] = role.strip()
-    return mapping
-
-
-def _seconds(source: Mapping[str, str], name: str) -> timedelta:
-    """A duration in whole seconds, or a refusal naming the variable."""
-    raw = source[name]
-    try:
-        value = int(raw)
-    except ValueError as failure:
-        raise ConfigurationInvalid(name, raw, "a whole number of seconds") from failure
-    if value <= 0:
-        raise ConfigurationInvalid(name, raw, "a positive number of seconds")
-    return timedelta(seconds=value)
-
-
 __all__ = [
+    "DEFAULT_MODEL_TIMEOUT",
     "GROUP_SEPARATOR",
+    "OPTIONAL",
     "PAIR_SEPARATOR",
     "PREFIX",
     "REQUIRED",
+    "SECRETS",
+    "SETTINGS",
     "ConfigurationIncomplete",
     "ConfigurationInvalid",
+    "ConfigurationRejected",
     "IdentityConfig",
+    "ModelConfig",
+    "Problem",
     "RepositoryConfig",
     "Secret",
     "ServiceConfiguration",
+    "Setting",
     "StorageConfig",
     "group_roles",
     "load",
     "missing_from",
+    "read",
+    "refusal",
 ]

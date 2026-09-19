@@ -32,6 +32,7 @@ from cybercanon.adapters.inbound.http import surface as wiring
 from cybercanon.adapters.inbound.http.versioning import PREFIX
 from cybercanon.application.results import Ok, Result
 from cybercanon.application.use_cases.compile_spec import CompiledSpec
+from cybercanon.application.use_cases.deployment_status import IndexRead
 from cybercanon.application.use_cases.lookup_assets import AssetListing, SearchAnswer
 from cybercanon.domain.policy import Operation
 
@@ -65,6 +66,7 @@ def _router(surface: wiring.Surface) -> APIRouter:
             Operation.READ_PROJECT,
             lambda container: container.list_assets(status=status, owner=owner, tag=tag),
             paging=routing.paged(_rows, payloads.asset_row, token=page, size=page_size),
+            index=IndexRead.EXHAUSTIVE,
         )
 
     @router.get("/projects/{project}/assets/{asset}", tags=[ASSETS_TAG])
@@ -103,6 +105,7 @@ def _router(surface: wiring.Surface) -> APIRouter:
             Operation.LOOKUP_ASSET,
             lambda container: container.where_is(asset),
             payloads.lookup,
+            index=IndexRead.ENTRY,
         )
 
     @router.get("/projects/{project}/search", tags=[PROJECT_TAG])
@@ -121,6 +124,7 @@ def _router(surface: wiring.Surface) -> APIRouter:
             Operation.SEARCH_ASSETS,
             lambda container: container.search_assets(q),
             paging=routing.paged(_hits, _hit, token=page, size=page_size),
+            index=IndexRead.EXHAUSTIVE,
         )
 
     @router.get("/projects/{project}/briefing", tags=[PROJECT_TAG])

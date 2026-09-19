@@ -24,10 +24,15 @@ root hands in:
 
 1. the generic-failure middleware, so that anything the domain did not express
    becomes a correlation identifier rather than a stack trace (task 9.4);
-2. liveness and readiness, which reach for nothing;
-3. the repository notification endpoint, when this deployment has a secret;
-4. the versioned read and write surfaces;
-5. the catch-all that refuses an address carrying no surface version — last,
+2. the access log, one JSON line per request on stdout (D11), registered after
+   the failure middleware so that it is the outermost layer and sees the status
+   a failure was finally reported as;
+3. liveness and readiness, which reach for nothing, and the operational status
+   surface, which reaches for what the composition root wired and is
+   authenticated because it names projects (D2);
+4. the repository notification endpoint, when this deployment has a secret;
+5. the versioned read, write and request surfaces;
+6. the catch-all that refuses an address carrying no surface version — last,
    because it must only ever see what nothing else matched.
 
 The generated interface description is FastAPI's own, produced from the routes
@@ -42,7 +47,17 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from cybercanon.adapters.inbound.http import health, outcomes, reads, versioning, webhooks, writes
+from cybercanon.adapters.inbound.http import (
+    health,
+    logs,
+    outcomes,
+    reads,
+    requests,
+    status,
+    versioning,
+    webhooks,
+    writes,
+)
 from cybercanon.adapters.inbound.http.surface import Surface
 from cybercanon.adapters.inbound.http.webhooks import RepositoryNotifications
 from cybercanon.adapters.wiring.container import Container
@@ -103,10 +118,13 @@ def build_app(
     app.state.container = container
     app.state.surface = wiring
     outcomes.register(app, version=versioning.VERSION)
-    health.register(app, wiring.observe)
+    logs.register(app)
+    health.register(app, wiring.observe, version=versioning.VERSION)
+    status.register(app, wiring, version=versioning.VERSION)
     webhooks.register(app, notifications)
     reads.register(app, wiring)
     writes.register(app, wiring)
+    requests.register(app, wiring)
     versioning.register(app)
     return app
 

@@ -13,10 +13,11 @@ Everything bound here runs against the in-memory repository host, so a full
 lifecycle — raise, assign, accept, fulfil — is exercised with no git, no disk
 and no network, exactly as the validator suite is exercised with no mesh file.
 
-Four of this capability's scenarios stay in `tests/bdd/pending.txt` until the
-groups that earn them: the two about unread items and dismissal need the derived
-notification query of group 10 (D9), and the index-rebuild scenario needs the
-PostgreSQL index of group 6.
+Group 10 closes the last three: the two about unread items and dismissal are
+D9's derived query — requests where the person is the assignee or the author,
+minus a per-person dismissal flag that lives in the index and nowhere else — and
+the index-rebuild scenario is D7 working, since the listing is read from the
+repository and the index is never asked.
 """
 
 from __future__ import annotations
@@ -27,16 +28,25 @@ from typing import Any
 import pytest
 from pytest_bdd import given, scenario, then, when
 
+from cybercanon.application.ports.search_index import IndexedAsset
+from cybercanon.application.ports.spec_store import ProjectConfig
 from cybercanon.application.results import Conflict, Forbidden, Invalid, succeeded
+from cybercanon.application.testing.dismissals import InMemoryDismissals
 from cybercanon.application.testing.notifier import InMemoryNotifier
 from cybercanon.application.testing.outcomes import ran, refused
 from cybercanon.application.testing.repository_host import InMemoryRepositoryHost
+from cybercanon.application.testing.search_index import InMemorySearchIndex
+from cybercanon.application.testing.spec_store import InMemorySpecStore
+from cybercanon.application.use_cases.index_assets import rebuild_index
 from cybercanon.application.use_cases.requests import (
     assign_request,
+    dismiss_item,
+    list_requests,
     path_for,
     raise_request,
     read_request,
     transition_request,
+    unread_items,
 )
 from cybercanon.domain.actors import GitAuthor
 from cybercanon.domain.asset import Asset, AssetId
@@ -82,6 +92,12 @@ def ask() -> dict[str, Any]:
 
 
 @pytest.fixture
+def dismissals() -> InMemoryDismissals:
+    """Where a person's "I have seen this" lives — index state, and losable (D9)."""
+    return InMemoryDismissals()
+
+
+@pytest.fixture
 def host() -> InMemoryRepositoryHost:
     """A cloned project holding one specification and no requests."""
     built = InMemoryRepositoryHost()
@@ -118,11 +134,12 @@ def move(
     *,
     actor: ActorId = ANA,
     author: GitAuthor | None = ANA_GIT,
+    request_id: RequestId = REQUEST,
     **extra: Any,
 ):
     return transition_request(
         PROJECT,
-        REQUEST,
+        request_id,
         to,
         actor=actor,
         repository_host=host,
@@ -251,6 +268,18 @@ def test_a_request_is_not_a_constraint() -> None: ...
     "Notification failure does not reverse the action",
 )
 def test_notification_failure_does_not_reverse_the_action() -> None: ...
+
+
+@scenario("../features/add-web-backend/asset-requests.feature", "Requests survive an index rebuild")
+def test_requests_survive_an_index_rebuild() -> None: ...
+
+
+@scenario("../features/add-web-backend/asset-requests.feature", "Assignee sees an unread item")
+def test_assignee_sees_an_unread_item() -> None: ...
+
+
+@scenario("../features/add-web-backend/asset-requests.feature", "Dismissal is per person")
+def test_dismissal_is_per_person() -> None: ...
 
 
 # --------------------------------------------------------------------------
@@ -701,3 +730,109 @@ def _the_acceptance_stands(host: InMemoryRepositoryHost) -> None:
 def _the_caller_saw_no_failure(ask: dict[str, Any]) -> None:
     assert succeeded(ask["outcome"])
     assert ask["notifier"].recorded == ()
+
+
+# --------------------------------------------------------------------------
+# The index is dropped, and the requests are still there (D7)
+# --------------------------------------------------------------------------
+
+
+@given("a project with open, accepted and terminal requests")
+def _three_requests_in_three_states(ask: dict[str, Any], host: InMemoryRepositoryHost) -> None:
+    for identifier in ("req-0001", "req-0002", "req-0003"):
+        ran(record(host, request_id=RequestId(identifier), assignee=ANA))
+    ran(move(host, RequestState.ACCEPTED, request_id=RequestId("req-0002")))
+    ran(
+        move(
+            host, RequestState.DECLINED, request_id=RequestId("req-0003"), reason="not this sprint"
+        )
+    )
+    ask["index"] = InMemorySearchIndex()
+    ask["spec_store"] = _a_spec_store()
+    ask["index"].upsert(
+        IndexedAsset(asset_id=str(CRATE), name="Supply Crate", spec_path=SPEC_PATH, project=PROJECT)
+    )
+    ask["before"] = ran(list_requests(PROJECT, repository_host=host)).requests
+
+
+@when("the index is dropped and rebuilt")
+def _the_index_is_dropped_and_rebuilt(ask: dict[str, Any]) -> None:
+    ask["index"].clear()
+    ran(rebuild_index("", spec_store=ask["spec_store"], search_index=ask["index"]))
+
+
+@then("every request SHALL be present with the same state, assignee and attribution")
+def _every_request_is_unchanged(ask: dict[str, Any], host: InMemoryRepositoryHost) -> None:
+    after = ran(list_requests(PROJECT, repository_host=host)).requests
+
+    assert after == ask["before"]
+    assert [(str(one.id), str(one.state), one.assignee) for one in after] == [
+        ("req-0001", "open", ANA),
+        ("req-0002", "accepted", ANA),
+        ("req-0003", "declined", ANA),
+    ]
+    assert all(one.history[0].actor == RAFA for one in after)
+
+
+# --------------------------------------------------------------------------
+# Unread items: derived, and dismissed one person at a time (D9)
+# --------------------------------------------------------------------------
+
+
+@given("a request assigned to a person")
+def _a_request_assigned_to_a_person(ask: dict[str, Any], host: InMemoryRepositoryHost) -> None:
+    ask["recorded"] = ran(record(host, assignee=ANA))
+
+
+@when("that person's unread items are listed")
+def _their_unread_items_are_listed(
+    ask: dict[str, Any], host: InMemoryRepositoryHost, dismissals: InMemoryDismissals
+) -> None:
+    ask["unread"] = ran(unread_items(PROJECT, ANA, repository_host=host, dismissals=dismissals))
+
+
+@then("the request SHALL appear among them")
+def _the_request_appears(ask: dict[str, Any]) -> None:
+    assert [one.id for one in ask["unread"].items] == [REQUEST]
+    assert ask["unread"].count == 1
+
+
+@given("a notification visible to two people")
+def _an_item_two_people_can_see(ask: dict[str, Any], host: InMemoryRepositoryHost) -> None:
+    """The author and the assignee — the two `asset-requests` names, and no others."""
+    ask["recorded"] = ran(record(host, assignee=ANA))
+
+
+@when("one of them dismisses it")
+def _one_of_them_dismisses_it(
+    ask: dict[str, Any], host: InMemoryRepositoryHost, dismissals: InMemoryDismissals
+) -> None:
+    ask["dismissed"] = ran(
+        dismiss_item(
+            PROJECT,
+            ANA,
+            REQUEST,
+            repository_host=host,
+            dismissals=dismissals,
+            clock=lambda: LATER,
+        )
+    )
+
+
+@then("it SHALL remain unread for the other")
+def _it_is_still_unread_for_the_other(
+    host: InMemoryRepositoryHost, dismissals: InMemoryDismissals
+) -> None:
+    mine = ran(unread_items(PROJECT, ANA, repository_host=host, dismissals=dismissals))
+    theirs = ran(unread_items(PROJECT, RAFA, repository_host=host, dismissals=dismissals))
+
+    assert mine.count == 0
+    assert [one.id for one in theirs.items] == [REQUEST]
+
+
+def _a_spec_store() -> InMemorySpecStore:
+    """A working copy holding one specification — what a rebuild reads (D7)."""
+    store = InMemorySpecStore()
+    store.set_project(ProjectConfig(name=PROJECT))
+    store.add(SPEC_PATH, Asset(id=CRATE, name="Supply Crate"))
+    return store

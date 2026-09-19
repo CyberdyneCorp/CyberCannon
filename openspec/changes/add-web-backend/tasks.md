@@ -92,19 +92,19 @@
 
 ## 10. Requests and notification end to end
 
-- [ ] 10.1 Implement the request endpoints (raise, assign, transition, list, read) and verify a reader-only actor may raise while a non-assignee without the responsible role is refused acceptance, naming the required role
-- [ ] 10.2 Implement request persistence as one repository file per request (D7) and verify a full lifecycle produces one commit per transition, each authored by the acting person
-- [ ] 10.3 Verify the index-rebuild guarantee for requests: create open, accepted and terminal requests, drop and rebuild the index, and assert state, assignee and attribution are unchanged
-- [ ] 10.4 Verify a request whose persistence fails does not appear in the listing and that its author is told it was not recorded
-- [ ] 10.5 Implement unread items as a derived query plus a per-person dismissal flag (D9) and verify the assignee sees the request, one person's dismissal leaves it unread for the other, and a failing notifier does not reverse an acceptance
-- [ ] 10.6 Verify no request operation creates or changes a constraint, a silhouette rule or any other durable specification content
+- [x] 10.1 Implement the request endpoints (raise, assign, transition, list, read) and verify a reader-only actor may raise while a non-assignee without the responsible role is refused acceptance, naming the required role
+- [x] 10.2 Implement request persistence as one repository file per request (D7) and verify a full lifecycle produces one commit per transition, each authored by the acting person
+- [x] 10.3 Verify the index-rebuild guarantee for requests: create open, accepted and terminal requests, drop and rebuild the index, and assert state, assignee and attribution are unchanged
+- [x] 10.4 Verify a request whose persistence fails does not appear in the listing and that its author is told it was not recorded
+- [x] 10.5 Implement unread items as a derived query plus a per-person dismissal flag (D9) and verify the assignee sees the request, one person's dismissal leaves it unread for the other, and a failing notifier does not reverse an acceptance
+- [x] 10.6 Verify no request operation creates or changes a constraint, a silhouette rule or any other durable specification content
 
 ## 11. Cross-surface equivalence and operational drills
 
-- [ ] 11.1 Verify one verdict across surfaces: validate the same failing export through the CLI and over HTTP and assert identical violations, severities and overall outcome
-- [ ] 11.2 Verify one briefing across surfaces: compile the same asset from the CLI and over HTTP at the same revision and assert byte-identical output
-- [ ] 11.3 Verify one lookup across surfaces: issue the same query over HTTP and through the agent surface at the same revision and assert identical assets in identical order
-- [ ] 11.4 Run the recovery drill end to end — delete the working copy, empty the blob store, drop the database, restart — and verify every previously answerable read, lookup, listing, request and blob is answerable again, recording the elapsed time as the documented recovery procedure
-- [ ] 11.5 Run the concurrency drill — two people editing the same specification and two editing different ones, with a commit pushed directly to the remote in between — and verify exactly the specified conflicts and successes
-- [ ] 11.6 Update `openspec/project.md` to record the resolved git-access decision, remove the open-tension section, and move the roadmap's git-access question out of item 7
-- [ ] 11.7 Run `openspec validate --all --strict`, the full test suite, `lint-imports` and the cognitive complexity check, and verify every function added by this change is within the backend target of 15
+- [x] 11.1 Verify one verdict across surfaces: validate the same failing export through the CLI and over HTTP and assert identical violations, severities and overall outcome
+- [x] 11.2 Verify one briefing across surfaces: compile the same asset from the CLI and over HTTP at the same revision and assert byte-identical output
+- [x] 11.3 Verify one lookup across surfaces: issue the same query over HTTP and through the agent surface at the same revision and assert identical assets in identical order
+- [x] 11.4 Run the recovery drill end to end — delete the working copy, empty the blob store, drop the database, restart — and verify every previously answerable read, lookup, listing, request and blob is answerable again, recording the elapsed time as the documented recovery procedure
+- [x] 11.5 Run the concurrency drill — two people editing the same specification and two editing different ones, with a commit pushed directly to the remote in between — and verify exactly the specified conflicts and successes
+- [x] 11.6 Update `openspec/project.md` to record the resolved git-access decision, remove the open-tension section, and move the roadmap's git-access question out of item 7
+- [x] 11.7 Run `openspec validate --all --strict`, the full test suite, `lint-imports` and the cognitive complexity check, and verify every function added by this change is within the backend target of 15

@@ -68,7 +68,7 @@ agree about.
 
 MIGRATIONS = Path("db/migrations")
 
-TABLES = ("assets", "search_misses", "idempotency_keys", "schema_migrations")
+TABLES = ("assets", "search_misses", "idempotency_keys", "dismissals", "schema_migrations")
 """Everything the migration set creates — dropped in full by the 6.3 drill."""
 
 

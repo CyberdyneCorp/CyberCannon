@@ -3,7 +3,7 @@
 `SpecStore` answers *what does this specification say*. This port answers the
 question that only arises once the reader is a container rather than a laptop:
 *where does the repository come from, and how does a change get back into it.*
-Seven operations, and every one of them is in the specification rather than in
+Eight operations, and every one of them is in the specification rather than in
 the convenience of an implementation:
 
 * **clone** — a project is unavailable until its working copy is ready, and
@@ -19,6 +19,8 @@ the convenience of an implementation:
   `.canon/actors.yaml` (D8). The port takes the author; it never invents one;
 * **push** — one logical edit is one pushed commit, and a commit that cannot be
   pushed did not happen (D2);
+* **list the paths at a revision** — the only way to enumerate content that has
+  no index row, which is what an asset request is (D7);
 * **recover** — a missing, corrupted or diverged working copy is restored from
   the remote, and what was only local is discarded and reported.
 
@@ -244,10 +246,26 @@ class RepositoryHost(Protocol):
         """
         ...
 
+    def paths_at(self, project: str, revision: Revision) -> tuple[str, ...]:
+        """Every tracked path at that revision — a tree listing, not a walk.
+
+        The eighth operation, and the one a *listing* needs: an asset is found
+        through the index, but a request is repository content with no index row
+        of its own (D7), so the only way to enumerate the requests of a project
+        is to ask the repository what is under `.canon/requests/` at the
+        revision being served. Reading the tree rather than walking a checkout
+        keeps that enumeration pinned exactly as :meth:`read` is (D3).
+
+        Raises :class:`RevisionUnreachable` for a revision this repository
+        cannot resolve, for the same reason :meth:`read` does: a revision that
+        is not there and a tree that is empty are different answers.
+        """
+        ...
+
     def writer(self, project: str) -> AbstractContextManager[None]:
         """Hold this project's single-writer lock for the duration of one edit.
 
-        The eighth operation, and the one that is not about git at all. D5's
+        The ninth operation, and the one that is not about git at all. D5's
         precondition — *the content this edit was composed against is still
         there* — is only a precondition if nothing can move between the check
         and the commit, and the design's *"no horizontal scaling of the API

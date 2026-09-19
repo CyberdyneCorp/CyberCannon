@@ -68,10 +68,19 @@ def migrated_dsn(postgres_server, repo_root: Path) -> str:
 
 
 @pytest.fixture
-def postgres_dsn(migrated_dsn: str) -> str:
-    """That database, emptied — every test starts from a schema with no rows."""
+def postgres_dsn(migrated_dsn: str, repo_root: Path) -> str:
+    """That database, emptied — every test starts from a schema with no rows.
+
+    The migration set is re-applied first, because the recovery drills
+    deliberately *drop the schema* and a session-scoped database has to survive
+    one: re-applying is idempotent, so it costs a query on every other test and
+    it makes "drop everything" a thing a test may really do.
+    """
     import psycopg
 
+    from cybercanon.adapters.outbound.postgres.migrations import apply_migrations
+
+    apply_migrations(migrated_dsn, repo_root / "db" / "migrations")
     with psycopg.connect(migrated_dsn, autocommit=True) as connection:
-        connection.execute("TRUNCATE assets, search_misses, idempotency_keys")
+        connection.execute("TRUNCATE assets, search_misses, idempotency_keys, dismissals")
     return migrated_dsn

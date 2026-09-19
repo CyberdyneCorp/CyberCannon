@@ -47,8 +47,10 @@ from cybercanon.application.ports.spec_store import SpecStore
 from cybercanon.application.results import Result, as_result
 from cybercanon.application.use_cases.index_assets import (
     Fingerprinter,
+    Progress,
     RebuildReport,
     no_fingerprints,
+    no_progress,
     rebuild_index,
 )
 from cybercanon.application.use_cases.resolve_actor import (
@@ -243,9 +245,9 @@ def _attempt_until(
             return _apply(project, edits, repository_host, author, message, attempt)
         except PushRejected:
             _reset(project, repository_host)
-        except RepositoryUnavailable:
+        except RepositoryUnavailable as failure:
             _reset(project, repository_host)
-            raise
+            raise RepositoryUnavailable(project, _nothing_recorded(failure.reason)) from failure
     raise WriteConflict(
         edits[0].path,
         f"the branch moved under {attempts} attempts; nothing was written",
@@ -286,6 +288,21 @@ def _digest(content: bytes | None) -> ContentHash | None:
     return ContentHash.of(content) if content is not None else None
 
 
+NOTHING_RECORDED = "no change was recorded"
+"""What a caller is told when a write-back did not land (`deployment-operations`).
+
+*"A caller SHALL NOT be told a write-back succeeded unless its commit exists on
+the configured branch"*, and the refusal *"SHALL state that no change was
+recorded"*. The recovery above is what makes the sentence true; this is the
+sentence.
+"""
+
+
+def _nothing_recorded(reason: str) -> str:
+    """That reason, with the thing the caller actually needs to know appended."""
+    return f"{reason}; {NOTHING_RECORDED}" if reason else NOTHING_RECORDED
+
+
 def _reset(project: str, repository_host: RepositoryHost) -> None:
     """Throw away the commit the rejected push left behind, then re-fetch.
 
@@ -308,6 +325,8 @@ def rebuild_project_index(
     spec_store: SpecStore,
     search_index: SearchIndex,
     fingerprints: Fingerprinter = no_fingerprints,
+    progress: Progress = no_progress,
+    resume: bool = False,
 ) -> RebuildReport:
     """Discard the project's index rows and rebuild them from the working copy.
 
@@ -317,12 +336,22 @@ def rebuild_project_index(
 
     An operation, never a side effect: nothing in a read path calls this, and a
     test asserts that rather than trusting it.
+
+    `progress` and `resume` are the recovery's two needs (`deployment-operations`
+    task 5.7): a rebuild long enough to be a recovery has to be watchable while
+    it runs, and one that was interrupted has to continue rather than start
+    again.
     """
     status = _ready(project, repository_host)
     assert status.served is not None
     pinned = spec_store.pinned(status.served.revision.value)
     return rebuild_index.raising(
-        "", spec_store=pinned, search_index=search_index, fingerprints=fingerprints
+        "",
+        spec_store=pinned,
+        search_index=search_index,
+        fingerprints=fingerprints,
+        progress=progress,
+        resume=resume,
     )
 
 
@@ -525,6 +554,7 @@ __all__ = [
     "AGENT_TRAILER",
     "DEFAULT_ATTEMPTS",
     "DEFAULT_INTERVAL",
+    "NOTHING_RECORDED",
     "AuthorUnmapped",
     "Edit",
     "FetchSchedule",

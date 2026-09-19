@@ -42,6 +42,7 @@ is the only place that variation is allowed to exist.
 
 from __future__ import annotations
 
+import fcntl
 import shutil
 import threading
 from collections.abc import Iterator, Mapping, Sequence
@@ -68,6 +69,9 @@ from cybercanon.domain.revisions import Revision, ServedRevision
 
 ORIGIN = "origin"
 """The one remote a working copy has. A second would be a second source of truth."""
+
+LOCK_SUFFIX = ".writer.lock"
+"""What a project's single-writer lock file is called, beside its working copy."""
 
 CREDENTIAL_REFUSED = "the configured repository credential was refused by the remote"
 REMOTE_UNREACHABLE = "the remote could not be reached"
@@ -317,22 +321,60 @@ class GitRepositoryHost:
         return found.out if found.ok else None
 
     def paths_at(self, project: str, revision: Revision) -> tuple[str, ...]:
-        """Every tracked path at that revision — a tree listing, not a walk."""
+        """Every tracked path at that revision — a tree listing, not a walk.
+
+        Sorted rather than left in git's order. Git walks trees depth-first and
+        orders entries as if a directory ended in a slash, so `a.b/x` and `ab/y`
+        come out in an order a caller would have to know git to predict. The
+        port promises a deterministic listing, and the cheapest way for both
+        implementations to keep that promise is the obvious one.
+        """
         held = self._ensure(project)
         self._resolve(held, revision.value)
-        return self._git(held, ["ls-tree", "-r", "--name-only", revision.value]).lines
+        listed = self._git(held, ["ls-tree", "-r", "--name-only", revision.value])
+        return tuple(sorted(listed.lines))
 
     @contextmanager
     def writer(self, project: str) -> Iterator[None]:
-        """Hold this project's single-writer lock (task 5.7).
+        """Hold this project's single-writer lock (task 5.7, and D6).
 
         Re-entrant, so the retry loop's recover-and-fetch runs inside the same
         edit's lock. Held across resolve, commit and push, because a lock taken
         only around the commit would let two edits pass the same precondition
         and the later one win silently.
+
+        **Two locks, because there are two ways to be two writers.** The
+        in-process lock serialises this instance's own threads; the file lock on
+        the volume serialises *instances*, which is what D6 requires and D7
+        depends on: a rollover deliberately runs the old and the new instance at
+        once, both mounting the same working copies, and an exclusive lock that
+        lived in one process's memory would be no lock at all for the twenty
+        seconds that matters most. The lock file sits beside the working copy on
+        the volume it protects, because a lock somewhere else is a lock that a
+        restored volume does not carry.
         """
-        with self._held(project).lock:
+        held = self._held(project)
+        with held.lock, self._volume_lock(project):
             yield
+
+    @contextmanager
+    def _volume_lock(self, project: str) -> Iterator[None]:
+        """An exclusive lock on this project's lock file, held for the write.
+
+        `flock` is per open file description, so two instances — and two hosts
+        in one process, which is how the drill stages an overlapping deploy —
+        contend for it exactly as two containers on one node do. A platform
+        without it degrades to the in-process lock and says so here rather than
+        pretending: every environment this service is deployed to has it.
+        """
+        self._root.mkdir(parents=True, exist_ok=True)
+        path = self._root / f"{project}{LOCK_SUFFIX}"
+        with path.open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def commit(
         self,
@@ -574,6 +616,7 @@ def _parsed(line: str) -> Commit:
 __all__ = [
     "BRANCH_MISSING",
     "CREDENTIAL_REFUSED",
+    "LOCK_SUFFIX",
     "NOT_CONFIGURED",
     "ORIGIN",
     "REASONS",

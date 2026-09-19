@@ -66,6 +66,41 @@ def no_fingerprints(path: str) -> FileFingerprint | None:
 
 
 @dataclass(frozen=True)
+class RebuildProgress:
+    """How far a rebuild has got, reported one specification at a time.
+
+    A rebuild is the recovery for a lost index (`deployment-operations`, D5), so
+    its duration is an operational number rather than a detail: *"an index
+    rebuild is in progress"* has to be sayable while it runs, and *"reads that
+    cannot be served from the partial index"* only means something if there is a
+    partial index somebody is watching fill. Hence a value with both halves —
+    how many are done and how many there are — rather than a log line.
+    """
+
+    project: str
+    path: str
+    done: int
+    total: int
+    resumed: bool = False
+
+    @property
+    def complete(self) -> bool:
+        return self.done >= self.total
+
+    @property
+    def remaining(self) -> int:
+        return max(self.total - self.done, 0)
+
+
+type Progress = Callable[[RebuildProgress], None]
+"""How a caller watches a rebuild. The composition root prints; a test records."""
+
+
+def no_progress(progress: RebuildProgress) -> None:
+    """The default: nobody is watching, and the rebuild does not care."""
+
+
+@dataclass(frozen=True)
 class UnreadableSpec:
     """A specification file the scan found and could not parse.
 
@@ -178,24 +213,48 @@ def rebuild_index(
     spec_store: SpecStore,
     search_index: SearchIndex,
     fingerprints: Fingerprinter = no_fingerprints,
+    progress: Progress = no_progress,
+    resume: bool = False,
 ) -> RebuildReport:
     """Scan every specification under `root` and rewrite the project's rows.
 
     One unreadable file is a finding, never the end of the scan: a project with
     a broken `asset.yaml` still gets an index of everything else, and the
     command names the file so somebody can fix it.
+
+    **Resumable, because the rebuild is a recovery** (`deployment-operations`,
+    task 5.7). Rows are written one specification at a time, so an interrupted
+    rebuild leaves a partial index rather than nothing; `resume` then carries
+    over every row whose file has not changed since it was written and re-reads
+    only the rest. Two consequences worth stating: a resumed run reports the
+    carried-over rows as indexed, so the sweep at the end does not forget an
+    asset it merely did not re-read; and with no fingerprinter a resumed run
+    carries everything over, which is the honest answer for a store that cannot
+    see files — *nothing has changed* is exactly what it knows.
     """
     project = spec_store.load_project(root)
     name = _project_name(project)
     known = {entry.asset_id: entry for entry in search_index.list_assets(project=name)}
+    carried = {entry.spec_path: entry for entry in known.values()} if resume else {}
+    paths = tuple(spec_store.specs_under(root))
     indexed: list[str] = []
     unreadable: list[UnreadableSpec] = []
-    for path in spec_store.specs_under(root):
-        row = _row_for(path, project, spec_store, fingerprints, known, unreadable)
-        if row is None:
-            continue
-        search_index.upsert(row)
-        indexed.append(row.asset_id)
+    for position, path in enumerate(paths, start=1):
+        already = _carried_over(path, carried, fingerprints)
+        row = already or _row_for(path, project, spec_store, fingerprints, known, unreadable)
+        if row is not None and already is None:
+            search_index.upsert(row)
+        if row is not None:
+            indexed.append(row.asset_id)
+        progress(
+            RebuildProgress(
+                project=name,
+                path=path,
+                done=position,
+                total=len(paths),
+                resumed=already is not None,
+            )
+        )
     forgotten = _forget_missing(search_index, name, known, frozenset(indexed))
     return RebuildReport(
         project=name,
@@ -203,6 +262,24 @@ def rebuild_index(
         unreadable=tuple(unreadable),
         forgotten=forgotten,
     )
+
+
+def _carried_over(
+    path: str,
+    carried: dict[str, IndexedAsset],
+    fingerprints: Fingerprinter,
+) -> IndexedAsset | None:
+    """The row a resumed rebuild keeps rather than re-reading, if there is one.
+
+    The comparison is the one D8's read path already makes — the fingerprint the
+    row was written with against the file as it is now — so "already done" means
+    the same thing here as "not stale" there, rather than a second notion of
+    freshness that could disagree with it.
+    """
+    entry = carried.get(path)
+    if entry is None:
+        return None
+    return entry if entry.fingerprint == fingerprints(path) else None
 
 
 def current_entry(
@@ -299,11 +376,14 @@ __all__ = [
     "ROOT_DIRECTORY",
     "Fingerprinter",
     "FreshEntry",
+    "Progress",
+    "RebuildProgress",
     "RebuildReport",
     "UnreadableSpec",
     "current_entry",
     "directory_of",
     "entry_for",
     "no_fingerprints",
+    "no_progress",
     "rebuild_index",
 ]

@@ -45,8 +45,22 @@ jobs:
 
       - uses: extractions/setup-just@v3
 
-      # Browser installation and the compose stack the e2e suite runs against
-      # are group 6 of add-test-strategy (sprint S9). They belong in a recipe
-      # too: whatever `just test-e2e` needs, it brings up itself.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Whatever `just test-e2e` needs, it brings up itself: the browsers are
+      # installed by the run (tests/e2e/conftest.py) and the compose stack is
+      # started and torn down by it (tests/e2e/stack.py). Neither is a step
+      # here, because a check in the workflow that is not in the justfile is a
+      # check a developer's `just check` can never reproduce.
       - name: just test-e2e
         run: just test-e2e
+
+      # Not a check — the evidence a failing run left behind (task 6.4).
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-traces
+          path: reports/e2e
+          if-no-files-found: ignore

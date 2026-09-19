@@ -31,14 +31,19 @@ while both layers were being collected, and `just test-bdd` collects one.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from dataclasses import replace
 from hashlib import sha256
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from fastmcp import Client, FastMCP
 from pytest_bdd import given, scenario, then, when
+from typer.testing import CliRunner
 
+from cybercanon.adapters.inbound.cli.app import build_app as build_cli
 from cybercanon.adapters.inbound.http.app import build_app
 from cybercanon.adapters.inbound.http.health import (
     DEPENDENCIES_FIELD,
@@ -53,6 +58,7 @@ from cybercanon.adapters.inbound.http.pagination import MAX_PAGE_SIZE
 from cybercanon.adapters.inbound.http.surface import Dependency, HostedProject, Surface
 from cybercanon.adapters.inbound.http.versioning import UNVERSIONED_IDENTIFIER, VERSION
 from cybercanon.adapters.inbound.http.writes import REVISION_MISSING
+from cybercanon.adapters.inbound.mcp.tools import build_server
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.identity_provider import Credential
 from cybercanon.application.ports.search_index import IndexedAsset
@@ -61,7 +67,10 @@ from cybercanon.application.testing import build_fakes
 from cybercanon.application.testing.idempotency import InMemoryIdempotencyStore
 from cybercanon.domain.actors import ActorBinding, ActorMapping
 from cybercanon.domain.asset import Asset, AssetId
+from cybercanon.domain.constraints import Constraints
+from cybercanon.domain.format_matrix import facts_for
 from cybercanon.domain.identity import Actor, ActorId, Role, automation_actor
+from cybercanon.domain.mesh_facts import MeshFormat
 from cybercanon.domain.policy import (
     HUMAN_ONLY,
     MUTATING,
@@ -184,8 +193,27 @@ ASSETS = {
 }
 
 TOKEN = "rafa-token"
+READER_TOKEN = "ana-token"
 STRANGER_TOKEN = "stranger-token"
 RAFA_EMAIL = "rafa@cyberdyne.com"
+ANA_EMAIL = "ana@cyberdyne.com"
+
+SCOUT_EXPORT = "characters/mech_scout/exports/SM_mech_scout_LOD0.glb"
+SCOUT_OBJECT = "SM_mech_scout_LOD0"
+
+TRI_BUDGET = 12000
+OVER_BUDGET = 19000
+
+TERM = "mech"
+"""A term the cascade matches in two assets **through different passes**.
+
+`mech_scout` matches on its name prefix and `supply_crate` on an alias, so the
+two surfaces have to agree about the *ranking* and not merely about the set — a
+surface that sorted its own results alphabetically would put the crate first and
+fail this.
+"""
+
+ALIASES = {"supply_crate": ("mech",)}
 
 BASE = f"/{VERSION}/projects/{PROJECT}"
 
@@ -202,14 +230,42 @@ class UnreachableIndex:
         return fails
 
 
-def a_person(subject: str, name: str, project: str = PROJECT) -> Actor:
-    return Actor(
-        id=ActorId(subject), display_name=name, roles=(Role.ART_DIRECTOR,), projects=(project,)
-    )
+def a_person(
+    subject: str,
+    name: str,
+    project: str = PROJECT,
+    roles: tuple[Role, ...] = (Role.ART_DIRECTOR,),
+) -> Actor:
+    return Actor(id=ActorId(subject), display_name=name, roles=roles, projects=(project,))
 
 
 def an_asset(asset_id: str) -> Asset:
-    return Asset(id=AssetId(asset_id), name=asset_id.replace("_", " ").title())
+    return Asset(
+        id=AssetId(asset_id),
+        name=asset_id.replace("_", " ").title(),
+        aliases=ALIASES.get(asset_id, ()),
+        owner_art=RAFA_EMAIL,
+        constraints=Constraints(tri_budget=TRI_BUDGET, naming="SM_{asset}_LOD{n}"),
+    )
+
+
+def over_budget_facts(triangles: int = OVER_BUDGET):
+    """An export that fails the one rule every surface must agree about."""
+    return facts_for(
+        MeshFormat.GLB,
+        triangles=triangles,
+        objects=(SCOUT_OBJECT,),
+        transforms_applied=True,
+        unit_scale=1.0,
+        up_axis="Y",
+        uv_sets=1,
+        materials=("M_mech_scout",),
+        empties=(),
+        clips=(),
+        frame_rate=None,
+        is_skinned=False,
+        bone_count=0,
+    )
 
 
 def a_wired_surface(*, dependencies: tuple[Dependency, ...] = ()) -> dict[str, Any]:
@@ -223,13 +279,17 @@ def a_wired_surface(*, dependencies: tuple[Dependency, ...] = ()) -> dict[str, A
             IndexedAsset(
                 asset_id=asset_id,
                 name=asset_id.replace("_", " ").title(),
+                aliases=ALIASES.get(asset_id, ()),
                 spec_path=spec_path,
                 project=PROJECT,
             )
         )
     spec_store.set_actor_mapping(
         ActorMapping(
-            bindings=(ActorBinding(subject="auth|rafa", display_name="Rafa", emails=(RAFA_EMAIL,)),)
+            bindings=(
+                ActorBinding(subject="auth|rafa", display_name="Rafa", emails=(RAFA_EMAIL,)),
+                ActorBinding(subject="auth|ana", display_name="Ana", emails=(ANA_EMAIL,)),
+            )
         )
     )
     host.add_project(PROJECT, {SCOUT_SPEC: SCOUT_CONTENT})
@@ -237,7 +297,10 @@ def a_wired_surface(*, dependencies: tuple[Dependency, ...] = ()) -> dict[str, A
     spec_store.snapshot(host.head(PROJECT).value)
 
     provider = fakes["identity_provider"]
+    fakes["mesh_inspector"].add(SCOUT_EXPORT, over_budget_facts())
+
     provider.add(Credential(TOKEN), a_person("auth|rafa", "Rafa"))
+    provider.add(Credential(READER_TOKEN), a_person("auth|ana", "Ana", roles=()))
     provider.add(Credential(STRANGER_TOKEN), a_person("auth|sam", "Sam", "another-game"))
 
     container = Container(
@@ -250,6 +313,8 @@ def a_wired_surface(*, dependencies: tuple[Dependency, ...] = ()) -> dict[str, A
         projects={PROJECT: HostedProject(name=PROJECT, container=container, repository_host=host)},
         identity_provider=provider,
         idempotency=InMemoryIdempotencyStore(),
+        dismissals=fakes["dismissals"],
+        notifier=fakes["notifier"],
         observe=lambda: dependencies,
     )
     return {
@@ -289,6 +354,24 @@ def _put(surface: dict[str, Any], body: dict[str, Any], key: str = "") -> Any:
 # --------------------------------------------------------------------------
 # Scenarios group 9 answers
 # --------------------------------------------------------------------------
+
+
+@scenario("../features/add-web-backend/http-api.feature", "Validation agrees across surfaces")
+def test_validation_agrees_across_surfaces() -> None: ...
+
+
+@scenario("../features/add-web-backend/http-api.feature", "Compilation agrees across surfaces")
+def test_compilation_agrees_across_surfaces() -> None: ...
+
+
+@scenario("../features/add-web-backend/http-api.feature", "Lookup agrees across surfaces")
+def test_lookup_agrees_across_surfaces() -> None: ...
+
+
+@scenario(
+    "../features/add-web-backend/http-api.feature", "A domain refusal is not an internal error"
+)
+def test_a_domain_refusal_is_not_an_internal_error() -> None: ...
 
 
 @scenario(
@@ -815,3 +898,153 @@ def _those_dependencies_are_described(surface: dict[str, Any]) -> None:
     }
 
     assert described == {LANGUAGE_MODEL: "unavailable", DOCUMENT_PLATFORM: "unavailable"}
+
+
+# --------------------------------------------------------------------------
+# One core, three surfaces — the claim the whole change rests on
+# --------------------------------------------------------------------------
+#
+# Each of these drives two *real* surfaces over one container and compares the
+# answers. They would fail the day any surface grew logic of its own, which is
+# the only reason they are worth running: the agreement is not asserted by
+# reading both implementations, it is asserted by executing both.
+
+
+@given("an export that fails its triangle budget")
+def _an_export_over_its_budget(surface: dict[str, Any]) -> None:
+    surface.update(a_wired_surface())
+
+
+@when("it is validated over HTTP and again from the command line")
+def _validated_on_both_surfaces(surface: dict[str, Any]) -> None:
+    surface["http"] = _get(surface, f"{BASE}/validations?export={SCOUT_EXPORT}").json()["data"]
+    surface["cli"] = _cli(surface, "validate", "--json", SCOUT_EXPORT)["results"][0]
+
+
+@then("both SHALL report the same violations with the same severities and the same overall outcome")
+def _the_same_verdict_on_both(surface: dict[str, Any]) -> None:
+    over_http, over_cli = surface["http"], surface["cli"]
+
+    assert over_http["violations"] == over_cli["violations"]
+    assert over_http["passed"] is over_cli["passed"] is False
+    assert over_http["outcome"] == over_cli["outcome"]
+    assert over_http["not_evaluated"] == over_cli["not_evaluated"]
+    assert {one["severity"] for one in over_http["violations"]}
+
+
+@given("an asset whose specification compiles to a briefing")
+def _an_asset_that_compiles(surface: dict[str, Any]) -> None:
+    surface.update(a_wired_surface())
+
+
+@when(
+    "the briefing is requested over HTTP and produced from the command line at the same "
+    "repository revision"
+)
+def _compiled_on_both_surfaces(surface: dict[str, Any]) -> None:
+    surface["revision"] = surface["host"].head(PROJECT).value
+    surface["http"] = _get(surface, f"{BASE}/assets/{SCOUT}/briefing").json()["data"]
+    surface["cli"] = _cli(surface, "compile", "--stdout", "--json", SCOUT_SPEC)
+
+
+@then("both SHALL be identical")
+def _byte_identical_briefings(surface: dict[str, Any]) -> None:
+    over_http, over_cli = surface["http"], surface["cli"]
+
+    assert over_http["text"] == over_cli["text"]
+    assert over_http["text"].encode("utf-8") == over_cli["text"].encode("utf-8")
+    assert over_http["asset"] == over_cli["asset"]
+    assert surface["host"].head(PROJECT).value == surface["revision"]
+
+
+@given("a query matching several assets")
+def _a_query_matching_several(surface: dict[str, Any]) -> None:
+    surface.update(a_wired_surface())
+
+
+@when("it is issued over HTTP and through the agent surface at the same repository revision")
+def _searched_on_both_surfaces(surface: dict[str, Any]) -> None:
+    surface["revision"] = surface["host"].head(PROJECT).value
+    page = _get(surface, f"{BASE}/search?q={TERM}&page_size={MAX_PAGE_SIZE}").json()["data"]
+    surface["http"] = [item["asset"] for item in page["items"]]
+    surface["agent"] = _agent_search(surface, TERM)
+
+
+@then("both SHALL return the same assets in the same order")
+def _the_same_assets_in_the_same_order(surface: dict[str, Any]) -> None:
+    assert surface["http"] == surface["agent"]
+    assert len(surface["http"]) > 1
+    assert surface["host"].head(PROJECT).value == surface["revision"]
+
+
+@given("an operation the domain refuses because the actor lacks the required role")
+def _an_operation_the_domain_refuses(surface: dict[str, Any]) -> None:
+    """Deciding a request: G4 reserves it to the assignee or the art director."""
+    surface.update(a_wired_surface())
+    raised = surface["client"].post(
+        f"{BASE}/requests",
+        headers=_headers(READER_TOKEN),
+        json={"id": "req-0001", "discipline": "modeling", "description": "a crate", "asset": SCOUT},
+    )
+
+    assert raised.status_code == 200
+
+
+@when("it is requested over HTTP")
+def _requested_over_http(surface: dict[str, Any]) -> None:
+    surface["response"] = surface["client"].post(
+        f"{BASE}/requests/req-0001/transitions",
+        headers=_headers(READER_TOKEN),
+        json={"state": "accepted"},
+    )
+
+
+@then("the response SHALL report a refusal naming the required role")
+def _a_refusal_naming_the_role(surface: dict[str, Any]) -> None:
+    response = surface["response"]
+
+    assert response.status_code == 403
+    assert str(Role.ART_DIRECTOR) in response.json()["error"]["message"]
+
+
+@then("SHALL NOT report an internal failure")
+def _not_an_internal_failure(surface: dict[str, Any]) -> None:
+    response = surface["response"]
+
+    assert response.status_code != INTERNAL_STATUS
+    assert response.json()["error"]["id"] != INTERNAL_IDENTIFIER
+
+
+def _cli(surface: dict[str, Any], *arguments: str) -> dict[str, Any]:
+    """The same operation through the command line, over the same container."""
+    result = CliRunner().invoke(build_cli(surface["container"]), list(arguments))
+
+    assert result.exit_code in (0, 1), result.output
+    return json.loads(result.stdout)
+
+
+def _agent_search(surface: dict[str, Any], term: str) -> list[str]:
+    """The agent surface's answer, read back out of the table it renders.
+
+    Parsing the rendering rather than calling the use case is the point: what is
+    compared is what an agent actually receives, so a server that re-ordered
+    results on the way out would fail this and not the one below it.
+    """
+    server = build_server(surface["container"])
+    return _identifiers(_call(server, "search_assets", {"term": term}))
+
+
+def _call(server: FastMCP, tool: str, arguments: dict[str, Any]) -> str:
+    async def _run() -> str:
+        async with Client(server) as client:
+            answered = await client.call_tool(tool, arguments)
+            return "\n".join(block.text for block in answered.content)
+
+    return asyncio.run(_run())
+
+
+def _identifiers(table: str) -> list[str]:
+    """The first column of a rendered table, minus its header and its rule."""
+    rows = [line for line in table.splitlines() if line.startswith("|")]
+    cells = [row.strip("|").split("|")[0].strip() for row in rows]
+    return [cell for cell in cells if cell not in {"asset", ""} and not set(cell) <= {"-", ":"}]

@@ -34,10 +34,10 @@
 
 ## 6. End-to-end
 
-- [ ] 6.1 Configure Playwright with browsers installed in CI and a viewport matrix including tablet width (D6); verify a smoke test runs in every configured viewport
+- [x] 6.1 Configure Playwright with browsers installed in CI and a viewport matrix including tablet width (D6); verify a smoke test runs in every configured viewport
 - [ ] 6.2 Provide the compose stack e2e runs against and verify `just test-e2e` brings it up, runs and tears it down cleanly
-- [ ] 6.3 Add the subprocess harness for `canon` end-to-end runs and verify it asserts exit codes and stdout separately
-- [ ] 6.4 Attach traces, screenshots and video to failing e2e runs and verify the artifacts appear for a deliberately failing test
+- [x] 6.3 Add the subprocess harness for `canon` end-to-end runs and verify it asserts exit codes and stdout separately
+- [x] 6.4 Attach traces, screenshots and video to failing e2e runs and verify the artifacts appear for a deliberately failing test
 
 ## 7. Recipes and CI
 

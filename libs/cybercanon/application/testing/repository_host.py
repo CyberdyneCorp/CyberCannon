@@ -159,6 +159,15 @@ class InMemoryRepositoryHost:
         assert held.served is not None
         return held.served.revision
 
+    def paths_at(self, project: str, revision: Revision) -> tuple[str, ...]:
+        """Every path that revision holds, sorted — a tree listing (D7).
+
+        Sorted here so that the fake and git agree without a caller having to
+        know that git's tree order happens to be one of them: a listing built
+        over this port is deterministic because the port says so.
+        """
+        return tuple(sorted(self._snapshot_at(project, revision)))
+
     @contextmanager
     def writer(self, project: str) -> Iterator[None]:
         """The same single-writer lock the real host holds, for the same reason.
@@ -171,11 +180,7 @@ class InMemoryRepositoryHost:
             yield
 
     def read(self, project: str, path: str, revision: Revision) -> bytes | None:
-        held = self._held(project)
-        snapshot = held.revisions.get(revision.value)
-        if snapshot is None:
-            raise RevisionUnreachable(project, revision.value, "no such revision")
-        return snapshot.get(path)
+        return self._snapshot_at(project, revision).get(path)
 
     def commit(
         self,
@@ -233,6 +238,14 @@ class InMemoryRepositoryHost:
         return Recovery(project=project, state=held.state, discarded=discarded)
 
     # -- internals -------------------------------------------------------
+
+    def _snapshot_at(self, project: str, revision: Revision) -> dict[str, bytes]:
+        """What that revision holds, or a named refusal — never a silent empty."""
+        held = self._held(project)
+        snapshot = held.revisions.get(revision.value)
+        if snapshot is None:
+            raise RevisionUnreachable(project, revision.value, "no such revision")
+        return snapshot
 
     def _held(self, project: str) -> _Project:
         held = self._projects.get(project)

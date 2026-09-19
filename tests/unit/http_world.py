@@ -41,19 +41,24 @@ SCOUT_SPEC = "characters/mech_scout/asset.yaml"
 SCOUT_CONTENT = b"id: mech_scout\n"
 
 TOKEN = "rafa-token"
+READER_TOKEN = "ana-token"
 STRANGER_TOKEN = "stranger-token"
 AUTOMATION_TOKEN = "scheduler-token"
 
+RAFA = "auth|rafa"
+ANA = "auth|ana"
+
 RAFA_EMAIL = "rafa@cyberdyne.com"
+ANA_EMAIL = "ana@cyberdyne.com"
 
 
-def a_person(subject: str = "auth|rafa", name: str = "Rafa", project: str = PROJECT) -> Actor:
-    return Actor(
-        id=ActorId(subject),
-        display_name=name,
-        roles=(Role.ART_DIRECTOR,),
-        projects=(project,),
-    )
+def a_person(
+    subject: str = RAFA,
+    name: str = "Rafa",
+    project: str = PROJECT,
+    roles: tuple[Role, ...] = (Role.ART_DIRECTOR,),
+) -> Actor:
+    return Actor(id=ActorId(subject), display_name=name, roles=roles, projects=(project,))
 
 
 def automation(project: str = PROJECT) -> Actor:
@@ -67,10 +72,11 @@ def automation(project: str = PROJECT) -> Actor:
     )
 
 
-def an_asset(asset_id: str = SCOUT, **constraints: Any) -> Asset:
+def an_asset(asset_id: str = SCOUT, owner_art: str | None = None, **constraints: Any) -> Asset:
     return Asset(
         id=AssetId(asset_id),
         name=asset_id.replace("_", " ").title(),
+        owner_art=owner_art,
         constraints=Constraints(naming="SM_{asset}_LOD{n}", **constraints),
     )
 
@@ -113,6 +119,17 @@ class Wired:
 
     def put(self, path: str, token: str = TOKEN, key: str = "", **arguments: Any) -> Any:
         return self.client.put(path, headers=_headers(token, key), **arguments)
+
+    def post(self, path: str, token: str = TOKEN, key: str = "", **arguments: Any) -> Any:
+        return self.client.post(path, headers=_headers(token, key), **arguments)
+
+    @property
+    def notifier(self) -> Any:
+        return self.fakes["notifier"]
+
+    @property
+    def dismissals(self) -> Any:
+        return self.fakes["dismissals"]
 
 
 def _headers(token: str, key: str = "") -> dict[str, str]:
@@ -169,7 +186,8 @@ def a_surface(
         spec_store.set_actor_mapping(
             ActorMapping(
                 bindings=(
-                    ActorBinding(subject="auth|rafa", display_name="Rafa", emails=(RAFA_EMAIL,)),
+                    ActorBinding(subject=RAFA, display_name="Rafa", emails=(RAFA_EMAIL,)),
+                    ActorBinding(subject=ANA, display_name="Ana", emails=(ANA_EMAIL,)),
                 )
             )
         )
@@ -183,6 +201,7 @@ def a_surface(
         Credential(STRANGER_TOKEN),
         a_person(subject="auth|stranger", name="Sam", project=OTHER_PROJECT),
     )
+    provider.add(Credential(READER_TOKEN), a_person(subject=ANA, name="Ana", roles=()))
     provider.add(Credential(AUTOMATION_TOKEN), automation())
 
     container = Container(
@@ -195,6 +214,8 @@ def a_surface(
         projects={PROJECT: HostedProject(name=PROJECT, container=container, repository_host=host)},
         identity_provider=provider,
         idempotency=InMemoryIdempotencyStore(),
+        dismissals=fakes["dismissals"],
+        notifier=fakes["notifier"],
         observe=lambda: dependencies,
     )
     return Wired(client=TestClient(build_app(surface=surface)), surface=surface, fakes=fakes)
