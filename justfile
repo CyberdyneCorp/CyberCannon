@@ -26,7 +26,7 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~16 s on a warm checkout (889 tests, 657 scenarios, 0 absent).
+# Measured runtime: ~40 s on a warm checkout (1361 tests, 657 scenarios, 0 absent).
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
 check: lint imports complexity features test spec
@@ -82,6 +82,13 @@ test-integration *args:
 # (sprint S9); until then this runs the e2e layer as it stands.
 test-e2e *args:
     uv run --locked pytest -m e2e {{ args }}
+
+# Run the FastMCP read server over stdio for the repository this is run in.
+# An agent client spawns `canon mcp serve` directly — this recipe is the way a
+# person starts the same server by hand, so there is still exactly one way to
+# run the operation.
+mcp *args:
+    uv run --locked canon mcp serve {{ args }}
 
 # Regenerate tests/bdd/features/ from the spec deltas. Nobody hand-writes a
 # .feature; this recipe overwrites any that somebody did.

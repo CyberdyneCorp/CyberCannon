@@ -47,6 +47,15 @@ canon --help
 | `canon compile SPEC` | Compile `asset.yaml` into the readable `art-spec.md`. |
 | `canon changed FILE...` | Validate only the assets a list of changed files belongs to — the pre-commit entry point. |
 
+Four more maintain the derived index and the people behind the names:
+
+| Command | What it does |
+|---|---|
+| `canon index rebuild [PATH]` | Rescan the specifications, reporting how many assets were indexed and naming every file it could not read. |
+| `canon index misses` | The search terms that matched nothing, recorded locally and never transmitted. |
+| `canon actors unmapped [PATH]` | The git authors and recorded owners `.canon/actors.yaml` does not bind yet. |
+| `canon mcp serve [PATH]` | The MCP read server, over standard input and output. |
+
 You never name the specification: given any path, `canon` walks upward to the
 governing `asset.yaml`, bounded by the repository root.
 
@@ -219,6 +228,68 @@ preview:                                  # decimation targets
 
 A repository with no `.canon/project.yaml` works: every asset-level declaration
 still applies.
+
+## Read it from an agent (MCP)
+
+`canon mcp serve` starts a local read server over standard input and output. It
+opens no port, needs no credential and needs no network: reads degrade to a
+local unauthenticated actor, so an agent answers *where is the mech scout and
+what must it satisfy* on a laptop off the VPN.
+
+Point an agent client at the repository. The launch command is the whole
+configuration:
+
+```json
+{
+  "mcpServers": {
+    "cybercanon": {
+      "command": "canon",
+      "args": ["mcp", "serve", "."]
+    }
+  }
+}
+```
+
+The final argument is the project directory; `.` serves the repository the
+client spawned the process in. `just mcp` starts the same server by hand.
+
+Eight read tools, and there are deliberately no others:
+
+| Tool | Answers |
+|---|---|
+| `where_is` | Directory, source file, latest validated export, engine path, links, status, owners. |
+| `list_assets` | A compact table of the project's assets, filtered by status, owner or tag. |
+| `search_assets` | Identifier, name, alias, tag and description, ranked in that order. |
+| `get_asset_spec` | The compiled specification, optionally through a `lens`. |
+| `get_constraints` | What an export must satisfy, including its required sockets. |
+| `get_open_annotations` | The threads still open. Resolved and promoted ones are absent. |
+| `diff_spec` | How the contract has moved since a revision, in semantic terms. |
+| `validate_export` | The same verdict `canon validate` produces, from the same use case. |
+
+**A lens narrows presentation and never widens access.** Identity comes from the
+credential the process was launched with, never from a tool argument, and a
+lensed answer says which lens produced it and that a full specification exists.
+
+**There is no write tool, and no promotion tool — in this version or any
+future one.** Promotion turns an annotation into a durable constraint; an agent
+that could raise a budget until its own output passed is how trust in the system
+dies in week two. An exact-match test over the advertised tool names fails the
+build when anything is added.
+
+## Tell repo-reading agents the specifications exist
+
+Not every agent speaks MCP, and the file is already in the repository the agent
+reads. One section in the game repository's `CLAUDE.md` is the whole
+integration — [`examples/ronin/CLAUDE.md`](examples/ronin/CLAUDE.md) is the
+snippet, ready to copy:
+
+```markdown
+Every asset in this repository has a specification next to it —
+`<asset directory>/asset.yaml` — compiled to a readable `art-spec.md`, with
+project-wide defaults in `.canon/project.yaml`. Read it before changing,
+exporting or describing an asset. Agents read constraints; agents never write
+constraints.
+```
 
 ## Developing CyberCanon
 

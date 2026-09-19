@@ -16,10 +16,20 @@ Four defects are visible in a parsed mapping and one is not:
 * a `default_role` outside the defined role set;
 * an entry with no git author email, which binds nothing and so explains nothing.
 
-The fifth — a file that cannot be parsed at all — is discovered by the adapter
-that reads it, so :func:`mapping_unparseable` is the factory that adapter calls.
-The violation belongs here because its shape is a domain decision; the failure
-that produced it is not.
+Two more are not visible in a parsed mapping, and both follow the same rule:
+the violation's *shape* is a domain decision even when the failure that produced
+it is not, so the factory lives here and the caller that discovered the failure
+calls it.
+
+* a file that cannot be parsed at all is discovered by the adapter that reads
+  it — :func:`mapping_unparseable`;
+* a mapping entry that contradicts what an identity provider said about the same
+  subject is discovered while resolving an actor (D13) —
+  :func:`provider_disagreement`. The provider wins and the file is reported as
+  the stale half, which is what keeps the file a fallback rather than a second
+  source of truth. It is a warning rather than an error: nothing is broken, the
+  resolution is unambiguous, and what is needed is an edit to a file that was
+  correct when it was written.
 """
 
 from __future__ import annotations
@@ -35,6 +45,7 @@ RULE_DUPLICATE_EMAIL = "actors.duplicate_email"
 RULE_UNKNOWN_ROLE = "actors.unknown_role"
 RULE_NO_EMAIL = "actors.no_email"
 RULE_UNPARSEABLE = "actors.unparseable"
+RULE_PROVIDER_DISAGREEMENT = "actors.provider_disagreement"
 
 RULE_IDS = (
     RULE_DUPLICATE_SUBJECT,
@@ -42,6 +53,7 @@ RULE_IDS = (
     RULE_UNKNOWN_ROLE,
     RULE_NO_EMAIL,
     RULE_UNPARSEABLE,
+    RULE_PROVIDER_DISAGREEMENT,
 )
 """Every mapping rule, so the inventory can be printed and asserted."""
 
@@ -147,6 +159,34 @@ def mapping_unparseable(detail: str, path: str = ACTORS_PATH) -> tuple[SpecViola
     )
 
 
+def provider_disagreement(
+    binding: ActorBinding, provider_emails: tuple[str, ...]
+) -> tuple[SpecViolation, ...]:
+    """The mapping file and the provider bind one subject to different emails (D13).
+
+    Reported rather than merged: merging would make the answer depend on which
+    source was read first, and silence would leave a file nobody notices has
+    gone stale. The provider's values are the ones used, so this names the entry
+    and both lists and asks for the file to catch up.
+    """
+    declared = ", ".join(binding.emails) or "no email"
+    supplied = ", ".join(provider_emails) or "no email"
+    return (
+        SpecViolation(
+            rule_id=RULE_PROVIDER_DISAGREEMENT,
+            severity=Severity.WARNING,
+            subject=f"{subject_of(binding)}.emails",
+            message=(
+                f"entry {binding.subject!r} lists the git author emails {declared}, "
+                f"but the identity provider supplies {supplied}; the provider's "
+                "values are used and this entry is stale"
+            ),
+            observed=declared,
+            expected=supplied,
+        ),
+    )
+
+
 def check_mapping(mapping: ActorMapping) -> tuple[SpecViolation, ...]:
     """Every structural check the parsed mapping can answer on its own.
 
@@ -183,6 +223,7 @@ __all__ = [
     "RULE_DUPLICATE_SUBJECT",
     "RULE_IDS",
     "RULE_NO_EMAIL",
+    "RULE_PROVIDER_DISAGREEMENT",
     "RULE_UNKNOWN_ROLE",
     "RULE_UNPARSEABLE",
     "check_default_roles",
@@ -191,5 +232,6 @@ __all__ = [
     "check_emails_declared",
     "check_mapping",
     "mapping_unparseable",
+    "provider_disagreement",
     "subject_of",
 ]

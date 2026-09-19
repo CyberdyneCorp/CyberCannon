@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from cybercanon.application.ports.spec_store import LoadedSpec, ProjectConfig, SpecStore
+from cybercanon.domain.actor_checks import check_mapping
 from cybercanon.domain.spec_checks import SpecDeclaration, check_asset, check_duplicate_ids
 from cybercanon.domain.violations import Severity, SpecViolation
 
@@ -55,18 +56,31 @@ class LintFinding:
 
 @dataclass(frozen=True)
 class LintReport:
-    """What linting a set of specification files found."""
+    """What linting a set of specification files found.
+
+    `mapping` is kept apart from `findings` rather than merged into them because
+    `.canon/actors.yaml` is not a specification file: it is authored content
+    validated in the same pass, so it must be able to fail the run (it counts
+    towards :attr:`errors`) without being counted as one more asset that was
+    checked.
+    """
 
     checked: tuple[str, ...] = ()
     findings: tuple[LintFinding, ...] = ()
+    mapping: tuple[LintFinding, ...] = ()
+
+    @property
+    def all_findings(self) -> tuple[LintFinding, ...]:
+        """Everything this run found, whichever authored file it was in."""
+        return (*self.findings, *self.mapping)
 
     @property
     def errors(self) -> tuple[LintFinding, ...]:
-        return tuple(finding for finding in self.findings if finding.is_error)
+        return tuple(finding for finding in self.all_findings if finding.is_error)
 
     @property
     def warnings(self) -> tuple[LintFinding, ...]:
-        return tuple(finding for finding in self.findings if not finding.is_error)
+        return tuple(finding for finding in self.all_findings if not finding.is_error)
 
     @property
     def passed(self) -> bool:
@@ -74,10 +88,10 @@ class LintReport:
         return not self.errors
 
     def findings_of(self, rule_id: str) -> tuple[LintFinding, ...]:
-        return tuple(finding for finding in self.findings if finding.rule_id == rule_id)
+        return tuple(finding for finding in self.all_findings if finding.rule_id == rule_id)
 
     def findings_in(self, path: str) -> tuple[LintFinding, ...]:
-        return tuple(finding for finding in self.findings if finding.path == path)
+        return tuple(finding for finding in self.all_findings if finding.path == path)
 
 
 def lint_specs(paths: Sequence[str], *, spec_store: SpecStore) -> LintReport:
@@ -98,8 +112,35 @@ def lint_specs(paths: Sequence[str], *, spec_store: SpecStore) -> LintReport:
 
 
 def lint_project(root: str, *, spec_store: SpecStore) -> LintReport:
-    """Lint every specification at or below `root` — what `canon check` runs."""
-    return lint_specs(spec_store.specs_under(root), spec_store=spec_store)
+    """Lint every specification at or below `root`, and the actor mapping with them.
+
+    The mapping travels in the same pass because that is the requirement: an
+    empty or contradictory `.canon/actors.yaml` has to be a visible defect in
+    the check somebody already runs, not a report only an identity feature knows
+    how to print. It needs no identity and no network to validate, exactly like
+    every other file here.
+    """
+    report = lint_specs(spec_store.specs_under(root), spec_store=spec_store)
+    return LintReport(
+        checked=report.checked,
+        findings=report.findings,
+        mapping=lint_actor_mapping(root, spec_store=spec_store),
+    )
+
+
+def lint_actor_mapping(root: str = "", *, spec_store: SpecStore) -> tuple[LintFinding, ...]:
+    """The structural checks over `.canon/actors.yaml` (D12).
+
+    Two sources, one shape: the violations the store produced when it could not
+    parse the file, and the checks the domain makes over a mapping it could.
+    Both arrive as ordinary findings, so a duplicated email is reported the way
+    a descending-LOD error is.
+    """
+    loaded = spec_store.load_actor_mapping(root)
+    return tuple(
+        LintFinding(path=loaded.path, violation=violation)
+        for violation in (*loaded.violations, *check_mapping(loaded.mapping))
+    )
 
 
 def _loading_findings(specs: Sequence[LoadedSpec]) -> tuple[LintFinding, ...]:
@@ -155,6 +196,7 @@ def _clip_naming(project: ProjectConfig) -> str | None:
 __all__ = [
     "LintFinding",
     "LintReport",
+    "lint_actor_mapping",
     "lint_project",
     "lint_specs",
 ]

@@ -13,22 +13,8 @@
 # `python scripts/gen_features.py --bootstrap-pending`, which is a one-time
 # bootstrap, never part of `just check`.
 
-agent-identity :: A location answer names the person
-agent-identity :: A project without a mapping still works
-agent-identity :: An unmapped owner is shown as unmapped
-agent-identity :: Cached actor expires
-agent-identity :: Claimed identity is ignored
-agent-identity :: Claimed role is ignored
-agent-identity :: Disagreement is surfaced
-agent-identity :: One person, one presentation
-agent-identity :: Provider-supplied emails win
-agent-identity :: Read works with no credential
-agent-identity :: Reads survive an identity outage
-agent-identity :: Role-requiring action refused with a reason
 agent-identity :: Scheduled run cannot act as a person
-agent-identity :: The file answers what the provider does not
 agent-identity :: Unattainable budget is reported, not changed
-agent-identity :: Unmapped authors are enumerable
 anchor-resolution :: A moved hint does not break resolution
 anchor-resolution :: Bone absent, part present
 anchor-resolution :: Hint lands on the named part, not the nearest surface
@@ -140,20 +126,6 @@ asset-browser :: Listing shows state without opening an asset
 asset-browser :: No results
 asset-browser :: Order comes from the specified ranking
 asset-browser :: Suggestion match is disclosed as unaccepted
-asset-lookup :: Alias finds the asset
-asset-lookup :: Constraint changed since a revision
-asset-lookup :: Deleted index is fully restored
-asset-lookup :: Exact identifier outranks a substring
-asset-lookup :: Filter by status and owner
-asset-lookup :: Full location answer
-asset-lookup :: Index is not authoritative
-asset-lookup :: Miss is recorded and retrievable
-asset-lookup :: No change since the revision
-asset-lookup :: Rebuild reports malformed files
-asset-lookup :: Spec edited after indexing
-asset-lookup :: Successful searches are not recorded as misses
-asset-lookup :: Unrecorded location is explicit
-asset-lookup :: Validated export is identified as such
 asset-preview :: A source without clips is not a failure
 asset-preview :: Clips cannot be preserved
 asset-preview :: Clips survive decimation
@@ -185,7 +157,6 @@ asset-requests :: Request for something that does not exist yet
 asset-requests :: Request state does not move asset status
 asset-requests :: Requests survive an index rebuild
 asset-spec :: Anchor survives a remesh
-asset-spec :: Derived index is disposable
 asset-spec :: Missing part yields an orphan, not a wrong placement
 asset-spec :: Promotion retires the annotation
 asset-spec :: Resolution does not become permanent context
@@ -417,18 +388,6 @@ llm-integration :: Retry budget respected
 llm-integration :: Timeout does not fail the surrounding operation
 llm-integration :: Unrecognised model accepted
 llm-integration :: Validation unaffected by model availability
-mcp-server :: Agent and command line agree
-mcp-server :: Art director's agent cannot promote
-mcp-server :: Identical results across clients
-mcp-server :: Launch without credentials
-mcp-server :: Listings are compact
-mcp-server :: No listening port
-mcp-server :: No mutating tool is advertised
-mcp-server :: Repository is unchanged by reads
-mcp-server :: Server runs with no network
-mcp-server :: Specification returned as readable markdown
-mcp-server :: Unknown asset identifier
-mcp-server :: Unparseable specification does not kill the server
 mcp-write-surface :: A claimed author in the payload is ignored
 mcp-write-surface :: A looping agent is throttled
 mcp-write-surface :: A pre-commit run is unaffected
@@ -525,14 +484,6 @@ semantic-search-delegation :: Service credential is never end-user authority
 semantic-search-delegation :: Slow service does not hold the response
 semantic-search-delegation :: Two people get different results
 semantic-search-delegation :: Unreachable service degrades the response, not the search
-spec-lenses :: Lens cannot reveal an inaccessible asset
-spec-lenses :: Lens choice is unrestricted
-spec-lenses :: Modeling lens returns constraints
-spec-lenses :: No lens returns everything
-spec-lenses :: Resolved annotation absent under every lens
-spec-lenses :: Shared field is identical across lenses
-spec-lenses :: Sockets surfaced before modelling
-spec-lenses :: Unknown lens is rejected clearly
 view-versioning :: A different aspect ratio orphans the pins
 view-versioning :: A historical revision is labelled
 view-versioning :: A person re-anchors an orphan

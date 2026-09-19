@@ -22,7 +22,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 from cybercanon.application.errors import OperationFailed
+from cybercanon.application.ports.search_index import RecordedMiss
+from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
+from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import SpecViolation, Violation
@@ -31,6 +34,9 @@ INDENT = "  "
 NOT_EVALUATED_NOTE = "the export's format does not record the fact each rule reads"
 NO_VIOLATIONS = "no violations"
 NO_FINDINGS = "no findings"
+NO_MISSES = "no search term has come up empty"
+NO_UNMAPPED = "every git author and recorded owner is bound to a person"
+UNREADABLE_HEADING = "specifications that could not be read"
 
 
 def render_validations(outcomes: Sequence[ValidationOutcome]) -> str:
@@ -55,11 +61,43 @@ def render_validation(outcome: ValidationOutcome) -> str:
 
 
 def render_lint(report: LintReport) -> str:
-    """Structural findings, grouped by the file they are in."""
+    """Structural findings, grouped by the file they are in.
+
+    The actor mapping gets its own block rather than a row in the count of
+    specification files, because it is not one — it is authored content
+    validated in the same pass (D12), and a reader has to be able to tell which
+    file to open.
+    """
     blocks = [_lint_file(report, path) for path in report.checked]
     checked = _plural(len(report.checked), "specification file")
-    summary = f"{checked} checked, {_count(report.findings)}"
-    return "\n\n".join((*blocks, summary, _verdict(report.passed)))
+    summary = f"{checked} checked, {_count(report.all_findings)}"
+    return "\n\n".join((*blocks, *_mapping_block(report), summary, _verdict(report.passed)))
+
+
+def render_rebuild(report: RebuildReport) -> str:
+    """What a rebuild indexed, and every file it could not read, by name."""
+    scope = report.project or "(unnamed)"
+    counted = f"indexed {_plural(report.indexed_count, 'asset')} in project {scope}"
+    if not report.unreadable:
+        return "\n".join((counted, _verdict(report.is_complete)))
+    named = tuple(f"{INDENT}{spec.path}: {spec.reason}" for spec in report.unreadable)
+    return "\n".join((counted, UNREADABLE_HEADING, *named, _verdict(report.is_complete)))
+
+
+def render_misses(misses: Sequence[RecordedMiss]) -> str:
+    """Every search term that matched nothing, with how often it was asked (D11)."""
+    if not misses:
+        return NO_MISSES
+    lines = tuple(f"{INDENT}{miss.count}  {miss.term}" for miss in misses)
+    return "\n".join((_plural(len(misses), "recorded miss"), *lines))
+
+
+def render_unmapped(unmapped: UnmappedAuthors) -> str:
+    """The addresses `.canon/actors.yaml` does not bind, listed for completion."""
+    if not unmapped.authors:
+        return NO_UNMAPPED
+    lines = tuple(f"{INDENT}{email}" for email in unmapped.emails)
+    return "\n".join((_plural(len(unmapped.authors), "unmapped author"), *lines))
 
 
 def render_project_notes(notes: Sequence[SpecViolation]) -> str:
@@ -141,6 +179,14 @@ def _preview(outcome: ValidationOutcome) -> tuple[str, ...]:
     return ()
 
 
+def _mapping_block(report: LintReport) -> tuple[str, ...]:
+    """The actor mapping's own findings, printed only when it produced any."""
+    if not report.mapping:
+        return ()
+    path = report.mapping[0].path
+    return ("\n".join((path, *(_finding(finding) for finding in report.mapping))),)
+
+
 def _lint_file(report: LintReport, path: str) -> str:
     findings = report.findings_in(path)
     if not findings:
@@ -186,7 +232,10 @@ __all__ = [
     "render_compiled",
     "render_failure",
     "render_lint",
+    "render_misses",
     "render_project_notes",
+    "render_rebuild",
+    "render_unmapped",
     "render_validation",
     "render_validations",
 ]

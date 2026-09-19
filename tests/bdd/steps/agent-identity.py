@@ -11,11 +11,22 @@ credential, no provider, no store and no file — which is the property
 `agent-identity` demands of authorization in the first place: a decision must be
 producible with no identity service running.
 
+Group 2 adds the application half: the resolution chain of D4 — configured
+credential, then a cached actor within its TTL, then the local unauthenticated
+actor — the claims-before-file precedence of D13, and the mapping read through
+`SpecStore`. Those scenarios are bound here too, against the in-memory provider
+and spec store, so the whole capability still runs with no credential, no
+network and no file.
+
+Group 3 adds the presentation half: every owner, author and caller is resolved
+through the mapping before anything renders it, so a mapped person shows as their
+display name, an unmapped one as the raw email marked unmapped, and one person
+appearing as an owner, as a commit author and as the caller renders identically
+in all three places.
+
 The rest of this capability's scenarios stay in `tests/bdd/pending.txt` until the
-groups that earn them: the resolution chain and the claims-before-file
-precedence (group 2), the presentation of owners through `where_is` and the
-listings (group 3), and the recorded observation an agent's report becomes
-(`add-mcp-writes`).
+groups that earn them: the automation actor for autonomous runs, and the recorded
+observation an agent's report becomes (`add-mcp-writes`).
 """
 
 from __future__ import annotations
@@ -26,9 +37,27 @@ from typing import Any
 import pytest
 from pytest_bdd import given, scenario, then, when
 
+from cybercanon.application.ports.identity_provider import Credential, IdentityUnavailable
+from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
+from cybercanon.application.testing.search_index import InMemorySearchIndex
+from cybercanon.application.testing.spec_store import InMemorySpecStore
+from cybercanon.application.use_cases.index_assets import rebuild_index
+from cybercanon.application.use_cases.lookup_assets import ART, where_is
+from cybercanon.application.use_cases.resolve_actor import (
+    UNVERIFIABLE,
+    ActorResolver,
+    GitIdentitySource,
+    IdentityCache,
+    list_unmapped_authors,
+    may_act_in_role,
+    may_read,
+    resolve_git_identity,
+    strip_identity_claims,
+)
 from cybercanon.domain.actor_checks import (
     RULE_DUPLICATE_EMAIL,
     RULE_DUPLICATE_SUBJECT,
+    RULE_PROVIDER_DISAGREEMENT,
     RULE_UNKNOWN_ROLE,
     check_mapping,
 )
@@ -40,6 +69,7 @@ from cybercanon.domain.actors import (
     resolve_git_author,
     resolve_subject,
 )
+from cybercanon.domain.asset import Asset, AssetId
 from cybercanon.domain.authorization import may_author_durable_content, may_read_project
 from cybercanon.domain.identity import (
     UNMAPPED_MARK,
@@ -69,6 +99,58 @@ RAFA = ActorBinding(
     chat_handle="@rafa",
     default_role="ARTIST",
 )
+
+TOKEN = Credential("opaque-launch-token")
+CLAIMED_EMAIL = "rafa@cyberdyne.ai"
+SECOND_STRANGER = "designer@studio.example"
+SPEC_PATH = "characters/mech_scout/asset.yaml"
+MECH_SCOUT = Asset(id=AssetId("mech_scout"), name="Scout Mech")
+TTL_SECONDS = 60.0
+
+
+class Ticks:
+    """A clock a scenario advances by hand, so a TTL costs no wall time."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def a_provider(actor: Actor, git_emails: tuple[str, ...] = ()) -> InMemoryIdentityProvider:
+    provider = InMemoryIdentityProvider()
+    provider.add(TOKEN, actor, git_emails=git_emails)
+    return provider
+
+
+def a_resolver(provider: InMemoryIdentityProvider, clock: Ticks) -> ActorResolver:
+    return ActorResolver(
+        project=PROJECT,
+        provider=provider,
+        credential=TOKEN,
+        cache=IdentityCache(clock=clock, ttl=TTL_SECONDS),
+    )
+
+
+def a_store(mapping: ActorMapping | None = None) -> InMemorySpecStore:
+    store = InMemorySpecStore()
+    store.add(SPEC_PATH, MECH_SCOUT)
+    if mapping is not None:
+        store.set_actor_mapping(mapping)
+    return store
+
+
+def read_the_spec(session: dict[str, Any]) -> None:
+    """Authorize, then read — D3's order, with the lens nowhere near it."""
+    resolution = session["resolution"]
+    store: InMemorySpecStore = session["store"]
+    decision = may_read(resolution, PROJECT)
+    session["decision"] = decision
+    session["read"] = store.load(SPEC_PATH) if decision.allowed else None
 
 
 @pytest.fixture
@@ -534,3 +616,447 @@ def _validation_completed_offline(session: dict[str, Any]) -> None:
     assert violation.rule_id == session["expected_rule"]
     assert violation.severity.value == "error"
     assert violation.subject and violation.message
+
+
+# --------------------------------------------------------------------------
+# Group 2 — the resolution chain (D4), its degradation, and D13's precedence
+# --------------------------------------------------------------------------
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Claimed role is ignored",
+)
+def test_claimed_role_is_ignored() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Claimed identity is ignored",
+)
+def test_claimed_identity_is_ignored() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Read works with no credential",
+)
+def test_read_works_with_no_credential() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Role-requiring action refused with a reason",
+)
+def test_role_requiring_action_refused_with_a_reason() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Reads survive an identity outage",
+)
+def test_reads_survive_an_identity_outage() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Cached actor expires",
+)
+def test_cached_actor_expires() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "A project without a mapping still works",
+)
+def test_a_project_without_a_mapping_still_works() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Unmapped authors are enumerable",
+)
+def test_unmapped_authors_are_enumerable() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Provider-supplied emails win",
+)
+def test_provider_supplied_emails_win() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "The file answers what the provider does not",
+)
+def test_the_file_answers_what_the_provider_does_not() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Disagreement is surfaced",
+)
+def test_disagreement_is_surfaced() -> None: ...
+
+
+# -- identity never comes from a parameter ---------------------------------
+
+
+@given("a caller whose credential resolves to an actor holding the artist role")
+def _a_caller_holding_the_artist_role(session: dict[str, Any]) -> None:
+    provider = a_provider(a_person(Role.ARTIST, projects=(PROJECT,)))
+    session["resolver"] = a_resolver(provider, Ticks())
+    session["resolution"] = session["resolver"].resolve()
+
+
+@when("it supplies a parameter claiming the art director role")
+def _it_claims_the_art_director_role(session: dict[str, Any]) -> None:
+    """The claim is dropped and named; the resolver is never asked about it."""
+    session["kept"], session["claimed"] = strip_identity_claims(
+        {"asset_id": "mech_scout", "role": str(Role.ART_DIRECTOR)}
+    )
+    session["resolution"] = session["resolver"].resolve()
+
+
+@then("the system SHALL evaluate the request as the artist")
+def _it_is_evaluated_as_the_artist(session: dict[str, Any]) -> None:
+    resolution = session["resolution"]
+
+    assert resolution.actor.holds(Role.ARTIST)
+    assert resolution.actor.roles == (Role.ARTIST,)
+
+
+@then("the supplied claim SHALL have no effect")
+def _the_claim_had_no_effect(session: dict[str, Any]) -> None:
+    assert "role" in session["claimed"], "a claimed role must be reported, not tolerated"
+    assert "role" not in session["kept"]
+    assert may_act_in_role(session["resolution"], Role.ART_DIRECTOR).refused
+
+
+@when("a caller supplies an actor identifier differing from its credential")
+def _a_caller_claims_another_identity(session: dict[str, Any]) -> None:
+    provider = a_provider(a_person(Role.ARTIST, projects=(PROJECT,)))
+    resolver = a_resolver(provider, Ticks())
+    session["kept"], session["claimed"] = strip_identity_claims({"actor": OTHER_SUBJECT})
+    session["resolution"] = resolver.resolve()
+
+
+@then("the system SHALL use the credential's actor")
+def _the_credentials_actor_is_used(session: dict[str, Any]) -> None:
+    assert session["resolution"].actor.id == ActorId(SUBJECT)
+    assert session["kept"] == {}
+    assert "actor" in session["claimed"]
+
+
+# -- reads degrade to a local actor ----------------------------------------
+
+
+@given("no credential is configured")
+def _no_credential_is_configured(session: dict[str, Any]) -> None:
+    session["store"] = a_store()
+    session["resolution"] = ActorResolver(project=PROJECT).resolve()
+
+
+@when("an agent reads an asset's specification")
+def _an_agent_reads_a_specification(session: dict[str, Any]) -> None:
+    session["attribution"] = Attribution(actor=session["resolution"].actor.id, via=BLENDER)
+    read_the_spec(session)
+
+
+@then("the read SHALL succeed")
+def _the_read_succeeded(session: dict[str, Any]) -> None:
+    assert session["decision"].allowed, session["decision"].reason
+    assert session["read"] is not None
+    assert session["read"].asset.id == MECH_SCOUT.id
+
+
+@when("an action requiring a role is attempted")
+def _a_role_requiring_action_is_attempted(session: dict[str, Any]) -> None:
+    session["role_decision"] = may_act_in_role(
+        session["resolution"], Role.ART_DIRECTOR, action="promoting an annotation to a rule"
+    )
+
+
+@then("it SHALL be refused with a message naming the required role")
+def _it_was_refused_naming_the_role(session: dict[str, Any]) -> None:
+    decision = session["role_decision"]
+
+    assert decision.refused
+    assert str(Role.ART_DIRECTOR) in decision.reason
+
+
+# -- an identity outage degrades rather than blocks -------------------------
+
+
+@given("an actor resolved earlier and an identity service now unreachable")
+def _an_actor_resolved_before_the_outage(session: dict[str, Any]) -> None:
+    provider = a_provider(a_person(Role.ARTIST, projects=(PROJECT,)))
+    clock = Ticks()
+    resolver = a_resolver(provider, clock)
+    resolver.resolve()
+    provider.fail_with(IdentityUnavailable("cyberdyne-auth", "connection refused"))
+    session.update(store=a_store(), resolver=resolver, clock=clock)
+
+
+@when("that caller reads an asset")
+def _that_caller_reads_an_asset(session: dict[str, Any]) -> None:
+    session["resolution"] = session["resolver"].resolve()
+    read_the_spec(session)
+    assert session["resolution"].is_degraded, "the provider answered, so nothing degraded"
+
+
+@given("a cached actor older than the permitted period")
+def _a_cached_actor_past_its_ttl(session: dict[str, Any]) -> None:
+    provider = a_provider(a_person(Role.ARTIST, projects=(PROJECT,)))
+    clock = Ticks()
+    resolver = a_resolver(provider, clock)
+    resolver.resolve()
+    provider.fail_with(IdentityUnavailable("cyberdyne-auth", "connection refused"))
+    clock.advance(TTL_SECONDS + 1.0)
+    session["resolution"] = resolver.resolve()
+
+
+@when("a role-requiring action is attempted")
+def _a_role_requiring_action_is_attempted_again(session: dict[str, Any]) -> None:
+    session["role_decision"] = may_act_in_role(
+        session["resolution"], Role.ARTIST, action="promoting an annotation to a rule"
+    )
+
+
+@then("it SHALL be refused as unverifiable")
+def _it_was_refused_as_unverifiable(session: dict[str, Any]) -> None:
+    decision = session["role_decision"]
+
+    assert not session["resolution"].verified
+    assert decision.refused
+    assert UNVERIFIABLE in decision.reason
+
+
+# -- a project with no mapping ---------------------------------------------
+
+
+@given("a project that has no actor mapping")
+def _a_project_with_no_mapping(session: dict[str, Any]) -> None:
+    session["store"] = a_store()
+    session["resolution"] = ActorResolver(project=PROJECT).resolve()
+    session["authors"] = (WORK_EMAIL, STRANGER)
+
+
+@when("an asset's specification is read")
+def _an_assets_specification_is_read(session: dict[str, Any]) -> None:
+    read_the_spec(session)
+    session["mapping"] = session["store"].load_actor_mapping("").mapping
+
+
+@then("every git author encountered SHALL resolve as unmapped")
+def _every_author_is_unmapped(session: dict[str, Any]) -> None:
+    mapping: ActorMapping = session["mapping"]
+
+    assert mapping.is_empty
+    for email in session["authors"]:
+        resolved = resolve_git_author(mapping, email)
+        assert resolved.is_unmapped
+        assert UNMAPPED_MARK in resolved.display
+
+
+@given("a project whose history contains two authors absent from the mapping")
+def _two_authors_absent_from_the_mapping(session: dict[str, Any]) -> None:
+    session["store"] = a_store(ActorMapping((RAFA,)))
+    session["authors"] = (WORK_EMAIL, STRANGER, SECOND_STRANGER, STRANGER.upper())
+
+
+@when("the project's unmapped authors are requested")
+def _the_unmapped_authors_are_requested(session: dict[str, Any]) -> None:
+    session["unmapped"] = list_unmapped_authors(
+        session["authors"], spec_store=session["store"], root=""
+    )
+
+
+@then("both emails SHALL be listed")
+def _both_emails_are_listed(session: dict[str, Any]) -> None:
+    found = session["unmapped"]
+
+    assert found.emails == (STRANGER, SECOND_STRANGER), "each unmatched address, once"
+    assert WORK_EMAIL not in found.emails, "a mapped author is not unmapped"
+
+
+# -- claims first, the file second (D13) -----------------------------------
+
+
+@given("a provider that resolves an actor together with its git author emails")
+def _a_provider_that_supplies_emails(session: dict[str, Any]) -> None:
+    provider = a_provider(
+        a_person(Role.ARTIST, projects=(PROJECT,)), git_emails=(WORK_EMAIL, PERSONAL_EMAIL)
+    )
+    session["resolution"] = a_resolver(provider, Ticks()).resolve()
+    session["mapping"] = ActorMapping((RAFA,))
+    session["expected_emails"] = (WORK_EMAIL, PERSONAL_EMAIL)
+
+
+@given("a provider that resolves an actor but supplies no git author emails")
+def _a_provider_that_supplies_no_emails(session: dict[str, Any]) -> None:
+    provider = a_provider(a_person(Role.ARTIST, projects=(PROJECT,)))
+    session["resolution"] = a_resolver(provider, Ticks()).resolve()
+    session["mapping"] = ActorMapping((RAFA,))
+
+
+@given("a provider and a mapping file that bind the same subject to different git author emails")
+def _a_provider_disagreeing_with_the_file(session: dict[str, Any]) -> None:
+    provider = a_provider(a_person(Role.ARTIST, projects=(PROJECT,)), git_emails=(CLAIMED_EMAIL,))
+    session["resolution"] = a_resolver(provider, Ticks()).resolve()
+    session["mapping"] = ActorMapping((RAFA,))
+    session["expected_emails"] = (CLAIMED_EMAIL,)
+
+
+@when("that actor's git author identity is requested")
+def _the_git_identity_of_that_actor(session: dict[str, Any]) -> None:
+    session["git_identity"] = resolve_git_identity(session["resolution"], session["mapping"])
+    session["without_file"] = resolve_git_identity(session["resolution"], ActorMapping())
+
+
+@when("that actor is resolved")
+def _that_actor_is_resolved(session: dict[str, Any]) -> None:
+    session["git_identity"] = resolve_git_identity(session["resolution"], session["mapping"])
+
+
+@then("the provider's emails SHALL be used")
+def _the_providers_emails_were_used(session: dict[str, Any]) -> None:
+    identity = session["git_identity"]
+
+    assert identity.source is GitIdentitySource.PROVIDER
+    assert identity.emails == session["expected_emails"]
+
+
+@then("the mapping file SHALL NOT change the result")
+def _the_file_changed_nothing(session: dict[str, Any]) -> None:
+    assert session["git_identity"].emails == session["without_file"].emails
+    assert session["git_identity"].violations == ()
+
+
+@then("the emails SHALL come from the mapping file entry for that subject")
+def _the_emails_came_from_the_file(session: dict[str, Any]) -> None:
+    identity = session["git_identity"]
+
+    assert identity.source is GitIdentitySource.MAPPING
+    assert identity.emails == RAFA.emails
+    assert session["without_file"].is_unmapped, "with no file there is nothing to fall back to"
+
+
+@then("the system SHALL report that the mapping file entry disagrees")
+def _the_disagreement_was_reported(session: dict[str, Any]) -> None:
+    (violation,) = session["git_identity"].violations
+
+    assert violation.rule_id == RULE_PROVIDER_DISAGREEMENT
+    assert SUBJECT in violation.message
+    assert WORK_EMAIL in violation.message
+    assert CLAIMED_EMAIL in violation.message
+
+
+# --------------------------------------------------------------------------
+# Every name a reader sees goes through the mapping (group 3, D12, D14)
+# --------------------------------------------------------------------------
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "A location answer names the person",
+)
+def test_a_location_answer_names_the_person() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "An unmapped owner is shown as unmapped",
+)
+def test_an_unmapped_owner_is_shown_as_unmapped() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "One person, one presentation",
+)
+def test_one_person_one_presentation() -> None: ...
+
+
+def an_owned_asset(owner: str) -> Asset:
+    """The same asset, owned by whichever address the scenario is about."""
+    return Asset(id=AssetId("mech_scout"), name="Scout Mech", owner_art=owner)
+
+
+def an_indexed_project(session: dict[str, Any], owner: str) -> None:
+    """One asset indexed, and the project's mapping, ready for a location answer."""
+    store = InMemorySpecStore()
+    store.add(SPEC_PATH, an_owned_asset(owner))
+    store.set_actor_mapping(ActorMapping((RAFA,)))
+    index = InMemorySearchIndex()
+    rebuild_index(spec_store=store, search_index=index)
+    session["store"] = store
+    session["index"] = index
+
+
+@given(
+    "an asset whose art owner is recorded as `rafa@cyberdyne.com` and a mapping entry "
+    "binding that email to the display name `Rafa`"
+)
+def _an_asset_owned_by_a_mapped_person(session: dict[str, Any]) -> None:
+    an_indexed_project(session, WORK_EMAIL)
+
+
+@given("an asset whose art owner is an email present in no mapping entry")
+def _an_asset_owned_by_nobody_mapped(session: dict[str, Any]) -> None:
+    an_indexed_project(session, STRANGER)
+
+
+@when("the asset's location is requested")
+def _the_assets_location_is_requested(session: dict[str, Any]) -> None:
+    session["answer"] = where_is(
+        "mech_scout", spec_store=session["store"], search_index=session["index"]
+    )
+
+
+@then("the response SHALL name the art owner as `Rafa`")
+def _the_art_owner_is_named(session: dict[str, Any]) -> None:
+    owner = session["answer"].owner(ART)
+
+    assert owner.display == DISPLAY_NAME
+    assert not owner.is_unmapped
+    assert UNMAPPED_MARK not in owner.display
+
+
+@then("the response SHALL show that email")
+def _the_response_shows_the_email(session: dict[str, Any]) -> None:
+    assert STRANGER in session["answer"].owner(ART).display
+
+
+@then("SHALL mark the owner as unmapped")
+def _the_owner_is_marked_unmapped(session: dict[str, Any]) -> None:
+    owner = session["answer"].owner(ART)
+
+    assert owner.is_unmapped
+    assert UNMAPPED_MARK in owner.display
+
+
+@given("a person who appears as an asset owner, as a commit author and as a resolved caller")
+def _one_person_in_three_places(session: dict[str, Any]) -> None:
+    an_indexed_project(session, WORK_EMAIL)
+    provider = a_provider(a_person(Role.ARTIST, projects=(PROJECT,)))
+    session["resolution"] = a_resolver(provider, Ticks()).resolve()
+    session["mapping"] = ActorMapping((RAFA,))
+
+
+@when("each of those is presented")
+def _each_presentation_is_taken(session: dict[str, Any]) -> None:
+    answer = where_is("mech_scout", spec_store=session["store"], search_index=session["index"])
+    session["presentations"] = {
+        "owner": answer.owner(ART).display,
+        "commit author": resolve_git_author(session["mapping"], COMMITTED_AS).display,
+        "caller": session["resolution"].actor.display,
+    }
+
+
+@then("all three SHALL show the same display name")
+def _all_three_show_the_same_name(session: dict[str, Any]) -> None:
+    presentations = session["presentations"]
+
+    assert set(presentations.values()) == {DISPLAY_NAME}, presentations

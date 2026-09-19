@@ -18,7 +18,8 @@ Ports arrive with the change that introduces them, and the change that adds a
 port adds its fake here in the same breath. Everything downstream — the
 ``fakes`` BDD fixture, the conformance suites — then picks it up with no further
 wiring. ``add-asset-spec-and-validator`` registers the three the validator needs:
-``spec_store``, ``mesh_inspector`` and ``blob_store``.
+``spec_store``, ``mesh_inspector`` and ``blob_store``. ``add-mcp-read-server``
+adds the two the read surface needs: ``identity_provider`` and ``search_index``.
 """
 
 from __future__ import annotations
@@ -28,7 +29,9 @@ from types import MappingProxyType
 from typing import Any
 
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
+from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
+from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 
 FakeFactory = Callable[[], Any]
@@ -37,7 +40,9 @@ FakeFactory = Callable[[], Any]
 FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType(
     {
         "blob_store": InMemoryBlobStore,
+        "identity_provider": InMemoryIdentityProvider,
         "mesh_inspector": InMemoryMeshInspector,
+        "search_index": InMemorySearchIndex,
         "spec_store": InMemorySpecStore,
     }
 )
@@ -66,7 +71,9 @@ __all__ = [
     "FAKE_FACTORIES",
     "FakeFactory",
     "InMemoryBlobStore",
+    "InMemoryIdentityProvider",
     "InMemoryMeshInspector",
+    "InMemorySearchIndex",
     "InMemorySpecStore",
     "build_fakes",
     "fake_names",

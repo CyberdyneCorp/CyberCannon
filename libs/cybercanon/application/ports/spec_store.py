@@ -2,7 +2,7 @@
 
 Git is the source of truth (openspec/project.md), so the store is a reader over
 a working copy: `GitSpecStore` today, a `PostgresSpecStore` later, with the
-domain untouched. Three responsibilities, and the first is the one that keeps
+domain untouched. Five responsibilities, and the first is the one that keeps
 path arithmetic out of every adapter:
 
 * **discovery** — given any path inside the repository, the governing
@@ -13,7 +13,16 @@ path arithmetic out of every adapter:
   warnings the parse produced. An unknown field is a warning, never a parse
   failure (D5), which is why warnings travel with the asset rather than instead
   of it.
-* **project configuration** — the defaults half of the effective-spec merge (D3).
+* **project configuration** — the defaults half of the effective-spec merge (D3);
+* **history** — the same specification file as it stood at an earlier revision
+  (D10), so `diff_spec` compares *parsed specifications* rather than file text.
+  It is the one capability in this product that genuinely needs version control
+  rather than a file system, and a store that cannot reach the revision says so
+  with :class:`HistoryUnavailable` instead of failing the caller's session;
+* **the actor mapping** — `.canon/actors.yaml` is repository content like
+  `asset.yaml`, so it is fetched here, at the same revision as the specifications
+  it explains (D12). It is a project-scoped read beside the asset-scoped ones,
+  which is the cost D12 accepted rather than inventing a second identity port.
 
 **Paths are repository-relative POSIX strings.** An implementation MAY also
 accept an absolute path that lies inside its repository, but the paths it hands
@@ -29,6 +38,7 @@ from types import MappingProxyType
 from typing import Protocol
 
 from cybercanon.application.errors import OperationFailed
+from cybercanon.domain.actors import ACTORS_PATH, EMPTY_MAPPING, ActorMapping
 from cybercanon.domain.asset import Asset
 from cybercanon.domain.constraints import Constraints
 from cybercanon.domain.violations import Severity, SpecViolation
@@ -107,6 +117,48 @@ class SpecUnreadable(OperationFailed):
         self.reason = reason
 
 
+class HistoryUnavailable(OperationFailed):
+    """That revision of that file cannot be reached — a shallow clone, a new file.
+
+    A named failure rather than a silent empty answer, because the caller's
+    obligation differs: `diff_spec` reports that history is unavailable for the
+    requested range and keeps the session alive, which is the degraded answer
+    the design prefers to a broken tool.
+    """
+
+    def __init__(self, subject: str, revision: str, reason: str = "") -> None:
+        detail = f": {reason}" if reason else ""
+        super().__init__(f"{subject} has no history at revision {revision!r}{detail}", subject)
+        self.revision = revision
+        self.reason = reason
+
+
+@dataclass(frozen=True)
+class LoadedMapping:
+    """`.canon/actors.yaml` as the store found it (D12).
+
+    Three outcomes, and none of them is an exception: a mapping, an absent file
+    (the empty mapping — a project without one stays fully readable), and a file
+    that cannot be parsed, which yields the empty mapping *plus* the violation
+    saying so. Raising would make a broken identity file break every read of the
+    repository, which is precisely the failure D14 refuses in miniature.
+    """
+
+    mapping: ActorMapping = EMPTY_MAPPING
+    violations: tuple[SpecViolation, ...] = ()
+    path: str = ACTORS_PATH
+
+    @property
+    def is_declared(self) -> bool:
+        """Whether this project actually authored a mapping."""
+        return not self.mapping.is_empty
+
+    @property
+    def is_readable(self) -> bool:
+        """Whether the file could be parsed at all."""
+        return not self.violations
+
+
 class SpecStore(Protocol):
     """Reads specifications and project configuration out of a repository."""
 
@@ -139,9 +191,39 @@ class SpecStore(Protocol):
         """Every specification at or below `start`, in a deterministic order."""
         ...
 
+    def load_at(self, spec_path: str, revision: str) -> LoadedSpec:
+        """The specification as it stood at an earlier revision (D10).
+
+        The same parse as :meth:`load`, so the comparison is between domain
+        objects and never between two renderings of a file. Raises
+        :class:`HistoryUnavailable` when the store cannot reach that revision
+        and :class:`SpecNotFound` when the file did not exist there.
+        """
+        ...
+
+    def revisions_for(self, spec_path: str, limit: int | None = None) -> tuple[str, ...]:
+        """The revisions that touched this file, newest first.
+
+        Empty when the store has no history to offer — a directory that is not a
+        repository, or a shallow clone. Empty is an answer; a caller that needed
+        a specific revision gets :class:`HistoryUnavailable` from
+        :meth:`load_at`.
+        """
+        ...
+
+    def load_actor_mapping(self, start: str = "") -> LoadedMapping:
+        """The project's `.canon/actors.yaml`, read at the same revision as the specs.
+
+        Never raises: an absent file is the empty mapping and an unparseable one
+        is the empty mapping with a violation naming the file (D12).
+        """
+        ...
+
 
 __all__ = [
     "EMPTY_SEVERITIES",
+    "HistoryUnavailable",
+    "LoadedMapping",
     "LoadedSpec",
     "PreviewDefaults",
     "ProjectConfig",

@@ -18,10 +18,12 @@ from cybercanon.domain.actor_checks import (
     RULE_DUPLICATE_SUBJECT,
     RULE_IDS,
     RULE_NO_EMAIL,
+    RULE_PROVIDER_DISAGREEMENT,
     RULE_UNKNOWN_ROLE,
     RULE_UNPARSEABLE,
     check_mapping,
     mapping_unparseable,
+    provider_disagreement,
     subject_of,
 )
 from cybercanon.domain.actors import ACTORS_PATH, ActorBinding, ActorMapping
@@ -41,7 +43,20 @@ def test_every_rule_is_in_the_inventory() -> None:
         RULE_UNKNOWN_ROLE,
         RULE_NO_EMAIL,
         RULE_UNPARSEABLE,
+        RULE_PROVIDER_DISAGREEMENT,
     }
+
+
+def test_a_provider_disagreement_names_the_entry_and_both_lists() -> None:
+    """D13 — the provider wins and the stale file entry is reported, not merged."""
+    (violation,) = provider_disagreement(RAFA, ("rafa@newdomain.dev",))
+
+    assert violation.rule_id == RULE_PROVIDER_DISAGREEMENT
+    assert violation.severity is Severity.WARNING
+    assert "auth|rafa" in violation.message
+    assert SHARED_EMAIL in violation.message
+    assert "rafa@newdomain.dev" in violation.message
+    assert violation.subject.startswith(subject_of(RAFA))
 
 
 def test_a_well_formed_mapping_reports_nothing() -> None:

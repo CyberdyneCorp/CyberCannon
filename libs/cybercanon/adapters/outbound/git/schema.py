@@ -29,6 +29,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from cybercanon.application.ports.spec_store import PreviewDefaults
+from cybercanon.domain.actors import ActorBinding, ActorMapping
 from cybercanon.domain.annotations import (
     Anchor,
     Anchor2D,
@@ -225,6 +226,38 @@ class ProjectFile(_Block):
     preview: PreviewFile | None = None
 
 
+class ActorEntryFile(_Block):
+    """One entry of `.canon/actors.yaml` — a person's two identities, bound.
+
+    Every field but the subject is optional *on purpose*, and the tolerance is
+    the requirement rather than politeness: an entry with no email and an entry
+    whose `default_role` names no known role are both defects the mapping's
+    structural checks report by name
+    (:mod:`cybercanon.domain.actor_checks`). A model that refused them would
+    turn each into an unparseable file, and a reader would lose every other
+    finding in the same run — the failure D12 keeps the mapping out of.
+    """
+
+    subject: str
+    display_name: str = ""
+    emails: tuple[str, ...] = ()
+    chat_handle: str | None = None
+    default_role: str | None = None
+
+
+class ActorsFile(_Block):
+    """`.canon/actors.yaml` — the project's identity-subject to git-author mapping.
+
+    Repository content like `asset.yaml`, so it is versioned, diffable and
+    reviewed in a pull request (D12). It is read at the same revision as the
+    specifications it explains, which is what makes an entry added today
+    explain a commit authored last year.
+    """
+
+    schema_version: int | float | str | None = None
+    actors: tuple[ActorEntryFile, ...] = ()
+
+
 # --------------------------------------------------------------------------
 # schema_version (D6)
 # --------------------------------------------------------------------------
@@ -266,6 +299,37 @@ def parse_project_file(data: Mapping[str, Any]) -> tuple[ProjectFile, tuple[Spec
     """Read `.canon/project.yaml` under the same tolerance as a specification."""
     check_schema_version(data.get("schema_version"))
     return _parse(ProjectFile, data)
+
+
+def parse_actors_file(data: Mapping[str, Any]) -> ActorsFile:
+    """Read `.canon/actors.yaml`, or refuse the whole file.
+
+    Deliberately *not* the tolerant drop-and-report loop the specification files
+    get. A specification with one bad field still describes an asset, so
+    dropping the field keeps the rest useful; a mapping whose shape is wrong
+    describes nobody, and half a mapping would bind some commits to people and
+    silently leave others unmapped — which looks exactly like a complete mapping
+    with missing entries. So a shape failure raises here and the store turns it
+    into the one violation D12 specifies, naming the file.
+    """
+    check_schema_version(data.get("schema_version"))
+    return ActorsFile.model_validate(dict(data))
+
+
+def to_actor_mapping(parsed: ActorsFile) -> ActorMapping:
+    """The parsed file as the domain value object resolution is a function over."""
+    return ActorMapping(
+        bindings=tuple(
+            ActorBinding(
+                subject=entry.subject,
+                display_name=entry.display_name or entry.subject,
+                emails=tuple(entry.emails),
+                chat_handle=entry.chat_handle,
+                default_role=entry.default_role,
+            )
+            for entry in parsed.actors
+        )
+    )
 
 
 def _parse(model: type[Any], data: Mapping[str, Any]) -> tuple[Any, tuple[SpecViolation, ...]]:
@@ -625,13 +689,17 @@ __all__ = [
     "RULE_UNKNOWN_FIELD",
     "SCHEMA_VERSION",
     "TOOL_VERSION",
+    "ActorEntryFile",
+    "ActorsFile",
     "AssetFile",
     "PreviewFile",
     "ProjectFile",
     "SchemaTooNew",
     "check_schema_version",
+    "parse_actors_file",
     "parse_asset_file",
     "parse_project_file",
+    "to_actor_mapping",
     "to_asset",
     "to_constraints",
     "to_preview",

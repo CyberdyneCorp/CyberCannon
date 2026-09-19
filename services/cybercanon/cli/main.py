@@ -23,8 +23,15 @@ from cybercanon.adapters.wiring.build import build_container
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Run `canon` over the repository the current working directory belongs to."""
-    build_app(build_container(Path.cwd()))(args=argv)
+    """Run `canon` over the repository the current working directory belongs to.
+
+    The composition root is passed twice: once as the container every command
+    runs against, and once as the factory `canon mcp serve PATH` uses to open a
+    *different* working copy — an agent client names the project directory in
+    its configuration rather than choosing a working directory for the process
+    it spawns.
+    """
+    build_app(build_container(Path.cwd()), build_container)(args=argv)
 
 
 if __name__ == "__main__":  # pragma: no cover — exercised as a subprocess

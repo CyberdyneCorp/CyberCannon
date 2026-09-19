@@ -19,6 +19,11 @@ temporary repository — there is no way to assert "it read the file from the
 working copy" without a working copy, and asserting it against a fake would be
 asserting that the fake was written as intended.
 
+`add-mcp-read-server` group 3 earns one more: the derived index is disposable,
+which is only demonstrable once an index exists to delete. It is asserted where
+the claim is made — deleting the index and re-scanning restores every answer —
+rather than trusted.
+
 The rest of this capability's scenarios stay in `tests/bdd/pending.txt` until the
 change that earns them: annotation triage (`add-model-sheet-2d`) and anchor
 resolution (`add-viewer-3d`).
@@ -37,6 +42,10 @@ from pytest_bdd import given, scenario, then, when
 from cybercanon.adapters.outbound.git.discovery import GIT_DIR
 from cybercanon.adapters.outbound.git.schema import RULE_UNKNOWN_FIELD
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
+from cybercanon.application.testing.search_index import InMemorySearchIndex
+from cybercanon.application.testing.spec_store import InMemorySpecStore
+from cybercanon.application.use_cases.index_assets import rebuild_index
+from cybercanon.application.use_cases.lookup_assets import list_assets, search_assets, where_is
 from cybercanon.domain.asset import Asset, AssetId, Links
 from cybercanon.domain.concept import Concept
 from cybercanon.domain.constraints import AnimationDefaults, Constraints, Rig
@@ -595,3 +604,78 @@ def _the_unknown_field_is_reported(spec: dict[str, Any]) -> None:
     assert warning.subject == "constraints.shinyness"
     assert "shinyness" in warning.message
     assert spec["loaded"].asset.id.value == ASSET_ID, "the specification still loaded"
+
+
+# --------------------------------------------------------------------------
+# The derived index is disposable (add-mcp-read-server, group 3)
+# --------------------------------------------------------------------------
+
+
+@scenario(
+    "../features/add-asset-spec-and-validator/asset-spec.feature",
+    "Derived index is disposable",
+)
+def test_derived_index_is_disposable() -> None: ...
+
+
+INDEXED_ASSETS = (
+    (
+        FIRST_FILE,
+        Asset(
+            id=AssetId(ASSET_ID),
+            name=NAME,
+            aliases=("drone",),
+            owner_art="rafa@cyberdyne.com",
+            links=Links(source="art/mech_scout.blend"),
+        ),
+    ),
+    ("props/crate/asset.yaml", Asset(id=AssetId("crate"), name="Supply Crate")),
+)
+
+
+def every_answer(store: InMemorySpecStore, index: InMemorySearchIndex) -> dict[str, Any]:
+    """Every lookup and search this project can answer, as one comparable value."""
+    return {
+        "lookups": {
+            asset_id: where_is(asset_id, spec_store=store, search_index=index)
+            for asset_id in (ASSET_ID, "crate")
+        },
+        "searches": {
+            term: search_assets(term, search_index=index).asset_ids
+            for term in (ASSET_ID, "drone", "Supply", "crate")
+        },
+        "listing": list_assets(spec_store=store, search_index=index).asset_ids,
+    }
+
+
+@given("any derived index of specifications exists")
+def _a_derived_index_exists(spec: dict[str, Any]) -> None:
+    store = InMemorySpecStore()
+    for path, asset in INDEXED_ASSETS:
+        store.add(path, asset)
+    index = InMemorySearchIndex()
+    rebuild_index(spec_store=store, search_index=index)
+    spec["store"], spec["index"] = store, index
+    spec["before"] = every_answer(store, index)
+    assert index.list_assets(), "there is an index to delete"
+
+
+@when("that index is deleted")
+def _that_index_is_deleted(spec: dict[str, Any]) -> None:
+    spec["index"].clear()
+    assert spec["index"].list_assets() == ()
+
+
+@then("re-scanning the repository SHALL restore it completely")
+def _re_scanning_restores_it(spec: dict[str, Any]) -> None:
+    report = rebuild_index(spec_store=spec["store"], search_index=spec["index"])
+
+    assert report.indexed_count == len(INDEXED_ASSETS)
+    assert every_answer(spec["store"], spec["index"]) == spec["before"]
+
+
+@then("no specification data SHALL be lost")
+def _no_specification_data_was_lost(spec: dict[str, Any]) -> None:
+    for path, asset in INDEXED_ASSETS:
+        loaded = spec["store"].load(path)
+        assert loaded.asset == asset, "the specification files were never the index's to lose"

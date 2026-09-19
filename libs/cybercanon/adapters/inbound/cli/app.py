@@ -14,6 +14,12 @@ not, the product has the bug it exists to prevent.
   themselves, plus whatever the project configuration got wrong.
 * `canon changed FILE...` — the pre-commit entry point: validate only the assets
   the changed files belong to, and exit `0` when none of them belong to one.
+* `canon index rebuild|misses` — maintenance of the derived index, and the
+  zero-result search terms it recorded locally (D11).
+* `canon actors unmapped` — the git authors and recorded owners
+  `.canon/actors.yaml` does not bind yet, listed so the file can be completed.
+* `canon mcp serve` — the FastMCP read server over standard input and output,
+  built from the same container every other command here runs against.
 
 Two seams, each existing exactly once:
 
@@ -55,6 +61,19 @@ Validation, checking and compilation need no login, no token and no network.
 
 NOTHING_TO_DO = "canon: no changed file belongs to an asset"
 
+INDEX_HELP = "Maintain the derived lookup index, and read what it recorded."
+ACTORS_HELP = "The people a project's `.canon/actors.yaml` does or does not bind."
+MCP_HELP = "The local read server an agent client spawns over standard input and output."
+
+ContainerFor = Callable[[Path], Container]
+"""How a command opens a *different* repository from the one the app was built for.
+
+Only `mcp serve` needs it — an agent client names the project directory in its
+configuration rather than being able to choose a working directory. It is a
+parameter because the inbound CLI may not import an outbound adapter (D10), so
+the process entry point is the one that knows how a container is built.
+"""
+
 JsonOption = Annotated[
     bool,
     typer.Option("--json", help="Write only the structured result to standard output."),
@@ -74,13 +93,19 @@ class Produced:
     passed: bool
 
 
-def build_app(container: Container) -> typer.Typer:
+def build_app(container: Container, container_for: ContainerFor | None = None) -> typer.Typer:
     """The `canon` application, wired to one container.
 
     The container is a parameter rather than a module global because that is
     what makes the CLI testable against in-memory fakes with no repository on
     disk — the same container the MCP server and the HTTP app will be handed.
+
+    `container_for` opens another repository by path, and defaults to *this
+    one*: a test builds the app over fakes and `canon mcp serve` still serves
+    them, while the installed binary passes the composition root and
+    `canon mcp serve /path/to/game` serves that working copy.
     """
+    open_project: ContainerFor = container_for or (lambda _root: container)
     app = typer.Typer(add_completion=False, help=HELP, no_args_is_help=True)
 
     @app.command()
@@ -119,6 +144,41 @@ def build_app(container: Container) -> typer.Typer:
     ) -> None:
         """Validate only the assets a list of changed files belongs to."""
         _run("changed", json_output, lambda: _changed(container, files))
+
+    index_app = typer.Typer(add_completion=False, help=INDEX_HELP, no_args_is_help=True)
+    actors_app = typer.Typer(add_completion=False, help=ACTORS_HELP, no_args_is_help=True)
+    mcp_app = typer.Typer(add_completion=False, help=MCP_HELP, no_args_is_help=True)
+    app.add_typer(index_app, name="index")
+    app.add_typer(actors_app, name="actors")
+    app.add_typer(mcp_app, name="mcp")
+
+    @index_app.command(name="rebuild")
+    def rebuild(
+        path: Annotated[Path, typer.Argument(help="Where to look for specifications.")] = Path(),
+        json_output: JsonOption = False,
+    ) -> None:
+        """Rescan the specifications and rewrite the project's index rows."""
+        _run("index rebuild", json_output, lambda: _rebuild(container, path))
+
+    @index_app.command(name="misses")
+    def misses(json_output: JsonOption = False) -> None:
+        """The search terms that matched nothing, as recorded on this machine."""
+        _run("index misses", json_output, lambda: _misses(container))
+
+    @actors_app.command(name="unmapped")
+    def unmapped(
+        path: Annotated[Path, typer.Argument(help="Where the project lives.")] = Path(),
+        json_output: JsonOption = False,
+    ) -> None:
+        """List the git authors and owners `.canon/actors.yaml` does not bind."""
+        _run("actors unmapped", json_output, lambda: _unmapped(container, path))
+
+    @mcp_app.command(name="serve")
+    def serve(
+        path: Annotated[Path, typer.Argument(help="The project directory to serve.")] = Path(),
+    ) -> None:
+        """Serve this project's canon to an agent client over standard input and output."""
+        _serve(open_project(path))
 
     return app
 
@@ -193,6 +253,48 @@ def _check(container: Container, path: Path) -> Produced:
         text=_check_text(report, notes),
         passed=report.passed,
     )
+
+
+def _rebuild(container: Container, path: Path) -> Produced:
+    (root,) = _repo_paths(container, (path,))
+    report = container.rebuild_index(root)
+    return Produced(
+        payload=payloads.rebuild_payload(report),
+        text=rendering.render_rebuild(report),
+        passed=report.is_complete,
+    )
+
+
+def _misses(container: Container) -> Produced:
+    recorded = container.recorded_misses()
+    return Produced(
+        payload=payloads.misses_payload(recorded),
+        text=rendering.render_misses(recorded),
+        passed=True,
+    )
+
+
+def _unmapped(container: Container, path: Path) -> Produced:
+    (root,) = _repo_paths(container, (path,))
+    authors = container.unmapped_authors(root)
+    return Produced(
+        payload=payloads.unmapped_payload(authors),
+        text=rendering.render_unmapped(authors),
+        passed=not authors.violations,
+    )
+
+
+def _serve(container: Container) -> None:
+    """Hand one container to the read server and let it own the process.
+
+    The import is local because it is the only thing in `canon` that needs
+    FastMCP: a validator run by a pre-commit hook should not pay for importing a
+    server it will never start. Nothing is printed — standard output is the
+    transport, and a stray line on it would corrupt the protocol.
+    """
+    from cybercanon.adapters.inbound.mcp import tools
+
+    tools.serve(container)
 
 
 def _changed(container: Container, files: Sequence[Path]) -> Produced:
@@ -284,4 +386,13 @@ def _changed_text(lint: LintReport, outcomes: Sequence[ValidationOutcome]) -> st
     return "\n\n".join(blocks)
 
 
-__all__ = ["HELP", "NOTHING_TO_DO", "Produced", "build_app"]
+__all__ = [
+    "ACTORS_HELP",
+    "HELP",
+    "INDEX_HELP",
+    "MCP_HELP",
+    "NOTHING_TO_DO",
+    "ContainerFor",
+    "Produced",
+    "build_app",
+]

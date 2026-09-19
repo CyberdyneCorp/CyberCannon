@@ -21,8 +21,11 @@ from collections.abc import Sequence
 from typing import Any
 
 from cybercanon.application.errors import OperationFailed
+from cybercanon.application.ports.search_index import RecordedMiss
 from cybercanon.application.use_cases.compile_spec import CompiledSpec
+from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
+from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import SpecViolation, Violation
@@ -52,7 +55,39 @@ def lint_payload(report: LintReport, project_notes: Sequence[SpecViolation] = ()
         passed=report.passed,
         checked=list(report.checked),
         findings=[_finding(finding) for finding in report.findings],
+        mapping=[_finding(finding) for finding in report.mapping],
         project_notes=[_spec_violation(note) for note in project_notes],
+    )
+
+
+def rebuild_payload(report: RebuildReport) -> dict[str, Any]:
+    """What a rebuild indexed, and the files it named as unreadable."""
+    return _document(
+        "index rebuild",
+        passed=report.is_complete,
+        project=report.project,
+        indexed=list(report.indexed),
+        forgotten=list(report.forgotten),
+        unreadable=[{"path": spec.path, "reason": spec.reason} for spec in report.unreadable],
+    )
+
+
+def misses_payload(misses: Sequence[RecordedMiss]) -> dict[str, Any]:
+    """The locally recorded zero-result terms (D11) — never transmitted anywhere."""
+    return _document(
+        "index misses",
+        passed=True,
+        misses=[_miss(miss) for miss in misses],
+    )
+
+
+def unmapped_payload(unmapped: UnmappedAuthors) -> dict[str, Any]:
+    """The addresses `.canon/actors.yaml` does not bind, and why it could not be read."""
+    return _document(
+        "actors unmapped",
+        passed=not unmapped.violations,
+        authors=list(unmapped.emails),
+        findings=[_spec_violation(violation) for violation in unmapped.violations],
     )
 
 
@@ -100,6 +135,10 @@ def failure_payload(command: str, error: OperationFailed) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # Parts
 # --------------------------------------------------------------------------
+
+
+def _miss(miss: RecordedMiss) -> dict[str, Any]:
+    return {"term": miss.term, "project": miss.project, "count": miss.count}
 
 
 def _document(command: str, *, passed: bool, ran: bool = True, **body: Any) -> dict[str, Any]:
