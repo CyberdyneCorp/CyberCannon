@@ -2,39 +2,39 @@
 
 ## 1. Service skeleton and the layering contract for a third adapter
 
-- [ ] 1.1 Create `services/cybercanon/api` and `libs/cybercanon/adapters/inbound/http`, and verify `uvicorn` serves the health endpoint on a clean checkout with no database, no identity service and no repository configured
-- [ ] 1.2 Extend the `import-linter` contracts to cover the HTTP adapter (`adapters/inbound/http` must not import `adapters/outbound`) and verify `lint-imports` fails on a deliberate violating import and passes once removed
-- [ ] 1.3 Add the structural test asserting the HTTP adapter contains no conditional on specification content and no rule, budget or naming logic (mirrors the MCP adapter's test); verify it fails when such a conditional is introduced
-- [ ] 1.4 Add the environment-variable configuration model with no file fallback (repository, branch, credential, fetch interval, webhook secret, issuer, audience, key set URL, group mapping, database, object store, link expiry) and verify the service refuses to start naming every missing required variable at once
+- [x] 1.1 Create `services/cybercanon/api` and `libs/cybercanon/adapters/inbound/http`, and verify `uvicorn` serves the health endpoint on a clean checkout with no database, no identity service and no repository configured
+- [x] 1.2 Extend the `import-linter` contracts to cover the HTTP adapter (`adapters/inbound/http` must not import `adapters/outbound`) and verify `lint-imports` fails on a deliberate violating import and passes once removed
+- [x] 1.3 Add the structural test asserting the HTTP adapter contains no conditional on specification content and no rule, budget or naming logic (mirrors the MCP adapter's test); verify it fails when such a conditional is introduced
+- [x] 1.4 Add the environment-variable configuration model with no file fallback (repository, branch, credential, fetch interval, webhook secret, issuer, audience, key set URL, group mapping, database, object store, link expiry) and verify the service refuses to start naming every missing required variable at once
 
 ## 2. Domain — tenancy, roles, authorization policy
 
-- [ ] 2.1 Model `Tenant`, extend `Actor` with a tenant and a stable subject identifier, and verify a request for a project outside the actor's tenant is refused by policy alone
-- [ ] 2.2 Implement the authorization policy as pure functions over `(Actor, operation, subject)` and verify the full policy suite runs with no identity service, no HTTP and no database
-- [ ] 2.3 Implement the human-only operation registry in the domain and verify a test enumerates every mutating operation and asserts each declares whether it requires a person (D13)
-- [ ] 2.4 Verify promotion of an annotation to a durable rule and acceptance of a derived suggestion are both registered as human-only, and that an actor authenticated as automation holding every role is refused each
+- [x] 2.1 Model `Tenant`, extend `Actor` with a tenant and a stable subject identifier, and verify a request for a project outside the actor's tenant is refused by policy alone
+- [x] 2.2 Implement the authorization policy as pure functions over `(Actor, operation, subject)` and verify the full policy suite runs with no identity service, no HTTP and no database
+- [x] 2.3 Implement the human-only operation registry in the domain and verify a test enumerates every mutating operation and asserts each declares whether it requires a person (D13)
+- [x] 2.4 Verify promotion of an annotation to a durable rule and acceptance of a derived suggestion are both registered as human-only, and that an actor authenticated as automation holding every role is refused each
 
 ## 3. Domain — asset requests
 
-- [ ] 3.1 Model `Discipline`, `AssetRequest` (author, discipline, description, optional asset reference, optional asked-for status, assignee, state, history) and verify a request with no description is rejected
-- [ ] 3.2 Implement `RequestState` and the transition table (`open→accepted|declined|withdrawn`, `accepted→fulfilled|declined|withdrawn`, three terminal states) as a pure function and verify every disallowed transition is refused, including `fulfilled→open`
-- [ ] 3.3 Implement the decline-requires-reason and author-only-withdraw rules and verify each with a failing case
-- [ ] 3.4 Implement assignment resolution (asset discipline owner → project discipline owner → unassigned) as a pure function and verify all three outcomes, and that the author is never the fallback assignee
-- [ ] 3.5 Implement the fulfilment precondition against the asked-for asset status and verify fulfilment is refused naming the current status, then succeeds once the asset reaches it
-- [ ] 3.6 Verify by test that no request transition function returns a changed asset status and that no asset status transition returns a changed request state
+- [x] 3.1 Model `Discipline`, `AssetRequest` (author, discipline, description, optional asset reference, optional asked-for status, assignee, state, history) and verify a request with no description is rejected
+- [x] 3.2 Implement `RequestState` and the transition table (`open→accepted|declined|withdrawn`, `accepted→fulfilled|declined|withdrawn`, three terminal states) as a pure function and verify every disallowed transition is refused, including `fulfilled→open`
+- [x] 3.3 Implement the decline-requires-reason and author-only-withdraw rules and verify each with a failing case
+- [x] 3.4 Implement assignment resolution (asset discipline owner → project discipline owner → unassigned) as a pure function and verify all three outcomes, and that the author is never the fallback assignee
+- [x] 3.5 Implement the fulfilment precondition against the asked-for asset status and verify fulfilment is refused naming the current status, then succeeds once the asset reaches it
+- [x] 3.6 Verify by test that no request transition function returns a changed asset status and that no asset status transition returns a changed request state
 
 ## 4. Application — outcome vocabulary, ports and use cases
 
-- [ ] 4.1 Introduce the result union (`Ok`, `NotFound`, `Forbidden`, `Unauthenticated`, `Invalid`, `Conflict`, `Unavailable`) with stable error identifiers (D10) and verify a test asserts every member is constructible with a subject and an identifier
-- [ ] 4.2 Migrate the existing use cases from raising to returning the union, update the CLI and MCP adapters, and verify the whole existing test suite passes and `canon` exit codes are unchanged
-- [ ] 4.3 Define the `RepositoryHost` port (clone, fetch, resolve revision, read at revision, commit as author, push, recover) with an in-memory fake under `application/testing/` and verify a port-conformance suite runs against the fake
-- [ ] 4.4 Extend `SpecStore` with revision-pinned reads (D3) and verify the conformance suite passes for both the local path-reading and the revision-reading implementations
-- [ ] 4.5 Extend `BlobStore` with content-addressed put, existence check and link issuance, add an in-memory fake, and verify conformance
-- [ ] 4.6 Define the `Notifier` port and its fake, and verify a notification failure never changes a use case's outcome
-- [ ] 4.7 Implement `refresh_project` (fetch, advance the served revision atomically, record the confirmation time) and verify a failed fetch leaves the served revision unchanged and the project available
-- [ ] 4.8 Implement `write_back` (precondition check by content hash, commit as the mapped author, push, bounded retry per D6) and verify: clean apply, stale-hash conflict, push-rejection retry that succeeds, and retry exhaustion reported as a conflict
-- [ ] 4.9 Implement `raise_request`, `assign_request` and `transition_request` over `RepositoryHost` and verify each produces exactly one commit and records its actor
-- [ ] 4.10 Implement `rebuild_index` over the working copy and verify it is never invoked from a read path
+- [x] 4.1 Introduce the result union (`Ok`, `NotFound`, `Forbidden`, `Unauthenticated`, `Invalid`, `Conflict`, `Unavailable`) with stable error identifiers (D10) and verify a test asserts every member is constructible with a subject and an identifier
+- [x] 4.2 Migrate the existing use cases from raising to returning the union, update the CLI and MCP adapters, and verify the whole existing test suite passes and `canon` exit codes are unchanged
+- [x] 4.3 Define the `RepositoryHost` port (clone, fetch, resolve revision, read at revision, commit as author, push, recover) with an in-memory fake under `application/testing/` and verify a port-conformance suite runs against the fake
+- [x] 4.4 Extend `SpecStore` with revision-pinned reads (D3) and verify the conformance suite passes for both the local path-reading and the revision-reading implementations
+- [x] 4.5 Extend `BlobStore` with content-addressed put, existence check and link issuance, add an in-memory fake, and verify conformance
+- [x] 4.6 Define the `Notifier` port and its fake, and verify a notification failure never changes a use case's outcome
+- [x] 4.7 Implement `refresh_project` (fetch, advance the served revision atomically, record the confirmation time) and verify a failed fetch leaves the served revision unchanged and the project available
+- [x] 4.8 Implement `write_back` (precondition check by content hash, commit as the mapped author, push, bounded retry per D6) and verify: clean apply, stale-hash conflict, push-rejection retry that succeeds, and retry exhaustion reported as a conflict
+- [x] 4.9 Implement `raise_request`, `assign_request` and `transition_request` over `RepositoryHost` and verify each produces exactly one commit and records its actor
+- [x] 4.10 Implement `rebuild_index` over the working copy and verify it is never invoked from a read path
 
 ## 5. Adapters — the hosted working copy
 
