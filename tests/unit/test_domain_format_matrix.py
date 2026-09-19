@@ -13,8 +13,11 @@ import pytest
 from cybercanon.domain.format_matrix import (
     CONTENT_BY_FORMAT,
     FACTS_BY_FORMAT,
+    FBX_UNTRUSTED,
+    UNTRUSTED_BY_FORMAT,
     ContentKind,
     UnsupportedExportFormat,
+    absence_phrase,
     available_for,
     can_contain,
     unavailable_for,
@@ -70,10 +73,60 @@ def test_gltf_and_glb_are_read_identically() -> None:
 
 
 def test_fbx_is_marked_unavailable_for_the_facts_it_cannot_be_trusted_for() -> None:
-    """D13's honest move: a fact we cannot read is NOT EVALUATED, never fabricated."""
+    """D13's honest move: a fact we cannot read is NOT EVALUATED, never fabricated.
+
+    This row is a measurement (task 5.6): every entry was checked against a real
+    Blender export. Unit scale is the one that proves the point — Blender writes
+    `UnitScaleFactor: 1.0` into a file whose vertices are in metres, so the
+    recorded value is worse than no value.
+    """
     absent = unavailable_for(MeshFormat.FBX)
 
-    assert absent == {FactKind.CLIP_LOOP, FactKind.CLIP_ROOT_MOTION}
+    assert absent == {
+        FactKind.UNIT_SCALE,
+        FactKind.TRANSFORMS_APPLIED,
+        FactKind.FRAME_RATE,
+        FactKind.CLIP_FRAME_RATE,
+        FactKind.CLIP_ROOT_MOTION,
+        FactKind.CLIP_LOOP,
+    }
+    assert absent == FBX_UNTRUSTED
+
+
+def test_fbx_can_still_be_read_for_everything_a_rig_needs() -> None:
+    """The row is narrowed, not abandoned: sockets, clips and bones still count."""
+    row = available_for(MeshFormat.FBX)
+
+    assert {
+        FactKind.TRIANGLES,
+        FactKind.OBJECTS,
+        FactKind.MATERIALS,
+        FactKind.UV_SETS,
+        FactKind.UP_AXIS,
+        FactKind.EMPTIES,
+        FactKind.CLIPS,
+        FactKind.CLIP_DURATION,
+        FactKind.SKINNING,
+        FactKind.BONE_COUNT,
+    } <= row
+
+
+def test_a_format_that_records_nothing_and_one_that_records_it_badly_read_differently() -> None:
+    """Both are NOT EVALUATED; only the sentence tells the person which fix applies."""
+    assert absence_phrase(MeshFormat.OBJ, FactKind.UNIT_SCALE) == "OBJ carries no unit scale"
+    assert absence_phrase(MeshFormat.FBX, FactKind.UNIT_SCALE) == (
+        "FBX carries no unit scale this reader can trust"
+    )
+
+
+@pytest.mark.parametrize("source_format", list(MeshFormat))
+@pytest.mark.parametrize("kind", list(FactKind))
+def test_an_untrusted_fact_is_always_an_unavailable_one(
+    source_format: MeshFormat, kind: FactKind
+) -> None:
+    """A fact marked untrusted but left available would be a silent pass."""
+    if kind in UNTRUSTED_BY_FORMAT.get(source_format, frozenset()):
+        assert kind not in available_for(source_format)
 
 
 @pytest.mark.parametrize("content", list(ContentKind))

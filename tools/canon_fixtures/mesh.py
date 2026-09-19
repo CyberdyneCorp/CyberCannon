@@ -31,6 +31,7 @@ from pygltflib import (
     AnimationSampler,
     Attributes,
     Buffer,
+    BufferFormat,
     BufferView,
     Material,
     Mesh,
@@ -42,6 +43,12 @@ from pygltflib import (
 
 FRAME_RATE = 30.0
 """The rate the sample times are laid out at, so a reader can derive it back."""
+
+SHOULDER = "SM_MechScout_Shoulder_L"
+"""The part `asset-preview` anchors to by name, spelled as the spec spells it."""
+
+RIG_BONES = 74
+"""The skeleton size `asset-preview` names. A joint index still fits in a byte."""
 
 
 @dataclass(frozen=True)
@@ -82,10 +89,10 @@ class ExportFacts:
 # milliseconds. Generated rather than typed out, so the fixture is a shape and
 # not a wall of coordinates.
 _SPHERE = trimesh.creation.icosphere(subdivisions=3)
-_CORNERS: tuple[tuple[float, float, float], ...] = tuple(
+CORNERS: tuple[tuple[float, float, float], ...] = tuple(
     tuple(float(value) for value in vertex) for vertex in _SPHERE.vertices
 )
-_FACES: tuple[tuple[int, int, int], ...] = tuple(
+FACES: tuple[tuple[int, int, int], ...] = tuple(
     tuple(int(index) for index in face) for face in _SPHERE.faces
 )
 
@@ -148,59 +155,136 @@ def _flat(vectors: tuple[tuple[float, ...], ...]) -> tuple[float, ...]:
     return tuple(float(value) for vector in vectors for value in vector)
 
 
-def write_skinned_glb(path: Path, *, asset: str = "mech_scout") -> ExportFacts:
-    """A skinned, animated GLB carrying a socket, a material and two clips."""
-    object_name = f"SM_{asset}_LOD0"
+def write_skinned_glb(
+    path: Path, *, asset: str = "mech_scout", clips: tuple[ClipExpectation, ...] | None = None
+) -> ExportFacts:
+    """A skinned, animated GLB carrying a socket, a material and two clips.
+
+    `clips` overrides the two default ones, which is what lets the same asset be
+    written to glTF and to FBX carrying the *same* clips — the only way a
+    cross-format coverage comparison compares one contract instead of two.
+    """
+    gltf, blob, facts = _skinned_document(asset, clips=clips)
+    _finish(gltf, blob, path)
+    return facts
+
+
+def write_rigged_glb(path: Path, *, asset: str = "mech_scout") -> ExportFacts:
+    """The export the `asset-preview` scenarios name: many parts, many bones.
+
+    Two mesh parts with separate geometry rather than one, because a preview that
+    keeps a part and quietly loses its neighbour is exactly the failure a named
+    anchor suffers from; and a 74-bone skeleton with every bone actually weighted,
+    because a preview that dropped most of a rig would still read as "skinned".
+    """
+    gltf, blob, facts = _skinned_document(
+        asset, parts=(f"SM_{asset}_LOD0", SHOULDER), bones=RIG_BONES
+    )
+    _finish(gltf, blob, path)
+    return facts
+
+
+def write_skinned_gltf(
+    path: Path, *, asset: str = "mech_scout", clips: tuple[ClipExpectation, ...] | None = None
+) -> ExportFacts:
+    """The same export as `.gltf` — JSON, with its buffer in a data URI.
+
+    GLB and glTF are one row in the matrix, and the adapter reads them through
+    one code path, so the fixture that proves it has to be the *same* export in
+    both containers. The buffer arrives as a URI rather than a binary chunk,
+    which is the branch `GltfDocument` resolves and a `.glb` never exercises.
+    """
+    gltf, blob, facts = _skinned_document(asset, clips=clips)
+    gltf.bufferViews = blob.views
+    gltf.accessors = blob.accessors
+    gltf.buffers = [Buffer(byteLength=len(blob.data))]
+    gltf.set_binary_blob(bytes(blob.data))
+    gltf.convert_buffers(BufferFormat.DATAURI)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    gltf.save_json(str(path))
+    return facts
+
+
+def _skinned_document(
+    asset: str,
+    *,
+    parts: tuple[str, ...] = (),
+    bones: int = 2,
+    clips: tuple[ClipExpectation, ...] | None = None,
+) -> tuple[GLTF2, _Blob, ExportFacts]:
+    """The skinned export as a document, before it is committed to a container.
+
+    Node order is fixed and depended on below: the mesh parts, then the bones
+    (the first is the skeleton root), then the socket.
+    """
+    object_names = parts or (f"SM_{asset}_LOD0",)
     socket = "SOCKET_muzzle_l"
-    bones = ("root", "spine_01")
-    clips = (
+    bone_names = _bone_names(bones)
+    root = len(object_names)
+    clips = clips or (
         ClipExpectation(name=f"A_{asset}_walk", duration_s=4 / FRAME_RATE),
         ClipExpectation(name=f"A_{asset}_fire", duration_s=2 / FRAME_RATE, loop_closed=False),
     )
 
     blob = _Blob()
-    positions, indices, texcoords = _geometry(blob)
-    joints, weights = _skin_attributes(blob)
+    meshes = [_skinned_part(blob, name, bones) for name in object_names]
     gltf = GLTF2(
         scene=0,
-        scenes=[Scene(nodes=[0, 1, 3])],
+        scenes=[Scene(nodes=[*range(len(object_names)), root, root + bones])],
         nodes=[
-            Node(name=object_name, mesh=0, skin=0),
-            Node(name=bones[0], children=[2]),
-            Node(name=bones[1]),
+            *(Node(name=name, mesh=index, skin=0) for index, name in enumerate(object_names)),
+            Node(name=bone_names[0], children=list(range(root + 1, root + bones))),
+            *(Node(name=name) for name in bone_names[1:]),
             Node(name=socket, translation=[0.4, 0.2, 0.0]),
         ],
-        meshes=[
-            Mesh(
-                name=object_name,
-                primitives=[
-                    Primitive(
-                        attributes=Attributes(
-                            POSITION=positions,
-                            TEXCOORD_0=texcoords,
-                            JOINTS_0=joints,
-                            WEIGHTS_0=weights,
-                        ),
-                        indices=indices,
-                        material=0,
-                    )
-                ],
+        meshes=meshes,
+        materials=[Material(name=f"M_{asset}")],
+        skins=[
+            Skin(
+                joints=list(range(root, root + bones)),
+                skeleton=root,
+                inverseBindMatrices=_bind_matrices(blob, bones),
             )
         ],
-        materials=[Material(name=f"M_{asset}")],
-        skins=[Skin(joints=[1, 2], skeleton=1, inverseBindMatrices=_bind_matrices(blob))],
-        animations=[_animation(blob, clip) for clip in clips],
+        animations=[_animation(blob, clip, root) for clip in clips],
     )
-    _finish(gltf, blob, path)
-    return ExportFacts(
-        objects=(object_name,),
+    facts = ExportFacts(
+        objects=object_names,
         empties=(socket,),
         materials=(f"M_{asset}",),
-        bones=bones,
-        triangles=len(_FACES),
+        bones=bone_names,
+        triangles=len(FACES) * len(object_names),
         uv_sets=1,
         is_skinned=True,
         clips=clips,
+    )
+    return gltf, blob, facts
+
+
+def _bone_names(bones: int) -> tuple[str, ...]:
+    """`root`, `spine_01`, and however many numbered bones the rig still needs."""
+    named = ("root", "spine_01")[:bones]
+    return named + tuple(f"bone_{index:02d}" for index in range(len(named), bones))
+
+
+def _skinned_part(blob: _Blob, name: str, bones: int) -> Mesh:
+    """One mesh part with geometry of its own — parts never share an accessor."""
+    positions, indices, texcoords = _geometry(blob)
+    joints, weights = _skin_attributes(blob, bones)
+    return Mesh(
+        name=name,
+        primitives=[
+            Primitive(
+                attributes=Attributes(
+                    POSITION=positions,
+                    TEXCOORD_0=texcoords,
+                    JOINTS_0=joints,
+                    WEIGHTS_0=weights,
+                ),
+                indices=indices,
+                material=0,
+            )
+        ],
     )
 
 
@@ -230,7 +314,7 @@ def write_static_glb(path: Path, *, name: str = "SM_crate_LOD0") -> ExportFacts:
     return ExportFacts(
         objects=(name,),
         materials=("M_Crate",),
-        triangles=len(_FACES),
+        triangles=len(FACES),
         uv_sets=1,
     )
 
@@ -244,15 +328,44 @@ def write_static_obj(
     row allows are all actually present in the file and a reader that skipped one
     would be caught rather than merely unexercised.
     """
-    mesh = trimesh.Trimesh(vertices=list(_CORNERS), faces=list(_FACES), process=False)
+    mesh = trimesh.Trimesh(vertices=list(CORNERS), faces=list(FACES), process=False)
     surface = trimesh.visual.material.SimpleMaterial()
     surface.name = material
-    mesh.visual = trimesh.visual.TextureVisuals(material=surface, uv=[(0.5, 0.5)] * len(_CORNERS))
+    mesh.visual = trimesh.visual.TextureVisuals(material=surface, uv=[(0.5, 0.5)] * len(CORNERS))
     scene = trimesh.Scene()
     scene.add_geometry(mesh, geom_name=name, node_name=name)
     path.parent.mkdir(parents=True, exist_ok=True)
     scene.export(str(path))
-    return ExportFacts(objects=(name,), materials=(material,), triangles=len(_FACES), uv_sets=1)
+    return ExportFacts(objects=(name,), materials=(material,), triangles=len(FACES), uv_sets=1)
+
+
+def write_multipart_obj(
+    path: Path, *, parts: tuple[str, ...] = ("SM_mech_scout_LOD0", SHOULDER)
+) -> ExportFacts:
+    """An OBJ with more than one named object — what an artist exports for real.
+
+    Each part gets geometry of its own, because a part an annotation anchors to
+    has to be distinguishable from its neighbour: a reader that merged the two
+    would still report the right triangle total and the wrong part list, and a
+    pin anchored to the second name would have nowhere to land.
+    """
+    scene = trimesh.Scene()
+    for index, name in enumerate(parts):
+        mesh = trimesh.creation.icosphere(subdivisions=2 + index)
+        surface = trimesh.visual.material.SimpleMaterial()
+        surface.name = f"M_{name}"
+        mesh.visual = trimesh.visual.TextureVisuals(
+            material=surface, uv=[(0.5, 0.5)] * len(mesh.vertices)
+        )
+        scene.add_geometry(mesh, geom_name=name, node_name=name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    scene.export(str(path))
+    return ExportFacts(
+        objects=parts,
+        materials=tuple(f"M_{name}" for name in parts),
+        triangles=sum(len(mesh.faces) for mesh in scene.geometry.values()),
+        uv_sets=1,
+    )
 
 
 def write_unreadable_glb(path: Path) -> None:
@@ -263,17 +376,17 @@ def write_unreadable_glb(path: Path) -> None:
 
 def _geometry(blob: _Blob) -> tuple[int, int, int]:
     """Positions, indices and one UV set — the three every fixture shares."""
-    flat = _flat(_CORNERS)
+    flat = _flat(CORNERS)
     positions = blob.accessor(
         _floats(flat),
         component_type=FLOAT,
         kind="VEC3",
-        count=len(_CORNERS),
+        count=len(CORNERS),
         target=ARRAY_BUFFER,
         minimum=[min(flat[axis::3]) for axis in range(3)],
         maximum=[max(flat[axis::3]) for axis in range(3)],
     )
-    corner_indices = tuple(index for face in _FACES for index in face)
+    corner_indices = tuple(index for face in FACES for index in face)
     indices = blob.accessor(
         struct.pack(f"<{len(corner_indices)}H", *corner_indices),
         component_type=UNSIGNED_SHORT,
@@ -282,44 +395,49 @@ def _geometry(blob: _Blob) -> tuple[int, int, int]:
         target=ELEMENT_ARRAY_BUFFER,
     )
     texcoords = blob.accessor(
-        _floats(tuple(value for _ in _CORNERS for value in (0.5, 0.5))),
+        _floats(tuple(value for _ in CORNERS for value in (0.5, 0.5))),
         component_type=FLOAT,
         kind="VEC2",
-        count=len(_CORNERS),
+        count=len(CORNERS),
         target=ARRAY_BUFFER,
     )
     return positions, indices, texcoords
 
 
-def _skin_attributes(blob: _Blob) -> tuple[int, int]:
-    """Every vertex fully weighted to the first joint: skinning, kept legible."""
+def _skin_attributes(blob: _Blob, bones: int = 1) -> tuple[int, int]:
+    """Every vertex fully weighted to one joint, spread over the whole skeleton.
+
+    Spread rather than all-to-the-root so that every bone a rig declares is a
+    bone the mesh actually uses, and a preview that dropped one would show it.
+    """
+    bound = tuple(index % bones for index in range(len(CORNERS)))
     joints = blob.accessor(
-        bytes(bytearray(byte for _ in _CORNERS for byte in (0, 0, 0, 0))),
+        bytes(bytearray(byte for joint in bound for byte in (joint, 0, 0, 0))),
         component_type=UNSIGNED_BYTE,
         kind="VEC4",
-        count=len(_CORNERS),
+        count=len(CORNERS),
         target=ARRAY_BUFFER,
     )
     weights = blob.accessor(
-        _floats(tuple(value for _ in _CORNERS for value in (1.0, 0.0, 0.0, 0.0))),
+        _floats(tuple(value for _ in CORNERS for value in (1.0, 0.0, 0.0, 0.0))),
         component_type=FLOAT,
         kind="VEC4",
-        count=len(_CORNERS),
+        count=len(CORNERS),
         target=ARRAY_BUFFER,
     )
     return joints, weights
 
 
-def _bind_matrices(blob: _Blob) -> int:
+def _bind_matrices(blob: _Blob, bones: int = 2) -> int:
     return blob.accessor(
-        _floats(_IDENTITY + _IDENTITY),
+        _floats(_IDENTITY * bones),
         component_type=FLOAT,
         kind="MAT4",
-        count=2,
+        count=bones,
     )
 
 
-def _animation(blob: _Blob, clip: ClipExpectation) -> Animation:
+def _animation(blob: _Blob, clip: ClipExpectation, root: int = 1) -> Animation:
     """One clip translating the skeleton root — root motion, and a closable loop."""
     samples = round(clip.duration_s * clip.frame_rate) + 1
     times = tuple(index / clip.frame_rate for index in range(samples))
@@ -342,7 +460,9 @@ def _animation(blob: _Blob, clip: ClipExpectation) -> Animation:
         name=clip.name,
         samplers=[AnimationSampler(input=input_accessor, output=output_accessor)],
         channels=[
-            AnimationChannel(sampler=0, target=AnimationChannelTarget(node=1, path="translation"))
+            AnimationChannel(
+                sampler=0, target=AnimationChannelTarget(node=root, path="translation")
+            )
         ],
     )
 
@@ -367,10 +487,17 @@ def _finish(gltf: GLTF2, blob: _Blob, path: Path) -> None:
 
 
 __all__ = [
+    "CORNERS",
+    "FACES",
     "FRAME_RATE",
+    "RIG_BONES",
+    "SHOULDER",
     "ClipExpectation",
     "ExportFacts",
+    "write_multipart_obj",
+    "write_rigged_glb",
     "write_skinned_glb",
+    "write_skinned_gltf",
     "write_static_glb",
     "write_static_obj",
     "write_unreadable_glb",

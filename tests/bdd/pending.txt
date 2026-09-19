@@ -126,12 +126,6 @@ asset-browser :: Listing shows state without opening an asset
 asset-browser :: No results
 asset-browser :: Order comes from the specified ranking
 asset-browser :: Suggestion match is disclosed as unaccepted
-asset-preview :: A source without clips is not a failure
-asset-preview :: Clips cannot be preserved
-asset-preview :: Clips survive decimation
-asset-preview :: Named parts survive decimation
-asset-preview :: Preview is smaller than the source
-asset-preview :: Skinning is preserved
 asset-requests :: A reader may ask
 asset-requests :: A request is not a constraint
 asset-requests :: A request states what is needed and why

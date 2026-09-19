@@ -19,12 +19,15 @@ from pathlib import Path
 from contract import implementation_fixture
 from mesh_inspector_contract import (
     CORPUS,
+    SKINNED_FBX,
     SKINNED_GLB,
+    SKINNED_GLTF,
     STATIC_OBJ,
     UNREADABLE,
     MeshInspectorContract,
 )
 
+from canon_fixtures import fbx as fbx_fixtures
 from canon_fixtures import mesh as fixtures
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
@@ -50,6 +53,8 @@ def in_memory(directory: Path) -> InMemoryMeshInspector:
 def real(directory: Path) -> TrimeshInspector:
     """The real adapter, over exports written into `directory` for this test."""
     fixtures.write_skinned_glb(directory / SKINNED_GLB.path, asset="mech_scout")
+    fixtures.write_skinned_gltf(directory / SKINNED_GLTF.path, asset="mech_scout")
+    fbx_fixtures.write_skinned_fbx(directory / SKINNED_FBX.path, asset="quad_scout")
     fixtures.write_static_obj(directory / STATIC_OBJ.path, name=STATIC_OBJ.objects[0])
     fixtures.write_unreadable_glb(directory / UNREADABLE)
     return TrimeshInspector(root=directory)

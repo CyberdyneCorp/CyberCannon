@@ -9,17 +9,17 @@ into facts and refuses, by name, anything it cannot read honestly.
 | Format | Read by | Notes |
 |---|---|---|
 | `GLB`, `GLTF` | `pygltflib` | Everything: metres, `+Y` up, explicit clips, skins and sockets. |
+| `FBX` | `fbx_document` | Geometry, sockets, clips, skeleton — not scale, transforms or rate. |
 | `OBJ` | `trimesh` | Triangles, object names, materials, UV sets — all the file holds. |
-| `FBX` | *(no reader)* | Refused by name, never guessed at. |
 
-`FBX` is the honest gap. The matrix marks it as carrying clips, skinning and
-sockets, and no FBX reader ships in this environment — `trimesh` has no FBX
-loader and the alternatives are a native SDK or Blender. Returning empty facts
-for it would be a validator that lies about its coverage (D13), and marking its
-whole row unavailable would silently downgrade a format the design still intends
-to support, so an FBX export is an **operation failure** naming the format and
-the way out (re-export as GLB). That answer is a one-function change the day a
-reader exists.
+`FBX` is the format the matrix earns its keep on. `trimesh` carries no FBX
+loader, so the binary container is read here directly, and the *normalisation* is
+mostly a list of refusals: a `Null` that parents a bone is an armature holder
+rather than a socket, a take named `Armature|A_scout_walk` is the clip
+`A_scout_walk`, and unit scale, applied transforms and frame rate are left to the
+matrix to report as NOT EVALUATED because no exporter writes them the same way
+twice. An ASCII FBX is refused by name — it is a different grammar, not a
+variation of this one.
 
 The adapter never sets a fact its format's row marks unavailable:
 `facts_for` fills the mask from the matrix and `MeshFacts` refuses a fabricated
@@ -28,11 +28,13 @@ value, so the rule is enforced rather than remembered.
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
 import trimesh
 
-from cybercanon.adapters.outbound.mesh import gltf_facts, gltf_preview, obj_facts
+from cybercanon.adapters.outbound.mesh import fbx_facts, gltf_facts, gltf_preview, obj_facts
+from cybercanon.adapters.outbound.mesh.fbx_document import FbxDocument, FbxUnreadable
 from cybercanon.adapters.outbound.mesh.gltf_document import GltfDocument, GltfUnreadable
 from cybercanon.adapters.outbound.mesh.gltf_preview import PreviewSettings
 from cybercanon.application.ports.mesh_inspector import (
@@ -44,11 +46,6 @@ from cybercanon.application.ports.preview import PreviewMesh, PreviewUnavailable
 from cybercanon.domain.mesh_facts import MeshFacts, MeshFormat
 
 GLTF_FORMATS = (MeshFormat.GLB, MeshFormat.GLTF)
-
-FBX_REASON = (
-    "FBX extraction needs a reader this build does not have (trimesh carries no "
-    "FBX loader); re-export as GLB, which records every fact the rules need"
-)
 
 
 class TrimeshInspector:
@@ -90,9 +87,9 @@ class TrimeshInspector:
     def _read(self, export: str, path: Path, source_format: MeshFormat) -> InspectedMesh:
         if source_format in GLTF_FORMATS:
             return self._read_gltf(export, path, source_format)
-        if source_format is MeshFormat.OBJ:
-            return InspectedMesh(facts=self._read_obj(export, path), handle=_as_gltf(path))
-        raise MeshUnreadable(export, FBX_REASON)
+        if source_format is MeshFormat.FBX:
+            return InspectedMesh(facts=self._read_fbx(export, path))
+        return InspectedMesh(facts=self._read_obj(export, path), handle=_as_gltf(path))
 
     def _read_gltf(self, export: str, path: Path, source_format: MeshFormat) -> InspectedMesh:
         try:
@@ -101,6 +98,17 @@ class TrimeshInspector:
         except (GltfUnreadable, ValueError, KeyError, IndexError) as error:
             raise MeshUnreadable(export, str(error) or type(error).__name__) from error
         return InspectedMesh(facts=facts, handle=document)
+
+    def _read_fbx(self, export: str, path: Path) -> MeshFacts:
+        """No handle: nothing here converts an FBX into a previewable document.
+
+        A preview is optional by construction (D7), so the absence costs the
+        preview and never the verdict.
+        """
+        try:
+            return fbx_facts.read_facts(FbxDocument.read(path))
+        except (FbxUnreadable, ValueError, KeyError, IndexError, struct.error) as error:
+            raise MeshUnreadable(export, str(error) or type(error).__name__) from error
 
     def _read_obj(self, export: str, path: Path) -> MeshFacts:
         try:
@@ -132,4 +140,4 @@ def _as_gltf(path: Path) -> GltfDocument | None:
         return None
 
 
-__all__ = ["FBX_REASON", "GLTF_FORMATS", "TrimeshInspector"]
+__all__ = ["GLTF_FORMATS", "TrimeshInspector"]

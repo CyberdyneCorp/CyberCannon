@@ -16,8 +16,9 @@ What every implementation owes its caller:
 * a preview derived from that same read, smaller than the source and carrying
   the source's named parts (D7, and `asset-preview`).
 
-`TrimeshInspector` joins this suite in task 5.5 with fixture files standing in
-for the corpus below.
+`TrimeshInspector` joins this suite with fixture files standing in for the
+corpus below — one export per format the matrix has a row for, because a row
+nothing is ever read against is a row nobody has checked (tasks 5.5, 5.6).
 """
 
 from __future__ import annotations
@@ -49,6 +50,20 @@ SKINNED_GLB = ExportFixture(
     triangles=14310,
 )
 
+SKINNED_GLTF = ExportFixture(
+    path="characters/mech_scout/exports/SM_mech_scout_LOD0.gltf",
+    source_format=MeshFormat.GLTF,
+    objects=("SM_mech_scout_LOD0",),
+    triangles=14310,
+)
+
+SKINNED_FBX = ExportFixture(
+    path="characters/quad_scout/exports/SM_quad_scout_LOD0.fbx",
+    source_format=MeshFormat.FBX,
+    objects=("SM_quad_scout_LOD0",),
+    triangles=1280,
+)
+
 STATIC_OBJ = ExportFixture(
     path="props/crate/exports/SM_crate_LOD0.obj",
     source_format=MeshFormat.OBJ,
@@ -56,7 +71,8 @@ STATIC_OBJ = ExportFixture(
     triangles=880,
 )
 
-CORPUS = (SKINNED_GLB, STATIC_OBJ)
+CORPUS = (SKINNED_GLB, SKINNED_GLTF, SKINNED_FBX, STATIC_OBJ)
+"""One export per format the matrix covers, so no row is asserted only in prose."""
 
 UNREADABLE = "characters/mech_scout/exports/truncated.glb"
 """A file that exists and is not the mesh its extension claims."""
