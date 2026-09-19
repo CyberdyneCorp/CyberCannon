@@ -78,6 +78,21 @@ def authors(root: Path) -> tuple[str, ...]:
     return tuple(dict.fromkeys(address for address in seen if address))
 
 
+def paths_at(root: Path, revision: str) -> tuple[str, ...]:
+    """Every tracked path at that revision, repository-relative POSIX.
+
+    The pinned store's answer to "what is there" (D3). A tree listing rather
+    than a directory walk, because the checked-out tree is not what a pinned
+    read is about: a file added after the pinned revision is not in it, and a
+    file deleted since still is.
+    """
+    return tuple(
+        line.strip()
+        for line in _run(root, "ls-tree", "-r", "--name-only", revision).splitlines()
+        if line.strip()
+    )
+
+
 def file_at(root: Path, revision: str, relative: str) -> str:
     """The contents of that file as it stood at that revision.
 
@@ -135,6 +150,7 @@ __all__ = [
     "RevisionUnreachable",
     "authors",
     "file_at",
+    "paths_at",
     "resolve",
     "revisions",
 ]

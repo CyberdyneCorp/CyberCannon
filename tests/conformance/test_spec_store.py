@@ -1,4 +1,4 @@
-"""Task 4.1 and 5.1 — the `SpecStore` contract against every implementation.
+"""Tasks 4.1, 5.1 and 4.4 — the `SpecStore` contract against every implementation.
 
 One factory per implementation, seeded with the same corpus: the in-memory fake
 takes the assets directly, `GitSpecStore` gets them written into a working copy
@@ -11,10 +11,22 @@ The YAML below is written by hand rather than generated from the domain objects
 on purpose. A writer would let a reader bug and a writer bug cancel out; a
 literal file is what an artist would actually commit, and it is the thing the
 adapter is supposed to be able to read.
+
+**Four implementations, not two** (task 4.4). D3 gives the store a second read
+path — reads resolved at a pinned revision out of the object database rather
+than off the checked-out tree — and states the cost it accepts: *"the local
+'just read the file' path and the server's 'read this revision' path must be
+covered by the same port-conformance suite or they will drift."* So the same
+contract runs over the fake, the fake pinned at a snapshot, `GitSpecStore` over
+a working copy, and `GitSpecStore` pinned at a committed revision. A pinned read
+that answered anything different from a tree read of the same content would fail
+here rather than in production.
 """
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 from contract import implementation_fixture
@@ -101,8 +113,60 @@ def git(directory: Path) -> GitSpecStore:
     return GitSpecStore(directory)
 
 
-implementation = implementation_fixture(fake=in_memory, real=git)
+PINNED = "corpus"
+"""The snapshot name the fake pins to; the real store pins to a commit."""
+
+
+def in_memory_pinned(directory: Path) -> InMemorySpecStore:
+    """The fake, pinned at a snapshot of that same corpus (D3)."""
+    store = in_memory(directory)
+    store.snapshot(PINNED)
+    return store.pinned(PINNED)
+
+
+def _git(root: Path, *arguments: str) -> None:
+    """One git command in a throwaway repository, isolated from this machine."""
+    environment = {
+        **os.environ,
+        "HOME": str(root),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "Rafa",
+        "GIT_AUTHOR_EMAIL": "rafa@cyberdyne.com",
+        "GIT_COMMITTER_NAME": "Rafa",
+        "GIT_COMMITTER_EMAIL": "rafa@cyberdyne.com",
+    }
+    subprocess.run(
+        ["git", "-C", str(root), *arguments], check=True, capture_output=True, env=environment
+    )
+
+
+def git_pinned(directory: Path) -> GitSpecStore:
+    """The real adapter reading the same corpus out of the object database.
+
+    The corpus is committed and then *changed on disk* before the store is
+    pinned, so a pinned read that quietly fell back to the checkout would answer
+    the edited budget and fail the contract. That is the whole point of running
+    this fourth implementation: the two read paths have to be the same answer.
+    """
+    root = directory / "pinned"
+    root.mkdir(parents=True, exist_ok=True)
+    _git(root, "init", "-q")
+    for path, content in FILES.items():
+        written = root / path
+        written.parent.mkdir(parents=True, exist_ok=True)
+        written.write_text(content, encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "the corpus")
+    store = GitSpecStore(root)
+    pinned = store.pinned("HEAD")
+    (root / MECH_SCOUT.path).write_text(MECH_SCOUT_YAML.replace("12000", "999"), encoding="utf-8")
+    return pinned
+
+
+implementation = implementation_fixture(
+    fake=in_memory, fake_pinned=in_memory_pinned, real=git, real_pinned=git_pinned
+)
 
 
 class TestSpecStore(SpecStoreContract):
-    """The `SpecStore` contract, against the in-memory fake and `GitSpecStore`."""
+    """The contract, against the fake and `GitSpecStore`, each read both ways (D3)."""

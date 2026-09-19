@@ -20,7 +20,12 @@ Two later capabilities are modelled the same way, with no file and no git:
 * **the actor mapping** (D12) — `set_actor_mapping` serves one,
   `set_actor_mapping_unparseable` reproduces a broken file as a *violation*
   rather than an exception, and a store nobody seeded serves the empty mapping,
-  which is what a project without `.canon/actors.yaml` has.
+  which is what a project without `.canon/actors.yaml` has;
+* **revision pinning** (D3) — `snapshot` freezes everything the store currently
+  holds under a revision name, and `pinned` hands back a store over that frozen
+  copy. Later seeding does not reach it, which is the property the real pinned
+  store has for free and a fake could easily lie about: a pinned read must be
+  unable to observe anything that happened after its revision.
 """
 
 from __future__ import annotations
@@ -46,13 +51,15 @@ SPEC_FILENAME = "asset.yaml"
 class InMemorySpecStore:
     """Specifications keyed by their repository-relative path."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, revision: str | None = None) -> None:
         self._specs: dict[str, LoadedSpec] = {}
         self._unreadable: dict[str, str] = {}
         self._project = ProjectConfig()
         self._failure: Exception | None = None
         self._history: dict[str, dict[str, LoadedSpec]] = {}
         self._mapping = LoadedMapping()
+        self._revision = revision
+        self._snapshots: dict[str, InMemorySpecStore] = {}
 
     # -- seeding ---------------------------------------------------------
 
@@ -90,6 +97,22 @@ class InMemorySpecStore:
         loaded = LoadedSpec(asset=asset, path=_normalised(path), warnings=warnings)
         self._history.setdefault(loaded.path, {})[revision] = loaded
         return loaded
+
+    def snapshot(self, revision: str) -> str:
+        """Freeze everything this store now holds under a revision name (D3).
+
+        A copy rather than a reference: a store seeded further after the
+        snapshot must not change what the snapshot answers, because that is
+        exactly the thing a pinned read is promised.
+        """
+        frozen = InMemorySpecStore(revision=revision)
+        frozen._specs = dict(self._specs)
+        frozen._unreadable = dict(self._unreadable)
+        frozen._project = self._project
+        frozen._history = {path: dict(series) for path, series in self._history.items()}
+        frozen._mapping = self._mapping
+        self._snapshots[revision] = frozen
+        return revision
 
     def set_actor_mapping(self, mapping: ActorMapping) -> None:
         """The mapping this project authored (D12)."""
@@ -163,6 +186,23 @@ class InMemorySpecStore:
         self._raise_if_configured()
         series = tuple(reversed(tuple(self._history.get(_normalised(spec_path), {}))))
         return series[:limit] if limit is not None else series
+
+    def current_revision(self) -> str | None:
+        """The revision this store reads at, or ``None`` when it reads a tree."""
+        return self._revision
+
+    def pinned(self, revision: str) -> InMemorySpecStore:
+        """The store as it stood when `revision` was snapshotted (D3).
+
+        A revision nobody snapshotted is :class:`HistoryUnavailable`, matching
+        the real store's refusal to pin to a revision it cannot reach — a fake
+        that answered the current contents instead would make every read
+        isolation test pass for the wrong reason.
+        """
+        frozen = self._snapshots.get(revision)
+        if frozen is None:
+            raise HistoryUnavailable("", revision, "no snapshot was recorded for that revision")
+        return frozen
 
     def load_actor_mapping(self, start: str = "") -> LoadedMapping:
         """An absent mapping is empty; an unreadable one is empty plus a violation.

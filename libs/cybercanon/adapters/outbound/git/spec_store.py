@@ -23,7 +23,18 @@ What it owes the port, and where each piece lives:
 * **the actor mapping** is `.canon/actors.yaml`, read from the same working copy
   as the specifications it explains (D12). Absent is the empty mapping and
   unreadable is the empty mapping plus a violation naming the file: a broken
-  identity file must never break a read of the repository.
+  identity file must never break a read of the repository;
+* **revision pinning** is :meth:`GitSpecStore.pinned` (D3). A pinned store is the
+  same object over the same repository with one field set, and every read it
+  makes goes to the object database at that revision instead of to the checkout:
+  the tracked paths come from a tree listing rather than a directory walk, and
+  the bytes come from `git show`. That is what makes read isolation structural —
+  a fetch moves a ref, and a reader holding a revision never notices.
+
+**One parse, two sources.** The pinned path and the tree path differ in where
+the bytes come from and in nothing else, so a specification means the same thing
+whichever way it was read; the port conformance suite runs the whole contract
+over both for exactly that reason.
 
 Every path it hands back is repository-relative POSIX, so a report produced on
 one machine reads identically on another.
@@ -55,21 +66,72 @@ Parser = Callable[[Mapping[str, Any]], tuple[Any, tuple[SpecViolation, ...]]]
 class GitSpecStore:
     """Reads `asset.yaml` and `.canon/project.yaml` from a git working copy."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, revision: str | None = None) -> None:
         """Open a store over `root`, or over the repository `root` lives in.
 
         A directory that is not inside a repository is still usable — a tarball,
         a container image, a temporary directory in a test — and then `root`
         itself bounds the upward walk, which is the same guarantee by a weaker
         means.
+
+        `revision` pins every read to one revision (D3) and is set through
+        :meth:`pinned` rather than by callers, so a pinned store is always one
+        that resolved its revision first.
         """
         given = Path(root)
         self._root = discovery.find_repository_root(given) or given
+        self._revision = revision
+        self._tracked: frozenset[str] | None = None
 
     @property
     def root(self) -> Path:
         """The directory every path this store speaks is relative to."""
         return self._root
+
+    # -- revision pinning (D3) -------------------------------------------
+
+    @property
+    def revision(self) -> str | None:
+        """The revision this store reads at, or ``None`` when it reads the tree."""
+        return self._revision
+
+    def current_revision(self) -> str | None:
+        """What this store is reading at: its pin, or the checkout's own head."""
+        if self._revision is not None:
+            return self._revision
+        try:
+            return revisions.resolve(self._root, "HEAD")
+        except revisions.RevisionUnreachable:
+            return None
+
+    def pinned(self, revision: str) -> GitSpecStore:
+        """This store with every read resolved at that revision.
+
+        The revision is resolved to a commit here rather than lazily, so a
+        revision the repository cannot reach fails once, at the point somebody
+        chose it, instead of failing differently on each of six file reads.
+        """
+        try:
+            resolved = revisions.resolve(self._root, revision)
+        except revisions.RevisionUnreachable as error:
+            raise HistoryUnavailable(self._posix_root(), revision, str(error)) from error
+        return GitSpecStore(self._root, revision=resolved)
+
+    def _exists(self, relative: str) -> bool:
+        """Whether that path is present — in the pinned tree, or on disk."""
+        if self._revision is None:
+            return self._absolute(relative).is_file()
+        return relative in self._paths()
+
+    def _paths(self) -> frozenset[str]:
+        """Every tracked path at the pinned revision, read once and remembered.
+
+        Cached because a pinned store is immutable by construction: the tree at
+        a revision cannot change, so asking git again would only cost a process.
+        """
+        if self._tracked is None:
+            self._tracked = frozenset(revisions.paths_at(self._root, self._revision or "HEAD"))
+        return self._tracked
 
     # -- discovery (D9) --------------------------------------------------
 
@@ -84,7 +146,7 @@ class GitSpecStore:
             return None
         for directory in discovery.upward(relative):
             candidate = discovery.join(directory, discovery.SPEC_FILENAME)
-            if self._absolute(candidate).is_file():
+            if self._exists(candidate):
                 return candidate
         return None
 
@@ -93,7 +155,7 @@ class GitSpecStore:
     def load(self, spec_path: str) -> LoadedSpec:
         """One specification file as a domain asset, with what reading it said."""
         relative = discovery.relative_to(self._root, spec_path)
-        if relative is None or not self._absolute(relative).is_file():
+        if relative is None or not self._exists(relative):
             raise SpecNotFound(str(spec_path))
         return self._as_spec(self._text(relative), relative)
 
@@ -105,8 +167,7 @@ class GitSpecStore:
         while the engine content root, the per-rule severity table and the
         preview settings are project knobs no asset overrides.
         """
-        path = self._root / discovery.PROJECT_CONFIG
-        if not path.is_file():
+        if not self._exists(discovery.PROJECT_CONFIG):
             return ProjectConfig(root=self._posix_root())
         parsed, warnings = self._read(discovery.PROJECT_CONFIG, schema.parse_project_file)
         severities, severity_warnings = schema.to_severities(parsed.severity)
@@ -126,11 +187,25 @@ class GitSpecStore:
         relative = discovery.relative_to(self._root, start)
         if relative is None:
             return ()
+        if self._revision is not None:
+            return self._specs_at(relative)
         base = self._absolute(relative)
         if base.is_file():
             return (relative,) if base.name == discovery.SPEC_FILENAME else ()
         found = (discovery.relative_to(self._root, path) for path in self._walk(base))
         return tuple(sorted(path for path in found if path is not None))
+
+    def _specs_at(self, relative: str) -> tuple[str, ...]:
+        """Every specification at or below `relative` in the pinned tree."""
+        prefix = "" if relative in ("", ".") else f"{relative}/"
+        return tuple(
+            sorted(
+                path
+                for path in self._paths()
+                if path.endswith(discovery.SPEC_FILENAME)
+                and (path == relative or path.startswith(prefix))
+            )
+        )
 
     # -- history (D10) ---------------------------------------------------
 
@@ -170,8 +245,7 @@ class GitSpecStore:
         specification it holds; its authors simply resolve as unmapped until
         somebody fixes the file.
         """
-        path = self._root / ACTORS_PATH
-        if not path.is_file():
+        if not self._exists(ACTORS_PATH):
             return LoadedMapping()
         try:
             parsed = schema.parse_actors_file(self._text(ACTORS_PATH))
@@ -215,7 +289,14 @@ class GitSpecStore:
         return self._mapping_of(text, relative)
 
     def _text(self, relative: str) -> dict[str, Any]:
-        """The file on disk as a mapping, with the read named rather than the library."""
+        """That file as a mapping — from the pinned revision, or from disk.
+
+        The one place the two read paths differ. Everything above it is the same
+        parse over the same bytes, which is what keeps a pinned read and a tree
+        read from ever meaning different things.
+        """
+        if self._revision is not None:
+            return self._text_at(relative, self._revision)
         try:
             return self._mapping_of(self._absolute(relative).read_text(encoding="utf-8"), relative)
         except OSError as error:

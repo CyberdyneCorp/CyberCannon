@@ -17,7 +17,12 @@ from dataclasses import dataclass
 
 import pytest
 
-from cybercanon.application.ports.spec_store import ProjectConfig, SpecNotFound, SpecStore
+from cybercanon.application.ports.spec_store import (
+    HistoryUnavailable,
+    ProjectConfig,
+    SpecNotFound,
+    SpecStore,
+)
 from cybercanon.domain.asset import Asset, AssetId
 from cybercanon.domain.constraints import AnimationDefaults, Constraints
 from cybercanon.domain.design import Design, Socket
@@ -165,3 +170,16 @@ class SpecStoreContract:
         self, implementation: SpecStore
     ) -> None:
         assert implementation.specs_under("characters") == (MECH_SCOUT.path,)
+
+    # -- revision pinning (D3) -------------------------------------------
+
+    def test_a_store_says_what_revision_it_reads_at(self, implementation: SpecStore) -> None:
+        """A string or nothing — never a guess, and never a failure."""
+        revision = implementation.current_revision()
+
+        assert revision is None or isinstance(revision, str)
+
+    def test_pinning_to_an_unreachable_revision_is_refused(self, implementation: SpecStore) -> None:
+        """One failure at the point somebody chose the revision, not six later."""
+        with pytest.raises(HistoryUnavailable):
+            implementation.pinned("no-such-revision")
