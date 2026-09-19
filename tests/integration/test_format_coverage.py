@@ -292,7 +292,7 @@ def test_the_comparison_is_not_an_artifact_of_one_asset(container: Container) ->
     Same format, same rules, different specification: OBJ is not "the format
     that fails", it is the format that answers four facts.
     """
-    report = container.validate_export(CRATE_EXPORT).report
+    report = _report(container, CRATE_EXPORT)
 
     assert container.discover(CRATE_EXPORT) == CRATE_SPEC
     assert Path(CRATE_EXPORT).suffix == ".obj"
