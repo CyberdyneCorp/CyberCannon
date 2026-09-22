@@ -488,6 +488,37 @@ prevent, and a refusal that names the missing mapping is fixed by one line in a
 file. The two specification deltas disagree on this point and one of them is
 wrong; the code does not split the difference.
 
+### G3 — Asset creation, spec editing, and the status lifecycle
+
+> **Working assumption, recorded 2026-09-22**, derived from decisions already
+> binding rather than chosen freely. Needed by S16. Override before M3 starts.
+
+**Creation.** An asset comes into existence in exactly three ways, all writing the
+same minimal identity-only specification through the same use case: `canon new
+<id>` on the command line, a concept upload that names an asset which does not yet
+exist, and an explicit creation on the web surface. Creation is a commit like any
+other write — attributed, reviewable, refused for a person with no mapped git
+identity.
+
+**Spec editing.** The web surface edits *declared fields*, not YAML text. The
+round-trip writer already preserves comments and key order, so an edit produces a
+reviewable diff. Free-form YAML editing is deliberately not offered: the schema is
+the contract, and a text box invites a file that parses and means nothing.
+
+**Status transitions.** The lifecycle is ordered:
+`concept → approved → modeling → validated → in-engine`.
+
+| Move | Who | Rule |
+|---|---|---|
+| Forward one step | the relevant discipline owner, or `ART_DIRECTOR` | never skip a step; a skip is refused naming the step that was missed |
+| Backward, any distance | the same | always allowed — an asset can always go back to modeling |
+| Into `validated` | **nobody** | set only by the validation worker when an export passes, never by hand |
+| Into `in-engine` | discipline owner or `ART_DIRECTOR` | requires the asset to be `validated` first |
+
+`validated` being unreachable by hand is the point, and it follows from G2: the
+status then *means* an export passed, rather than meaning someone clicked. It is
+the same closed loop as sockets and clips, applied to the lifecycle.
+
 ## Planned Changes
 
 | # | Change | Capabilities | Status |
