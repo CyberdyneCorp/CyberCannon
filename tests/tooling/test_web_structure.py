@@ -244,3 +244,58 @@ def test_every_data_bearing_route_renders_through_the_closed_state_set(web_root:
         "D6 makes empty, error and degraded route-level states rather than "
         f"conditionals; these screens render their data without them: {missing}"
     )
+
+
+# --------------------------------------------------------------------------
+# Regression — a route module may only export what SvelteKit names
+# --------------------------------------------------------------------------
+
+ROUTE_MODULES = ("+page.ts", "+layout.ts", "+page.server.ts", "+layout.server.ts")
+
+SVELTEKIT_EXPORTS = frozenset(
+    {"load", "prerender", "csr", "ssr", "trailingSlash", "config", "entries", "actions"}
+)
+"""What SvelteKit accepts from a route module. Anything else, and it refuses."""
+
+EXPORTED = re.compile(
+    r"^export\s+(?:async\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)",
+    re.M,
+)
+
+
+def test_no_route_module_exports_anything_sveltekit_refuses(web_root: Path) -> None:
+    """DEFECT, M2: `+layout.ts` exported a constant and the application would not start.
+
+    SvelteKit validates a route module's exports at run time and throws
+    ``Invalid export '<name>' (valid exports are load, prerender, csr, ssr,
+    trailingSlash, config, entries, or anything with a '_' prefix)``. The check
+    is development-only, so nothing in `just check` saw it and the production
+    build was fine — while `just web` and every development build answered
+    **500 Internal Error** on every address, which is the application not
+    running at all for the person writing it.
+
+    A constant two modules share is an ordinary module. This is the rule that
+    says so, and it is here rather than in the frontend's own runner because a
+    route module's exports are readable without node.
+    """
+    offenders = [
+        f"{module.relative_to(web_root).as_posix()}: {', '.join(sorted(refused))}"
+        for name in ROUTE_MODULES
+        for module in _sources(web_root, name)
+        if (refused := _refused_exports(module))
+    ]
+
+    assert not offenders, (
+        "SvelteKit refuses a route module that exports anything but "
+        f"{', '.join(sorted(SVELTEKIT_EXPORTS))} or a '_'-prefixed name, and the "
+        "refusal replaces the whole application with an error in development. "
+        f"Move the value into a module under src/lib/: {offenders}"
+    )
+
+
+def _refused_exports(module: Path) -> set[str]:
+    """What this route module exports that SvelteKit does not accept."""
+    exported = set(EXPORTED.findall(module.read_text(encoding="utf-8")))
+    return {
+        found for found in exported if found not in SVELTEKIT_EXPORTS and not found.startswith("_")
+    }

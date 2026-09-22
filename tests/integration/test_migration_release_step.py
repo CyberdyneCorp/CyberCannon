@@ -106,6 +106,8 @@ def environment_for(dsn: str) -> dict[str, str]:
         "CANON_DATABASE_URL": dsn,
         "CANON_OBJECT_STORE_URL": "https://minio.cyberdynecorp.ai",
         "CANON_LINK_EXPIRY_S": "120",
+        "CANON_WRITE_BACK_TIMEOUT_S": "30",
+        "CANON_DRAIN_WINDOW_S": "90",
     }
 
 

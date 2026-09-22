@@ -16,7 +16,16 @@ import { resources } from './resources';
 import type { ListingFilters } from './resources';
 import { invalidatedBy } from './invalidation';
 import type { WritePath, WriteTarget } from './invalidation';
-import type { ApiResult, AssetRow, LensedSpec, LocationAnswer, Page, SearchHit } from './types';
+import type {
+	ApiResult,
+	AssetRow,
+	LensedSpec,
+	LocationAnswer,
+	Page,
+	SearchHit,
+	StatusReport,
+	ValidationOutcome
+} from './types';
 
 export * from './types';
 export * from './resources';
@@ -46,6 +55,17 @@ export class CanonApi {
 		this.cache = options.cache ?? queryCache;
 	}
 
+	/**
+	 * Which projects this person may open — the one read that names no project.
+	 *
+	 * It is cached like any other read, so the switcher in the frame and a screen
+	 * that wants to know whether an address belongs to a project it may open ask
+	 * once between them (D2).
+	 */
+	status(): Promise<ApiResult<StatusReport>> {
+		return this.cache.read(resources.projects(), () => this.client.readStatus());
+	}
+
 	assets(project: string, filters: ListingFilters = {}): Promise<ApiResult<Page<AssetRow>>> {
 		return this.cache.read(resources.assets(project, filters), () =>
 			this.client.listAssets(project, {
@@ -65,6 +85,13 @@ export class CanonApi {
 	locations(project: string, asset: string): Promise<ApiResult<LocationAnswer>> {
 		return this.cache.read(resources.locations(project, asset), () =>
 			this.client.readLocations(project, asset)
+		);
+	}
+
+	/** One export in the repository, against the specification governing it. */
+	validate(project: string, exportPath: string): Promise<ApiResult<ValidationOutcome>> {
+		return this.cache.read(resources.validation(project, exportPath), () =>
+			this.client.validate(project, exportPath)
 		);
 	}
 

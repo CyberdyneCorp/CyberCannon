@@ -69,6 +69,8 @@ COMPLETE = {
     "CANON_DATABASE_URL": "postgresql://canon@db/canon",
     "CANON_OBJECT_STORE_URL": "https://minio.cyberdynecorp.ai",
     "CANON_LINK_EXPIRY_S": "120",
+    "CANON_WRITE_BACK_TIMEOUT_S": "30",
+    "CANON_DRAIN_WINDOW_S": "90",
 }
 
 
@@ -93,7 +95,7 @@ def test_every_required_variable_is_namespaced() -> None:
 
 def test_the_required_set_is_the_one_the_task_enumerates() -> None:
     assert set(REQUIRED) == set(COMPLETE)
-    assert len(REQUIRED) == 12
+    assert len(REQUIRED) == 14
 
 
 # --------------------------------------------------------------------------

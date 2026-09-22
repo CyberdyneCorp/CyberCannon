@@ -25,12 +25,36 @@
 
 import type { LayoutLoad } from './$types';
 import { probeApi } from '$api/availability';
+import { CanonApi } from '$lib/api';
 import { apiBaseUrl } from '$lib/config';
+import { entitledProjects } from '$lib/projects';
+import { SESSION_DEPENDENCY } from '$lib/session/dependency';
+import { sessionStore } from '$lib/session/session';
 import { verificationNotice } from '$lib/session/verification';
 
 export const ssr = false;
 
-export const load: LayoutLoad = async ({ fetch }) => {
+export const load: LayoutLoad = async ({ fetch, depends }) => {
+	depends(SESSION_DEPENDENCY);
 	const reach = await probeApi(fetch, apiBaseUrl());
-	return { verification: verificationNotice(reach) };
+	return {
+		verification: verificationNotice(reach),
+		projects: await switchableProjects(fetch)
+	};
 };
+
+/**
+ * The projects the switcher offers, and nothing while nobody is signed in.
+ *
+ * `web-session` allows an unauthenticated person *"no project or asset
+ * content"*, and a list of project names is exactly that — so the frame does
+ * not ask. A person who is signed in gets the projects the surface says they
+ * may read, and an unreachable surface gets none: the switcher then offers only
+ * where they already are, which is the degradation `deployment-operations`
+ * asks for rather than a frame that fails to render.
+ */
+async function switchableProjects(fetch: typeof globalThis.fetch): Promise<readonly string[]> {
+	if (!sessionStore.isAuthenticated()) return [];
+	const api = new CanonApi({ baseUrl: apiBaseUrl(), fetch, token: () => sessionStore.token() });
+	return entitledProjects(await api.status());
+}

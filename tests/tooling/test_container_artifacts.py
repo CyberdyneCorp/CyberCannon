@@ -16,7 +16,12 @@ comment inside it:
 * **the API image serves and does not migrate** (D4, task 4.4). Migrations are a
   release step; an entry point that ran them would run them once per instance;
 * **the web image runs the node adapter** (D10), because its readiness must be
-  this process's own answer rather than the API's.
+  this process's own answer rather than the API's;
+* **the build context carries nothing environment-specific either.** Reading the
+  two `Dockerfile`s is not enough on its own: the web image copies a whole
+  directory, and SvelteKit reads a `.env` sitting in it at build time. What is
+  *not sent to the engine* is therefore part of the same property, and
+  `.dockerignore` is where it is stated.
 
 The one assertion that needs a container engine — *build it twice and compare
 the digests* — is skipped where there is none, and says so. A test that reported
@@ -25,6 +30,7 @@ green because it built nothing would be worse than one that does not run.
 
 from __future__ import annotations
 
+import fnmatch
 import re
 import shutil
 import subprocess
@@ -38,6 +44,7 @@ pytestmark = pytest.mark.tooling
 
 API = Path("deploy/api.Dockerfile")
 WEB = Path("deploy/web.Dockerfile")
+CONTEXT = Path(".dockerignore")
 
 DECLARED = re.compile(r"^(?:ARG|ENV)\s+(?P<body>.+)$", re.MULTILINE)
 COMMENT = re.compile(r"^\s*#.*$", re.MULTILINE)
@@ -155,6 +162,109 @@ def test_the_web_image_carries_no_client_secret(web: str) -> None:
 def test_the_web_image_needs_no_api_to_build(web: str) -> None:
     """A build that called the API would be a build that needs an environment."""
     assert "PUBLIC_CANON_API_URL" not in instructions(web)
+
+
+# --------------------------------------------------------------------------
+# 3.1-3.2 — the build context, which is the other half of "nothing
+# environment-specific at build time"
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def ignored(repo_root: Path) -> tuple[str, ...]:
+    """The `.dockerignore` patterns: what is never sent to the engine."""
+    path = repo_root / CONTEXT
+    assert path.is_file(), (
+        f"{CONTEXT} is what keeps an environment-specific file out of a build. "
+        "The web image copies a whole directory, and a `.env` in it is read by "
+        "the build — so without this file the property is a hope."
+    )
+    return tuple(
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    )
+
+
+def _matches(pattern: str, candidate: str) -> bool:
+    """One `.dockerignore` pattern against one path, with `**/` at any depth."""
+    if pattern.startswith("**/"):
+        parts = candidate.split("/")
+        tail = pattern[3:]
+        return any(fnmatch.fnmatch("/".join(parts[at:]), tail) for at in range(len(parts)))
+    return fnmatch.fnmatch(candidate, pattern)
+
+
+def excluded(patterns: tuple[str, ...], path: str) -> bool:
+    """Whether that path is kept out of the context — itself or by an ancestor."""
+    parts = path.split("/")
+    ancestors = ["/".join(parts[: at + 1]) for at in range(len(parts))]
+    return any(_matches(pattern, one) for pattern in patterns for one in ancestors)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".env",
+        "apps/cybercanon/web/.env",
+        "apps/cybercanon/web/.env.production",
+        "apps/cybercanon/web/.env.local",
+        "services/cybercanon/api/.env",
+        "deploy/production.key",
+    ],
+)
+def test_no_environment_file_reaches_a_build(ignored: tuple[str, ...], path: str) -> None:
+    """The one that would actually bite: SvelteKit reads a `.env` at build time."""
+    assert excluded(ignored, path), (
+        f"{path} would be sent to the engine and could be baked into a promoted "
+        "artifact. An image may not be able to tell which environment it is in."
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".git/config",
+        ".venv/bin/python",
+        "apps/cybercanon/web/node_modules/@sveltejs/kit/package.json",
+        "libs/cybercanon/domain/__pycache__/asset.cpython-312.pyc",
+        "apps/cybercanon/web/build/index.js",
+        "apps/cybercanon/web/.svelte-kit/output/server/index.js",
+    ],
+)
+def test_no_machine_state_reaches_a_build(ignored: tuple[str, ...], path: str) -> None:
+    """An image builds from a revision, not from somebody's checkout."""
+    assert excluded(ignored, path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "pyproject.toml",
+        "uv.lock",
+        "libs/cybercanon/domain/asset.py",
+        "services/cybercanon/api/main.py",
+        "db/migrations/0001_index.sql",
+        "apps/cybercanon/web/package.json",
+        "apps/cybercanon/web/pnpm-lock.yaml",
+        "apps/cybercanon/web/.npmrc",
+        "apps/cybercanon/web/src/routes/readyz/+server.ts",
+    ],
+)
+def test_everything_the_images_copy_still_reaches_the_build(
+    ignored: tuple[str, ...], path: str
+) -> None:
+    """The guard on the guard: an over-broad pattern breaks the build instead."""
+    assert not excluded(ignored, path)
+
+
+def test_the_matcher_itself_discriminates() -> None:
+    """A matcher that answered true for everything would pass the suite above."""
+    assert _matches("**/.env", "apps/web/.env")
+    assert _matches("**/.env", ".env")
+    assert not _matches("**/.env", "apps/web/.npmrc")
+    assert _matches("apps/cybercanon/web/build", "apps/cybercanon/web/build")
+    assert not _matches("apps/cybercanon/web/build", "apps/cybercanon/web/src")
 
 
 # --------------------------------------------------------------------------

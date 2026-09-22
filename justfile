@@ -36,9 +36,10 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~150 s on a warm checkout (2564 tests, 657 scenarios, 0 absent),
-# of which the frontend's own suites (`web-check`) are ~8 s including the
-# production build the code-splitting assertion reads.
+# Measured runtime: ~180 s on a warm checkout — 2839 Python tests (2829 passed,
+# 9 skipped, 1 xfailed, 122 e2e deselected) plus 360 frontend tests, 657
+# scenarios, 0 absent — of which the frontend's own suites (`web-check`) are
+# ~9 s including the build the code-splitting assertion reads.
 # Groups 6 and 7 of add-web-backend added a real PostgreSQL (pgserver) and a real
 # S3 API (moto) to the conformance and integration layers; that is most of the
 # increase, and it is the cost of the two hosted adapters being checked rather
@@ -56,9 +57,37 @@ setup:
 # persistent-state suite, which stages real working copies and runs a real
 # `uvicorn` to assert that a failed release leaves the previous version serving.
 # That last one is where most of the added time is, and it is the only way to
-# assert a property about processes.
+# assert a property about processes. Group 3's remaining work added the build
+# context guard, the release ledger's three commands and the suite that starts
+# the built web application to ask a running process whether it is ready with no
+# API answering — about a second between them, because the build it runs is the
+# one `web-check` already produced. Groups 6 and 7 added the rollover suite —
+# which starts two real `uvicorn` processes and reads across a deploy, about ten
+# seconds — and the three recovery drills, which destroy one volume at a time
+# and time the procedure that gets it back against a real git, PostgreSQL and S3
+# API. The drills are the expensive kind of test and they are the only kind that
+# can tell anybody how long a recovery takes. Group 8 added the deployment
+# manifest's conformance check (instant — it reads one file), the key cache's
+# window, the component-restart matrix and the pre-production standup, which
+# stands an environment up in the Migration Plan's order against a real
+# PostgreSQL, a real S3 API and a real remote; plus the two un-hosted surfaces,
+# which spawn `canon` and the agent server with the network — and then the
+# ability to listen — denied in the child.
+# Group 7 of add-web-app-shell added the per-route enumeration of the closed
+# route-state set — it drives every route's real `load` and renders what came
+# back, so it costs milliseconds — and, outside `check`, 84 e2e assertions over
+# the viewport matrix. It also added the route-module export rule to
+# tests/tooling/test_web_structure.py, which reads four files.
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
+#
+# `web-check` runs **before** `test`, and that order is asserted rather than
+# left to habit (tests/tooling/test_justfile.py): its vitest run builds the
+# application, and tests/integration/test_web_readiness_process.py starts that
+# build — the `node build` the image's CMD runs — to ask the running artifact
+# whether it is ready with no API answering. A Python suite that had to build
+# the frontend itself would duplicate the build; one that skipped when the build
+# was absent would be a suite CI never really runs.
 #
 # `web` joined the list in sprint S9, with the application shell: the address
 # scheme, the closed route-state set, the typed client and the invalidation map
@@ -67,7 +96,7 @@ setup:
 # node and nothing else. The structural constraints that must bite even when
 # node is absent — D1's ViewModel boundary, D4's design-system rule, D7's import
 # boundary — are in tests/tooling/test_web_structure.py and run under `test`.
-check: lint imports complexity features test web-check spec
+check: lint imports complexity features web-check test spec
 
 # ruff — style and formatting.
 lint:
@@ -160,6 +189,77 @@ migrate *args:
 # it is the procedure `docs/recovery.md` documents rather than a second one.
 recover-index *args:
     uv run --locked python -m cybercanon.api.recover {{ args }}
+
+# Run the three recovery drills against a pre-production project and record what
+# they cost (add-coolify-deployment D9). It DESTROYS the named volumes and then
+# runs the documented procedure over each, measuring only the recovery:
+#
+#     just drill --project ronin --working-copy /data/worktrees/ronin --blobs /data/blobs
+#
+# Every run appends date, procedure and measured duration to deploy/recovery.md,
+# because a record somebody has to remember to write is a record nobody writes.
+# Never point it at a production volume: the first thing it does is delete one.
+drill *args:
+    PYTHONPATH=tools uv run --locked python -m canon_drill run {{ args }}
+
+# The gate over that log: non-zero when a procedure has never been drilled, when
+# its most recent drill is older than the stated interval, or when that drill
+# took longer than deploy/recovery.md says it should.
+#
+# Deliberately **not** part of `just check`. Staleness is a function of the date
+# rather than of the change under review, so a build that ran it would start
+# failing on a Tuesday for a repository nobody had touched — which teaches
+# people to ignore it. It is the release pipeline's gate and the drill job's own
+# exit code; `just check` asserts instead that the log is complete and that every
+# recorded duration is within its expectation (tests/tooling/test_recovery_document.py).
+drill-check *args:
+    PYTHONPATH=tools uv run --locked python -m canon_drill check {{ args }}
+
+# Record what a build produced: the digest an image was built as, against the
+# revision it was built from (add-coolify-deployment, task 3.3). The build
+# pipeline runs this immediately after it builds an image, and the digest comes
+# from the engine that built it:
+#
+#     just release-record --image api --revision $GIT_SHA \
+#         --digest "$(docker image inspect --format '{{{{.Id}}}}' cybercanon-api:$GIT_SHA)"
+#
+# Recording a second, different digest for one revision exits non-zero, which is
+# how "built once per revision and promoted unchanged" is enforced rather than
+# asked for: a rebuild has nowhere to write what it produced.
+release-record *args:
+    PYTHONPATH=tools uv run --locked python -m canon_release record {{ args }}
+
+# The promotion gate: what each environment is running, against the record.
+#
+#     just release-promotion --image api --revision $GIT_SHA \
+#         --running pre-production=sha256:... production=sha256:...
+#
+# Non-zero when an environment is running something the ledger did not record —
+# an artifact that was rebuilt rather than promoted — naming both digests.
+release-promotion *args:
+    PYTHONPATH=tools uv run --locked python -m canon_release promotion {{ args }}
+
+# The withdrawal: the digest to redeploy for the revision being returned to.
+# It prints a digest and never builds one; a revision the ledger does not hold
+# is reported instead, because an artifact nobody verified is not a rollback
+# target.
+release-rollback *args:
+    PYTHONPATH=tools uv run --locked python -m canon_release rollback {{ args }}
+
+# Is what we deploy what the specification says we deploy? (task 8.5)
+#
+# It reads deploy/coolify.yaml — the four applications, their hosts, volumes,
+# environment and health configuration — against `deployment-operations` and
+# against the settings the service declares. A fifth application, or one
+# deploying the `canon` binary or the agent server, is a non-zero exit naming
+# the specification: *"no other component SHALL be added to the hosted
+# inventory without a specification change"*.
+#
+# Reachable on its own for a release pipeline, and part of `just check` through
+# `test` (tests/tooling/test_deployment_inventory.py runs the same function), so
+# a drifting manifest fails the build rather than the deploy.
+deploy-check *args:
+    PYTHONPATH=tools uv run --locked python -m canon_deploy check {{ args }}
 
 # Run the FastMCP read server over stdio for the repository this is run in.
 # An agent client spawns `canon mcp serve` directly — this recipe is the way a

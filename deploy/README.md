@@ -15,6 +15,26 @@ The `canon` command line and the agent server are **deliberately not here**. The
 agent server is stdio and local-first; hosting it would add an open port, a CORS
 surface and a network threat model that local-first exists to avoid.
 
+That last paragraph is a **requirement with a scenario**, not a note, so it is
+declared as data rather than remembered. [`coolify.yaml`](coolify.yaml) holds
+the four applications — host, volumes, environment, health configuration,
+pre-deploy command — and names the two surfaces that are never hosted with the
+reason each is absent:
+
+```
+just deploy-check
+```
+
+reads it against the specification and against the settings the service
+actually declares. A fifth application, an application whose component is the
+`canon` binary or the agent server, a host outside the convention, a liveness
+probe pointed at readiness, a stateful component with no volume, a stop grace
+period that is not the drain window, or a variable the manifest gives that
+nothing reads — each is a non-zero exit naming what is wrong. Coolify is
+configured from that file by hand: there is one node and four applications, and
+a synchroniser reaching the platform's API would be a fifth thing to operate and
+a credential to hold.
+
 ## Configuration is the environment, and nothing else
 
 Every deployed service reads its configuration from environment variables only.
@@ -35,7 +55,7 @@ environment (D3, and "one artifact, promoted unchanged").
 
 ### `api` — required
 
-The service will not start without these twelve.
+The service will not start without these fourteen.
 
 | Variable | Shape | Secret | What it is |
 |---|---|:--:|---|
@@ -51,15 +71,25 @@ The service will not start without these twelve.
 | `CANON_DATABASE_URL` | `scheme://host/database` | ● | the rebuildable index |
 | `CANON_OBJECT_STORE_URL` | `scheme://host` | | the blob mirror |
 | `CANON_LINK_EXPIRY_S` | a whole number of seconds | | how long a blob download link lasts |
+| `CANON_WRITE_BACK_TIMEOUT_S` | a whole number of seconds | | how long one write-back may take before it abandons itself |
+| `CANON_DRAIN_WINDOW_S` | a whole number of seconds | | how long a retiring instance may drain. **Must be longer than the one above** |
 
 ### `api` — optional
 
-Absent means the feature is off, not that the deployment is broken. The service
-starts, and everything that needs a model reports itself **unavailable** on
-`/status`.
+Absent means the feature is off — or, for the key cache, that its default
+applies — not that the deployment is broken. The service starts, and everything
+that needs a model reports itself **unavailable** on `/status`.
+
+`CANON_AUTH_KEY_CACHE_TTL_S` is the one number D8 leaves to a deployment: the
+identity provider's signing keys are cached for that long, so an outage of
+CyberdyneAuth costs **new sign-ins and nothing else** — credentials already
+issued keep verifying, readiness never consults it, and `/status` names it
+unreachable. The cost is stated rather than hidden: a key rotated during an
+outage is not honoured until the window ends.
 
 | Variable | Shape | Secret | Default | What it is |
 |---|---|:--:|---|---|
+| `CANON_AUTH_KEY_CACHE_TTL_S` | a whole number of seconds | | 900 | how long cached signing keys keep verifying while CyberdyneAuth is unreachable (D8) |
 | `CANON_LLM_ENABLED` | a switch | | off | the master switch (`project.md`) |
 | `CANON_LLM_BASE_URL` | an OpenAI-compatible endpoint | | — | point it at the on-prem gateway from inside the deployment network |
 | `CANON_LLM_API_KEY` | a bearer credential | ● | — | for that endpoint |
@@ -118,19 +148,52 @@ verified in pre-production mean something in production.
 and `tests/tooling/test_secret_scan.py` searches the repository *and* the files
 an image contains for credentials on every `just check`.
 
+Nothing environment-specific reaches the **build context** either, which is the
+half a `Dockerfile` cannot state on its own: the web image copies a whole
+directory and SvelteKit reads a `.env` sitting in it at build time, so
+[`../.dockerignore`](../.dockerignore) keeps environment files, machine state
+and already-built output out of every build. The same suite asserts it, in both
+directions — an environment file that would reach a build fails, and so does a
+pattern broad enough to drop something the images copy.
+
 An artifact is **built once per revision** and promoted between environments
 without rebuilding. The build records its digest in
 [`digests.json`](digests.json) against the revision it was built from, and the
-promotion check (`tools/canon_release`) compares what an environment is running
-against that record: a rebuilt artifact fails it, naming both digests. Recording
-a *second, different* digest for one revision is refused, which is the mechanism
-rather than the warning — a promotion that rebuilt would have nowhere to write
-what it produced.
+promotion check compares what an environment is running against that record: a
+rebuilt artifact fails it, naming both digests. Recording a *second, different*
+digest for one revision is refused, which is the mechanism rather than the
+warning — a promotion that rebuilt would have nowhere to write what it produced.
 
-**Rollback is a redeploy of a previously recorded digest**, never a rebuild. The
-digest of the revision being returned to is already in the ledger; if it is not,
-the check says so instead of quietly building one, because an artifact nobody
-verified is not a rollback target.
+Three commands, each a `just` recipe over `tools/canon_release`, and each one's
+exit code is the gate:
+
+```
+# the build pipeline's step, run immediately after an image is built
+just release-record --image api --revision $GIT_SHA \
+    --digest "$(docker image inspect --format '{{.Id}}' cybercanon-api:$GIT_SHA)"
+
+# the promotion gate, before an environment is pointed at an artifact
+just release-promotion --image api --revision $GIT_SHA \
+    --running pre-production=sha256:... production=sha256:...
+```
+
+The digest is supplied rather than computed by the command, because the engine
+that built the image is what knows it — and because every other question has to
+stay answerable from a checkout, including on the day the platform is what is
+broken.
+
+**Rollback is a redeploy of a previously recorded digest**, never a rebuild:
+
+```
+just release-rollback --image api --revision $PREVIOUS_GIT_SHA
+```
+
+It prints the digest to deploy, and Coolify is pointed at that digest — deploy
+revision N, then N-1, and what serves is the artifact that was already built and
+already verified. A revision the ledger does not hold is reported instead of
+quietly built, because an artifact nobody verified is not a rollback target. A
+schema rollback is a different operation and is below: drop, migrate to the
+previous version, rebuild.
 
 ## The release step, and the recovery when it fails
 
@@ -208,6 +271,48 @@ Configure Coolify accordingly:
 * **the web application's readiness is process-only.** It never calls the `api`
   application to decide whether it is ready, and a page whose data cannot be
   fetched renders an explicit unavailable state rather than an error (D10).
+
+## Rollover: readiness gates it, and the drain window outlives a write-back
+
+A deploy replaces instances without dropping a request, and it does that by
+**overlapping** them (D7). Coolify starts the new instance, waits for `/readyz`,
+routes to it, and only then signals the old one, which stops accepting new
+requests and drains what it already accepted. A new version whose readiness
+never reports ready is never routed to, so the deploy times out and the previous
+version is still the one serving — nothing was replaced.
+
+During the overlap **both instances mount the same working-copy volume on
+purpose**, and it is the exclusive lock on that volume — not the number of
+instances — that keeps a project single-writer (D6). A lock held in one
+process's memory would be no lock at all for exactly the seconds that matter.
+
+Two numbers make *"an interrupted write-back leaves a commit or leaves nothing"*
+a property rather than a hope, and **their order is the whole mechanism**:
+
+```
+CANON_WRITE_BACK_TIMEOUT_S  <  CANON_DRAIN_WINDOW_S
+```
+
+A write-back accepted a moment before retirement begins either commits and
+pushes inside the drain window and returns success, or hits its own timeout
+first — and a timed-out write-back resets the working copy to the configured
+branch — before anything terminates the process. Inverted, a container would be
+killed holding a half-applied edit on the volume, which is the one state the
+specification forbids. So the service **refuses to start** on an inverted pair,
+naming both variables; it is not a paragraph anybody has to remember.
+
+Configure Coolify to match:
+
+* **readiness gate → `/readyz`**, with the new instance routed only once it
+  answers ready;
+* **stop grace period → `CANON_DRAIN_WINDOW_S`**, so the platform's window and
+  the service's are the same number;
+* **on startup the working copy is returned to the configured branch**,
+  discarding any uncommitted change, which is what makes the abandoned case
+  leave nothing behind rather than nothing *visible*.
+
+Recovery when a volume is lost is a different operation and lives in
+[`recovery.md`](recovery.md), with a measured duration per procedure.
 
 ## Logs
 

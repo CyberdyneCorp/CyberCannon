@@ -52,6 +52,7 @@ from cybercanon.domain.effective_spec import EffectiveSpec, merge
 from cybercanon.domain.format_matrix import UnsupportedExportFormat, available_for
 from cybercanon.domain.mesh_facts import MeshFacts
 from cybercanon.domain.report import Report
+from cybercanon.domain.revisions import ContentHash
 from cybercanon.domain.rules import run, with_severities
 from cybercanon.domain.violations import SpecViolation
 
@@ -97,6 +98,7 @@ def validate_export(
     mesh_inspector: MeshInspector,
     blob_store: BlobStore | None = None,
     emit_preview: bool = False,
+    source_digest: ContentHash | None = None,
 ) -> ValidationOutcome:
     """Validate one export against its governing specification.
 
@@ -112,7 +114,12 @@ def validate_export(
     facts = _supported(export, inspected.facts)
     report = run(spec, facts, export=export, rules=with_severities(project.severities))
     preview, failure = _preview(
-        export, spec, inspected, mesh_inspector, blob_store if emit_preview else None
+        export,
+        spec,
+        inspected,
+        mesh_inspector,
+        blob_store if emit_preview else None,
+        source_digest,
     )
     return ValidationOutcome(
         report=report,
@@ -151,6 +158,7 @@ def _preview(
     inspected: InspectedMesh,
     mesh_inspector: MeshInspector,
     blob_store: BlobStore | None,
+    source_digest: ContentHash | None = None,
 ) -> tuple[StoredPreview | None, PreviewFailure | None]:
     """Step 5, guarded (D7).
 
@@ -163,7 +171,8 @@ def _preview(
         return None, None
     try:
         preview = mesh_inspector.emit_preview(inspected)
-        return blob_store.put_preview(spec.asset_id, export, preview), None
+        stored = blob_store.put_preview(spec.asset_id, export, preview, source_digest=source_digest)
+        return stored, None
     except Exception as error:  # D7: any preview failure, and only the preview fails
         return None, PreviewFailure(export=export, reason=_reason(error))
 

@@ -254,10 +254,13 @@ WEBHOOK_SECRET = "CANON_WEBHOOK_SECRET"
 AUTH_ISSUER = "CANON_AUTH_ISSUER"
 AUTH_AUDIENCE = "CANON_AUTH_AUDIENCE"
 AUTH_KEY_SET_URL = "CANON_AUTH_KEY_SET_URL"
+AUTH_KEY_CACHE_TTL = "CANON_AUTH_KEY_CACHE_TTL_S"
 GROUP_ROLES = "CANON_AUTH_GROUP_ROLES"
 DATABASE_URL = "CANON_DATABASE_URL"
 OBJECT_STORE_URL = "CANON_OBJECT_STORE_URL"
 LINK_EXPIRY = "CANON_LINK_EXPIRY_S"
+WRITE_BACK_TIMEOUT = "CANON_WRITE_BACK_TIMEOUT_S"
+DRAIN_WINDOW = "CANON_DRAIN_WINDOW_S"
 
 MODEL_ENABLED = "CANON_LLM_ENABLED"
 MODEL_BASE_URL = "CANON_LLM_BASE_URL"
@@ -277,9 +280,12 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(AUTH_AUDIENCE, "the audience this service is addressed as"),
     Setting(AUTH_KEY_SET_URL, "a URL of the form scheme://host/path", read=url),
     Setting(GROUP_ROLES, "a list of `group=ROLE` pairs", read=_pairs),
+    Setting(AUTH_KEY_CACHE_TTL, "a whole number of seconds", read=seconds, required=False),
     Setting(DATABASE_URL, "a connection string of the form scheme://host", read=url, secret=True),
     Setting(OBJECT_STORE_URL, "a URL of the form scheme://host", read=url),
     Setting(LINK_EXPIRY, "a whole number of seconds", read=seconds),
+    Setting(WRITE_BACK_TIMEOUT, "a whole number of seconds", read=seconds),
+    Setting(DRAIN_WINDOW, "a whole number of seconds", read=seconds),
     Setting(MODEL_ENABLED, "a switch", read=flag, required=False, default=False),
     Setting(MODEL_BASE_URL, "an OpenAI-compatible endpoint", read=url, required=False, default=""),
     Setting(MODEL_API_KEY, "a bearer credential", required=False, secret=True, default=""),
@@ -290,12 +296,19 @@ SETTINGS: tuple[Setting, ...] = (
 )
 """Every variable this service reads, required and optional, in one table.
 
-The required twelve — repository, branch, credential, fetch interval, webhook
-secret, issuer, audience, key set URL, group mapping, database, object store,
-link expiry — are what the service refuses to start without. The seven model
-variables are optional by `project.md`'s rule that *"the system SHALL be fully
-usable with it off"*, and `deploy/README.md` is checked against this table so
-the document and the code cannot drift.
+The required fourteen — repository, branch, credential, fetch interval,
+webhook secret, issuer, audience, key set URL, group mapping, database, object
+store, link expiry, write-back timeout, drain window — are what the service
+refuses to start without. The last two are a *pair*: D7 makes "a commit or
+nothing" a property of two configured numbers in a known order, so they are
+read together and checked against each other (:class:`RolloverConfig`).
+
+The seven model variables are optional by `project.md`'s rule that *"the
+system SHALL be fully usable with it off"*, and the key-cache window is optional
+because D8 fixes the *behaviour* — existing credentials keep verifying while the
+issuer is unreachable — and leaves the number to the deployment. `deploy/README.md`
+is checked against this table so the document and the code cannot drift, and so
+is `deploy/coolify.yaml`, which is what each application is actually given.
 """
 
 REQUIRED: tuple[str, ...] = tuple(setting.name for setting in SETTINGS if setting.required)
@@ -308,6 +321,19 @@ SECRETS: tuple[str, ...] = tuple(setting.name for setting in SETTINGS if setting
 """The variables whose values may never appear in a message, a log or an artifact."""
 
 DEFAULT_MODEL_TIMEOUT = timedelta(seconds=30)
+
+DEFAULT_KEY_CACHE_TTL = timedelta(minutes=15)
+"""How long cached signing keys keep verifying while the issuer is unreachable.
+
+D8 in one number: *"the `IdentityProvider` adapter caches the signing keys
+with a TTL and continues verifying existing tokens while the provider is
+unreachable"*, and *"a bounded window where a key rotated during an outage is
+not yet known, ending at the TTL"*. Fifteen minutes is long enough that a
+restart of the identity service is invisible to everybody using the tool and
+short enough that a revoked key stops being honoured inside a coffee break —
+and it is a *default* rather than a constant, because which of those two costs
+a studio would rather pay is a deployment decision.
+"""
 
 
 # --------------------------------------------------------------------------
@@ -340,6 +366,7 @@ class IdentityConfig:
     audience: str
     key_set_url: str
     group_roles: Mapping[str, str]
+    key_cache_ttl: timedelta = DEFAULT_KEY_CACHE_TTL
 
 
 @dataclass(frozen=True)
@@ -349,6 +376,63 @@ class StorageConfig:
     database_url: Secret
     object_store_url: str
     link_expiry: timedelta
+
+
+ROLLOVER_ORDER = (
+    "the drain window must be longer than the write-back budget, so a write-back "
+    "accepted just before retirement either lands inside the window or is "
+    "abandoned by its own timeout before the instance is terminated"
+)
+"""D7, as the sentence a refused boot prints. The ordering is the mechanism."""
+
+
+@dataclass(frozen=True)
+class RolloverConfig:
+    """The two numbers a zero-downtime rollover is made of (D7).
+
+    Coolify starts the new instance, waits for `/readyz`, routes to it, then
+    signals the old one, which stops accepting requests and drains.
+    :attr:`drain_window` is how long that draining is allowed to take and
+    :attr:`write_back_timeout` is how long one write-back may take before it
+    gives up and resets the working copy.
+
+    **The order between them is the guarantee, not a recommendation.** *"An
+    interrupted write-back leaves a commit or leaves nothing"* is true because
+    the timeout fires first: a write-back accepted a moment before retirement
+    either finishes inside the window, or abandons itself — and abandoning
+    resets the working copy — before anything terminates the process. Inverted,
+    the container would be killed with a half-applied edit on the volume, which
+    is precisely the state the specification forbids. So an inverted pair is a
+    refused boot naming both variables, rather than a sentence in a document
+    nobody re-reads.
+    """
+
+    write_back_timeout: timedelta
+    drain_window: timedelta
+
+    @property
+    def drains_longer_than_write_back(self) -> bool:
+        """Whether the pair is in the order D7 requires."""
+        return self.drain_window > self.write_back_timeout
+
+    @property
+    def headroom(self) -> timedelta:
+        """What the drain window has left after the longest permitted write-back."""
+        return self.drain_window - self.write_back_timeout
+
+
+def rollover_problems(rollover: RolloverConfig) -> tuple[Problem, ...]:
+    """The refusal an out-of-order pair earns, naming both variables.
+
+    Both, because either one could be the one that is wrong and the person
+    reading the message is the one who knows which.
+    """
+    if rollover.drains_longer_than_write_back:
+        return ()
+    return (
+        Problem(WRITE_BACK_TIMEOUT, f"shorter than {DRAIN_WINDOW}: {ROLLOVER_ORDER}", present=True),
+        Problem(DRAIN_WINDOW, f"longer than {WRITE_BACK_TIMEOUT}: {ROLLOVER_ORDER}", present=True),
+    )
 
 
 @dataclass(frozen=True)
@@ -391,6 +475,7 @@ class ServiceConfiguration:
     repository: RepositoryConfig
     identity: IdentityConfig
     storage: StorageConfig
+    rollover: RolloverConfig
     model: ModelConfig = ModelConfig()
 
 
@@ -403,6 +488,13 @@ def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
     """
     source = os.environ if environment is None else environment
     values = read(source)
+    rollover = RolloverConfig(
+        write_back_timeout=values[WRITE_BACK_TIMEOUT],
+        drain_window=values[DRAIN_WINDOW],
+    )
+    problems = rollover_problems(rollover)
+    if problems:
+        raise refusal(problems)
     return ServiceConfiguration(
         repository=RepositoryConfig(
             url=values[REPOSITORY_URL],
@@ -416,12 +508,14 @@ def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
             audience=values[AUTH_AUDIENCE],
             key_set_url=values[AUTH_KEY_SET_URL],
             group_roles=values[GROUP_ROLES],
+            key_cache_ttl=values[AUTH_KEY_CACHE_TTL] or DEFAULT_KEY_CACHE_TTL,
         ),
         storage=StorageConfig(
             database_url=Secret(values[DATABASE_URL]),
             object_store_url=values[OBJECT_STORE_URL],
             link_expiry=values[LINK_EXPIRY],
         ),
+        rollover=rollover,
         model=ModelConfig(
             enabled=values[MODEL_ENABLED],
             base_url=values[MODEL_BASE_URL],
@@ -477,12 +571,14 @@ def missing_from(environment: Mapping[str, str]) -> tuple[str, ...]:
 
 
 __all__ = [
+    "DEFAULT_KEY_CACHE_TTL",
     "DEFAULT_MODEL_TIMEOUT",
     "GROUP_SEPARATOR",
     "OPTIONAL",
     "PAIR_SEPARATOR",
     "PREFIX",
     "REQUIRED",
+    "ROLLOVER_ORDER",
     "SECRETS",
     "SETTINGS",
     "ConfigurationIncomplete",
@@ -492,6 +588,7 @@ __all__ = [
     "ModelConfig",
     "Problem",
     "RepositoryConfig",
+    "RolloverConfig",
     "Secret",
     "ServiceConfiguration",
     "Setting",
@@ -501,4 +598,5 @@ __all__ = [
     "missing_from",
     "read",
     "refusal",
+    "rollover_problems",
 ]

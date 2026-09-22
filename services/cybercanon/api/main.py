@@ -37,6 +37,7 @@ from cybercanon.adapters.inbound.http import logs
 from cybercanon.adapters.inbound.http.app import build_app
 from cybercanon.adapters.inbound.http.surface import Surface
 from cybercanon.adapters.wiring.configuration import ServiceConfiguration, load
+from cybercanon.adapters.wiring.identity import WiredIdentity, identity_provider
 from cybercanon.application.use_cases.service_health import (
     LANGUAGE_MODEL,
     ComponentStatus,
@@ -62,35 +63,56 @@ def build_for(configuration: ServiceConfiguration) -> FastAPI:
     built rather than one it had to put in the environment first, and so the
     boot-time refusal and the wiring are two things that can fail apart.
 
-    **It builds no outbound adapters yet, and that is this group's boundary
-    rather than an omission.** The hosted working copy, the PostgreSQL index and
-    the blob mirror are wired by groups 5 to 8 of `add-coolify-deployment`,
-    which is also where their observations join :func:`observed`. What exists
-    now is the seam: one function turning configuration into
-    :class:`~cybercanon.application.use_cases.service_health.ComponentStatus`
-    values, and a readiness signal that classifies them rather than probing
-    anything itself.
+    **Nothing built here reaches anything.** The identity provider is
+    constructed with its key cache bounded by the configured TTL (D8) and
+    retrieves nothing until a credential asks it to; the per-project working
+    copy, the index and the blob mirror are attached to the surface by the
+    deployment's own entry point once its volumes are mounted. A boot that
+    needed a dependency to be up would be the cascade this change exists to
+    prevent, so construction and reachability stay two different questions —
+    which is also why :func:`observed` reports rather than probes.
     """
     logs.configure()
-    app = build_app(container=None, surface=Surface(observe=lambda: observed(configuration)))
+    identity = identity_provider(configuration.identity)
+    surface = Surface(
+        identity_provider=identity.provider,
+        observe=lambda: observed(configuration, identity),
+    )
+    app = build_app(container=None, surface=surface)
     app.state.configuration = configuration
+    app.state.identity = identity
     return app
 
 
-def observed(configuration: ServiceConfiguration) -> Sequence[ComponentStatus]:
-    """What this process can say about its dependencies from configuration alone.
+def observed(
+    configuration: ServiceConfiguration, identity: WiredIdentity | None = None
+) -> Sequence[ComponentStatus]:
+    """What this process can say about its dependencies, without going to ask.
 
-    Only the model, for now, and only because its absence is a *configured*
-    state rather than an unreachable one: a master switch that is off is a
-    feature deliberately not deployed, and the status surface says so in the
-    same vocabulary it would use for a gateway that stopped answering. Claiming
-    anything about a component this process has not wired would be a health
-    report that reports nothing.
+    Two components answer from what this process already knows. The model's
+    absence is a *configured* state rather than an unreachable one — a master
+    switch that is off is a feature deliberately not deployed, and the status
+    surface says so in the same vocabulary it would use for a gateway that
+    stopped answering. The identity service's is the outcome of the last
+    retrieval anybody drove (D8): unreachable is *reported*, never gated, so an
+    outage of CyberdyneAuth costs new sign-ins and nothing else.
+
+    Claiming anything about a component this process has not wired would be a
+    health report that reports nothing, which is why the volumes' observations
+    join this list where they are mounted rather than being guessed at here.
     """
+    return _model(configuration) + _identity(identity)
+
+
+def _model(configuration: ServiceConfiguration) -> tuple[ComponentStatus, ...]:
     model = configuration.model
     if model.available:
         return (available(LANGUAGE_MODEL, MODEL_CONFIGURED),)
     return (unavailable(LANGUAGE_MODEL, model.absence),)
+
+
+def _identity(identity: WiredIdentity | None) -> tuple[ComponentStatus, ...]:
+    return () if identity is None else (identity.status,)
 
 
 def main(host: str = HOST, port: int = PORT) -> None:  # pragma: no cover — the server loop

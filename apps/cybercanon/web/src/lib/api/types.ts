@@ -192,3 +192,35 @@ export interface WriteOutcome {
 	readonly message: string;
 	readonly attempts: number;
 }
+
+/**
+ * One project as `/status` reports it.
+ *
+ * This is the only place the surface names a project without being told which
+ * one to look at, so it is where the application learns which projects a person
+ * may switch between. That the *operational* endpoint is where that answer
+ * lives is a gap in `http-api` — there is no read that simply lists the
+ * projects an actor is entitled to — and it is recorded here rather than worked
+ * around: the endpoint is authenticated, it applies the same `READ_PROJECT`
+ * decision every read applies, and it names the entitled projects and no
+ * others, so consuming it reveals nothing a listing would not.
+ */
+export interface ProjectStatus {
+	readonly project: string;
+	readonly working_copy: {
+		readonly state: string;
+		readonly revision: string | null;
+		readonly last_fetch_at: string | null;
+		readonly reason: string;
+	};
+	readonly index: {
+		readonly indexed_revision: string | null;
+		readonly working_copy_revision: string | null;
+		readonly in_sync: boolean;
+		readonly rebuilding: boolean;
+	};
+}
+
+export interface StatusReport {
+	readonly projects: readonly ProjectStatus[];
+}

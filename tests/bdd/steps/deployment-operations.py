@@ -1,9 +1,10 @@
-"""Step definitions for `deployment-operations` — groups 1 and 2.
+"""Step definitions for `deployment-operations` — every group of the change.
 
-Two requirements' worth of scenarios, and they are the ones the change exists
-for: **configuration comes only from the environment and a bad one stops the
-boot**, and **liveness, readiness and the status surface are three different
-things**.
+It starts with the two requirements the change exists for: **configuration
+comes only from the environment and a bad one stops the boot**, and **liveness,
+readiness and the status surface are three different things**. The release
+step, the volumes, the rollover, the drills and the hosted inventory follow, in
+the order of the change's own task groups.
 
 What is driven here is the real thing in every case that has one: the real
 loader over a mapping that is not the process environment, the real FastAPI
@@ -19,27 +20,39 @@ traffic on, liveness keeps answering responsive, and `deploy/README.md` points
 the restart probe at liveness and the routing gate at readiness.
 
 One scenario of these two requirements stays **deliberately pending**: *"The web
-application does not require the API to become ready"*. Its subject is a
-TypeScript handler. The route exists, it reaches for nothing, and
-`apps/cybercanon/web/tests/availability.test.ts` executes it with a `fetch` that
-throws — but that suite runs under `web-check`, not under this one, and a Python
-step reading the handler's source could not honestly claim to have *read its
-readiness signal*. It stays on the pending list until an end-to-end run can stop
-the API container and ask the running application.
+application does not require the API to become ready"*, and what is still
+missing is now only half of it. Its readiness *is* executed against the running
+artifact — `tests/integration/test_web_readiness_process.py` starts the built
+application with nothing answering at the address of the API, reads `/readyz`,
+and asserts the process never opened a connection to that address. What no
+Python step can execute is the scenario's second half, *"the application SHALL
+render a state describing the API as unavailable"*: the frame renders in the
+browser (`ssr = false`, a session decision), so the render is executed by
+`apps/cybercanon/web/tests/availability.test.ts` under `web-check` and, in a
+real browser, by the end-to-end layer. A step that asserted the first half and
+read the source for the second would be claiming to have seen something this
+process did not render, so the line stays on the pending list until an
+end-to-end run can ask a browser.
 
-The remaining 28 scenarios of this capability belong to groups 3 to 8 and are
-still listed in `tests/bdd/pending.txt`.
+Groups 3 to 8 are here too, below, and what is left on `tests/bdd/pending.txt`
+for this capability is three lines: the two artifact scenarios, whose
+confirmations are a container engine's rather than this process's, and the web
+application's readiness, for the reason above.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import shutil
+import subprocess
+import sys
 import threading
 import time
 import traceback
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -49,6 +62,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pytest_bdd import given, scenario, then, when
 
+from canon_deploy import inventory as deployed
+from canon_deploy.__main__ import web_variables
+from canon_drill.records import PROCEDURES, drills, expectations, latest
 from canon_lint import secrets
 from cybercanon.adapters.inbound.http.app import build_app
 from cybercanon.adapters.inbound.http.health import (
@@ -67,6 +83,7 @@ from cybercanon.adapters.inbound.http.versioning import VERSION
 from cybercanon.adapters.outbound.fs.blob_store import FsBlobStore
 from cybercanon.adapters.outbound.git import commands
 from cybercanon.adapters.outbound.git.repository_host import GitRepositoryHost, ProjectRemote
+from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
 from cybercanon.adapters.outbound.postgres import migrations
 from cybercanon.adapters.outbound.postgres.search_index import PostgresSearchIndex
 from cybercanon.adapters.wiring import configuration
@@ -83,6 +100,7 @@ from cybercanon.application.ports.search_index import IndexedAsset
 from cybercanon.application.ports.spec_store import ProjectConfig
 from cybercanon.application.results import succeeded
 from cybercanon.application.testing import build_fakes
+from cybercanon.application.use_cases.blob_mirror import mirror_project
 from cybercanon.application.use_cases.deployment_status import (
     INDEX_REBUILDING,
     DeploymentJournal,
@@ -91,11 +109,13 @@ from cybercanon.application.use_cases.deployment_status import (
 from cybercanon.application.use_cases.hosted_repository import (
     NOTHING_RECORDED,
     Edit,
+    resume_project,
     write_back,
 )
 from cybercanon.application.use_cases.service_health import (
     IDENTITY_SERVICE,
     LANGUAGE_MODEL,
+    OBJECT_STORE,
     SEARCH_INDEX,
     WORKING_COPY,
     available,
@@ -136,6 +156,8 @@ COMPLETE = {
     "CANON_DATABASE_URL": "postgresql://canon@db/canon",
     "CANON_OBJECT_STORE_URL": "https://minio.cyberdynecorp.ai",
     "CANON_LINK_EXPIRY_S": "120",
+    "CANON_WRITE_BACK_TIMEOUT_S": "30",
+    "CANON_DRAIN_WINDOW_S": "90",
 }
 """A configured deployment. Every scenario below starts from this and breaks one thing."""
 
@@ -1123,7 +1145,7 @@ def _no_instance_migrated(deployment: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------
 
 
-def _a_working_copy(tmp_path: Path) -> Any:
+def _a_working_copy(tmp_path: Path, files: dict[str, bytes] | None = None) -> Any:
     """A real bare remote holding two assets, and a host serving a copy of it."""
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
@@ -1133,7 +1155,7 @@ def _a_working_copy(tmp_path: Path) -> Any:
     run = partial(commands.run, environment=environment)
     run(None, ["init", "--quiet", "--bare", "--initial-branch=main", str(bare)])
     run(None, ["clone", "--quiet", str(bare), str(seed)])
-    for path, content in CORPUS.items():
+    for path, content in (CORPUS if files is None else files).items():
         (seed / path).parent.mkdir(parents=True, exist_ok=True)
         (seed / path).write_bytes(content)
     run(seed, ["add", "--all"])
@@ -1426,3 +1448,873 @@ def _each_produced_its_own_commit(deployment: dict[str, Any]) -> None:
     head = new.head(PROJECT)
     for path, content in deployment["edits"]:
         assert new.read(PROJECT, path, head) == content
+
+
+# --------------------------------------------------------------------------
+# Group 6 — the deploy overlap, and the write-back caught in the middle
+#
+# The instances here are in-process, exactly as the release-step scenarios
+# above are: `tests/integration/test_rollover.py` runs the same four steps
+# against two real `uvicorn` processes, which is where "every request received
+# a response" is asserted against a socket rather than against an object. The
+# properties that are *this* code's rather than the platform's — the drain
+# window outliving the write-back budget, an abandoned write-back leaving
+# nothing, a commit landing inside the window attributed to its author — are
+# asserted here against real git.
+# --------------------------------------------------------------------------
+
+VIEW = "characters/mech_scout/concept/front.png"
+VIEW_BYTES = b"\x89PNG\r\n\x1a\nthe scout mech, front elevation"
+
+ILLUSTRATED: dict[str, bytes] = {
+    ".canon/project.yaml": b"schema_version: 1\nname: cyberdyne-game\n",
+    SCOUT_SPEC: (
+        b"schema_version: 1\nid: mech_scout\nname: Scout Mech\nstatus: modeling\n"
+        b"concept:\n  views:\n    - " + VIEW.encode() + b"\n"
+    ),
+    VIEW: VIEW_BYTES,
+}
+"""A corpus whose specification points at a file, so a blob mirror has work to do."""
+
+HALF_WRITTEN = b"schema_version: 1\nid: mech_sc"
+
+RAFA_GIT = GitAuthor(name="Rafa", email="rafa@cyberdyne.com")
+
+READS_PER_PHASE = 5
+"""How many reads the caller issues in each phase of the rollover."""
+
+
+def _rollover() -> Any:
+    """The configured pair, read from the environment a deployment starts with."""
+    return configuration.load(COMPLETE).rollover
+
+
+def _successor(host: Any) -> Any:
+    """The new version, mounting the same working-copy volume (D6, D7)."""
+    successor = GitRepositoryHost(
+        host.root,
+        [host.remote_of(PROJECT)],
+        environment={"GIT_CONFIG_GLOBAL": "/dev/null"},
+    )
+    successor.clone(PROJECT)
+    return successor
+
+
+def _read(deployment: dict[str, Any], route: list[Any]) -> None:
+    """One read against whichever instance the routing gate points at."""
+    try:
+        deployment["answers"].append(route[-1].get(LIVE_PATH).status_code)
+    except Exception as dropped:
+        deployment["failures"].append(str(dropped))
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Continuous availability across a deploy",
+)
+def test_continuous_availability_across_a_deploy() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "A retiring instance drains before terminating",
+)
+def test_a_retiring_instance_drains_before_terminating() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "A never-ready new version does not replace the old one",
+)
+def test_a_never_ready_new_version_does_not_replace_the_old_one() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Abandoned write-back leaves no partial edit",
+)
+def test_abandoned_write_back_leaves_no_partial_edit() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Write-back completes within the drain window",
+)
+def test_write_back_completes_within_the_drain_window() -> None: ...
+
+
+@given("a caller issuing read requests continuously")
+def _a_caller_reading_continuously(deployment: dict[str, Any]) -> None:
+    deployment["previous"] = a_deployment()
+    deployment["answers"] = []
+    deployment["failures"] = []
+
+
+@when("a new version is deployed and the previous version is retired")
+def _a_new_version_is_deployed(deployment: dict[str, Any]) -> None:
+    """The gate's four steps: start, wait for ready, route, then retire."""
+    previous = deployment["previous"]
+    route = [previous]
+    for _ in range(READS_PER_PHASE):
+        _read(deployment, route)
+
+    incoming = a_deployment()
+    for _ in range(READS_PER_PHASE):
+        _read(deployment, route)
+    assert incoming.get(READY_PATH).status_code == OK, "it was routed to before it was ready"
+    route.append(incoming)
+
+    for _ in range(READS_PER_PHASE):
+        _read(deployment, route)
+    previous.client.close()
+    for _ in range(READS_PER_PHASE):
+        _read(deployment, route)
+    deployment["retired"] = previous
+
+
+@then("every request SHALL receive a response")
+def _every_request_was_answered(deployment: dict[str, Any]) -> None:
+    assert len(deployment["answers"]) == READS_PER_PHASE * 4
+    assert deployment["failures"] == []
+
+
+@then("none SHALL fail because of the rollover")
+def _none_failed_because_of_the_rollover(deployment: dict[str, Any]) -> None:
+    assert set(deployment["answers"]) == {OK}
+
+
+@given("an instance with requests in flight is selected for retirement")
+def _an_instance_with_requests_in_flight(deployment: dict[str, Any]) -> None:
+    """One accepted write-back, not yet finished, on the instance being retired."""
+    retiring = a_deployment()
+    deployment["retiring"] = retiring
+    deployment["successor"] = a_deployment()
+    deployment["route"] = [retiring]
+    deployment["answers"] = []
+    deployment["failures"] = []
+    deployment["in_flight"] = Edit(
+        path=SCOUT_SPEC,
+        content=b"id: mech_scout\nname: Scout\n",
+        based_on=ContentHash.of(SCOUT_CONTENT),
+    )
+
+
+@when("retirement begins")
+def _retirement_begins(deployment: dict[str, Any]) -> None:
+    """New requests go to the successor; the accepted one is given the window."""
+    deployment["route"].append(deployment["successor"])
+    started = time.monotonic()
+    deployment["outcome"] = write_back(
+        PROJECT,
+        [deployment["in_flight"]],
+        repository_host=deployment["retiring"].host,
+        author=RAFA_GIT,
+        message="mech_scout: set status",
+        timeout=_rollover().write_back_timeout,
+    )
+    deployment["elapsed"] = timedelta(seconds=time.monotonic() - started)
+    for _ in range(READS_PER_PHASE):
+        _read(deployment, deployment["route"])
+    deployment["retiring"].client.close()
+
+
+@then("it SHALL stop accepting new requests")
+def _it_stopped_accepting_new_requests(deployment: dict[str, Any]) -> None:
+    """Every request issued after retirement began reached the successor."""
+    assert deployment["route"][-1] is deployment["successor"]
+    assert deployment["answers"] == [OK] * READS_PER_PHASE
+    assert deployment["failures"] == []
+
+
+@then("SHALL be allowed to complete in-flight requests until a bounded window expires")
+def _the_in_flight_request_had_a_bounded_window(deployment: dict[str, Any]) -> None:
+    """The bound is two configured numbers in a known order, not a hope (D7)."""
+    rollover = _rollover()
+
+    assert rollover.drain_window > rollover.write_back_timeout
+    assert succeeded(deployment["outcome"]), "the accepted write-back did not complete"
+    assert deployment["elapsed"] < rollover.drain_window
+
+
+@given("a new version whose readiness never reports ready")
+def _a_new_version_that_never_becomes_ready(deployment: dict[str, Any]) -> None:
+    """Its own working copy is missing — the one dependency that withholds traffic."""
+    deployment["previous"] = a_deployment()
+    deployment["incoming"] = a_deployment(
+        dependencies=(unavailable(WORKING_COPY, "the volume is not mounted"),)
+    )
+
+
+@when("the deploy times out")
+def _the_deploy_times_out(deployment: dict[str, Any]) -> None:
+    """The routing gate waited, never saw ready, and routed nothing to it."""
+    incoming = deployment["incoming"]
+    deployment["became_ready"] = incoming.get(READY_PATH).status_code == OK
+    deployment["incoming_alive"] = incoming.get(LIVE_PATH).status_code == OK
+
+
+@then("the previous version SHALL still be serving traffic")
+def _the_previous_version_is_still_serving(deployment: dict[str, Any]) -> None:
+    previous = deployment["previous"]
+
+    assert not deployment["became_ready"], "the artifact was supposed never to be ready"
+    assert deployment["incoming_alive"], "it is a running instance that is not ready"
+    assert previous.get(LIVE_PATH).json()[STATUS_FIELD] == ALIVE
+    assert previous.get(READY_PATH).json()[STATUS_FIELD] == READY
+
+
+@given("a write-back that has modified a specification file but not yet committed")
+def _a_write_back_modified_but_not_committed(deployment: dict[str, Any], tmp_path: Path) -> None:
+    host = _a_working_copy(tmp_path)
+    deployment["host"] = host
+    deployment["branch_content"] = CORPUS[SCOUT_SPEC]
+    (host.path(PROJECT) / SCOUT_SPEC).write_bytes(HALF_WRITTEN)
+    (host.path(PROJECT) / "half-written.yaml").write_bytes(b"and something untracked")
+
+
+@when("its instance is terminated before the drain window expires")
+def _the_instance_is_terminated_mid_write_back(deployment: dict[str, Any]) -> None:
+    """The process is gone, so the only thing left is the volume and its successor."""
+    successor = _successor(deployment["host"])
+    deployment["resumed"] = resume_project(PROJECT, repository_host=successor)
+    deployment["successor"] = successor
+
+
+@then(
+    "the working copy SHALL contain no uncommitted modification once the service is running again"
+)
+def _no_uncommitted_modification_remains(deployment: dict[str, Any]) -> None:
+    successor = deployment["successor"]
+
+    assert succeeded(deployment["resumed"])
+    assert not (successor.path(PROJECT) / "half-written.yaml").exists()
+    assert successor.unpushed(PROJECT) == ()
+
+
+@then("the specification file SHALL match the configured branch")
+def _the_specification_matches_the_branch(deployment: dict[str, Any]) -> None:
+    successor = deployment["successor"]
+    head = successor.head(PROJECT)
+
+    assert (successor.path(PROJECT) / SCOUT_SPEC).read_bytes() == deployment["branch_content"]
+    assert successor.read(PROJECT, SCOUT_SPEC, head) == deployment["branch_content"]
+
+
+@given("a write-back accepted just before retirement begins")
+def _a_write_back_accepted_just_before_retirement(
+    deployment: dict[str, Any], tmp_path: Path
+) -> None:
+    host = _a_working_copy(tmp_path)
+    deployment["host"] = host
+    deployment["edited"] = b"schema_version: 1\nid: mech_scout\nname: Scout Mech\nstatus: rigging\n"
+    deployment["edit"] = Edit(
+        path=SCOUT_SPEC,
+        content=deployment["edited"],
+        based_on=ContentHash.of(CORPUS[SCOUT_SPEC]),
+    )
+
+
+@when("it commits and pushes within the drain window")
+def _it_commits_and_pushes_within_the_window(deployment: dict[str, Any]) -> None:
+    started = time.monotonic()
+    deployment["outcome"] = write_back(
+        PROJECT,
+        [deployment["edit"]],
+        repository_host=deployment["host"],
+        author=RAFA_GIT,
+        message="mech_scout: set status",
+        timeout=_rollover().write_back_timeout,
+    )
+    deployment["elapsed"] = timedelta(seconds=time.monotonic() - started)
+
+
+@then("the caller SHALL receive success")
+def _the_caller_received_success(deployment: dict[str, Any]) -> None:
+    assert succeeded(deployment["outcome"])
+    assert deployment["elapsed"] < _rollover().drain_window
+
+
+@then("the commit SHALL exist on the configured branch attributed to the acting person")
+def _the_commit_is_on_the_branch_attributed(deployment: dict[str, Any]) -> None:
+    """Read back through a second instance, so "on the branch" means the remote."""
+    successor = _successor(deployment["host"])
+    successor.fetch(PROJECT, confirmed_at=datetime(2026, 9, 19, 12, 30, tzinfo=UTC))
+
+    assert successor.read(PROJECT, SCOUT_SPEC, successor.head(PROJECT)) == deployment["edited"]
+    assert deployment["host"].unpushed(PROJECT) == ()
+    assert deployment["outcome"].value.commit.author == RAFA_GIT
+
+
+# --------------------------------------------------------------------------
+# Group 7 — one volume destroyed at a time, and the procedure that gets it back
+#
+# `tests/integration/test_recovery_drills.py` is the same three procedures with
+# their durations measured and compared against `deploy/recovery.md`; these are
+# the scenarios the specification states, over the same real git, real
+# PostgreSQL and real blob volume.
+# --------------------------------------------------------------------------
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Index volume destroyed",
+)
+def test_index_volume_destroyed() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Blob volume destroyed",
+)
+def test_blob_volume_destroyed() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Working copy destroyed",
+)
+def test_working_copy_destroyed() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Drills are executed, not assumed",
+)
+def test_drills_are_executed_not_assumed() -> None: ...
+
+
+RECOVERY_DOCUMENT = Path("deploy") / "recovery.md"
+
+INDEX_TABLES = (
+    "assets",
+    "search_misses",
+    "idempotency_keys",
+    "dismissals",
+    "schema_migrations",
+)
+
+
+def _mirrored(host: Any, blobs: FsBlobStore) -> dict[str, bytes]:
+    """Every blob this project's specifications point at, and its bytes."""
+    report = mirror_project(
+        PROJECT,
+        repository_host=host,
+        spec_store=GitSpecStore(host.path(PROJECT)),
+        blob_store=blobs,
+    )
+    assert succeeded(report), report
+    return {key: blobs.verified(key) for key in sorted(set(report.value.keys.values()))}
+
+
+@given("the index volume is deleted while the working copies are intact")
+def _the_index_volume_is_deleted(
+    deployment: dict[str, Any], tmp_path: Path, postgres_dsn: str
+) -> None:
+    host = _a_working_copy(tmp_path)
+    recover.rebuild_from(host.path(PROJECT), dsn=postgres_dsn)
+    deployment["host"] = host
+    deployment["dsn"] = postgres_dsn
+    deployment["before"] = _listing(postgres_dsn)
+    assert deployment["before"], "the project has an index to lose"
+
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        for table in INDEX_TABLES:
+            connection.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+    assert host.path(PROJECT).is_dir(), "one volume at a time: the copy is intact"
+
+
+@when("the documented index recovery is performed")
+def _the_documented_index_recovery_is_performed(deployment: dict[str, Any]) -> None:
+    started = time.monotonic()
+    deployment["recovery"] = recover.recover(
+        [deployment["host"].path(PROJECT)], dsn=deployment["dsn"]
+    )
+    deployment["elapsed"] = timedelta(seconds=time.monotonic() - started)
+
+
+@then("lookups SHALL return the same results they returned before the loss")
+def _lookups_return_what_they_did_before(deployment: dict[str, Any]) -> None:
+    assert _listing(deployment["dsn"]) == deployment["before"]
+
+
+@then("the elapsed time SHALL be recorded and compared against the stated expected duration")
+def _the_elapsed_time_is_compared(deployment: dict[str, Any], repo_root: Path) -> None:
+    """The comparison, and the record that makes it possible (D9)."""
+    document = (repo_root / RECOVERY_DOCUMENT).read_text(encoding="utf-8")
+    stated = {one.procedure: one.expected for one in expectations(document)}
+
+    assert deployment["elapsed"] <= stated["index-rebuild"]
+    assert latest(drills(document), "index-rebuild") is not None
+
+
+@given("the blob volume is deleted while the working copies are intact")
+def _the_blob_volume_is_deleted(deployment: dict[str, Any], tmp_path: Path) -> None:
+    host = _a_working_copy(tmp_path, ILLUSTRATED)
+    volume = tmp_path / "blobs"
+    blobs = FsBlobStore(volume)
+    deployment["host"] = host
+    deployment["volume"] = volume
+    deployment["before"] = _mirrored(host, blobs)
+    assert deployment["before"], "the project has blobs to lose"
+
+    shutil.rmtree(volume)
+    deployment["blobs"] = FsBlobStore(volume)
+    assert not any(deployment["blobs"].exists(key) for key in deployment["before"])
+    assert host.path(PROJECT).is_dir(), "one volume at a time: the copy is intact"
+
+
+@when("the documented blob recovery is performed")
+def _the_documented_blob_recovery_is_performed(deployment: dict[str, Any]) -> None:
+    deployment["after"] = _mirrored(deployment["host"], deployment["blobs"])
+
+
+@then("every blob derived from repository content SHALL be retrievable again by the same reference")
+def _every_blob_is_retrievable_again(deployment: dict[str, Any]) -> None:
+    """Keys are content digests, which is what makes *the same reference* sayable."""
+    assert deployment["after"] == deployment["before"]
+    assert all(deployment["blobs"].exists(key) for key in deployment["before"])
+
+
+@given("a project's working copy volume is deleted")
+def _a_working_copy_volume_is_deleted(
+    deployment: dict[str, Any], tmp_path: Path, postgres_dsn: str
+) -> None:
+    host = _a_working_copy(tmp_path, ILLUSTRATED)
+    deployment["host"] = host
+    deployment["dsn"] = postgres_dsn
+    deployment["volume"] = tmp_path / "blobs"
+    deployment["revision"] = host.head(PROJECT).value
+
+    shutil.rmtree(host.path(PROJECT))
+    assert not host.path(PROJECT).exists()
+
+
+@when("the documented working-copy recovery is performed")
+def _the_documented_working_copy_recovery_is_performed(deployment: dict[str, Any]) -> None:
+    deployment["recovered"] = deployment["host"].recover(PROJECT)
+
+
+@then("the working copy SHALL be restored at the configured branch's current revision")
+def _the_working_copy_is_at_the_branch_revision(deployment: dict[str, Any]) -> None:
+    host = deployment["host"]
+
+    assert host.path(PROJECT).is_dir()
+    assert host.head(PROJECT).value == deployment["revision"]
+    assert host.remote_of(PROJECT).branch == "main"
+
+
+@then("the index and blob recoveries SHALL be able to run from it")
+def _the_other_two_recoveries_run_from_it(deployment: dict[str, Any]) -> None:
+    """The order the runbook states: the copy is the only source the others have."""
+    host = deployment["host"]
+    rebuilt = recover.recover([host.path(PROJECT)], dsn=deployment["dsn"])
+    mirrored = _mirrored(host, FsBlobStore(deployment["volume"]))
+
+    assert rebuilt.indexed > 0
+    assert _listing(deployment["dsn"])
+    assert mirrored
+
+
+@when("the recovery documentation is inspected")
+def _the_recovery_documentation_is_inspected(deployment: dict[str, Any], repo_root: Path) -> None:
+    deployment["document"] = (repo_root / RECOVERY_DOCUMENT).read_text(encoding="utf-8")
+
+
+@then(
+    "each of the three procedures SHALL carry the date and measured duration of its most "
+    "recent execution"
+)
+def _each_procedure_carries_its_last_execution(deployment: dict[str, Any]) -> None:
+    """*"Drills are executed, not assumed."* The drill writes this, not a person."""
+    document = deployment["document"]
+    recorded = drills(document)
+    stated = {one.procedure: one.expected for one in expectations(document)}
+
+    assert set(stated) == set(PROCEDURES)
+    for procedure in PROCEDURES:
+        most_recent = latest(recorded, procedure)
+        assert most_recent is not None, f"{procedure} has never been drilled"
+        assert most_recent.measured > timedelta(0)
+        assert most_recent.measured <= stated[procedure]
+
+
+# --------------------------------------------------------------------------
+# Group 8 — the four applications, and the two surfaces that are never hosted
+#
+# Three of these five scenarios are about a *declaration* and are driven over
+# the real one: `deploy/coolify.yaml`, read by `canon_deploy` against this
+# specification. An exclusion is the requirement nobody notices breaking —
+# nothing fails when a fifth application appears — so the check is the
+# mechanism, and the scenario that a deployment exposing the agent surface is
+# rejected is executed by fabricating exactly that deployment.
+#
+# The other two are about *processes* on a developer's machine, and both are
+# executed as processes: the agent server answers over standard input and
+# output with binding and listening denied in its own interpreter, and `canon
+# validate` and an agent lookup both complete with every outbound connection
+# raising. Denying it in the child rather than mocking it here is the
+# difference between asserting that this code needs no network and asserting
+# that this test remembered to mock everything it uses.
+#
+# `tests/integration/test_component_independence.py` runs the restart matrix
+# against a real PostgreSQL, a real S3 API, a real working copy and a real
+# `uvicorn` process; what is driven here is the same four components over the
+# wired surface, which is where "the other three kept their state" is a
+# question about objects rather than about containers.
+# --------------------------------------------------------------------------
+
+CRATE = "crate"
+CRATE_SPEC = "props/crate/asset.yaml"
+CRATE_EXPORT = "props/crate/exports/SM_crate_LOD0.glb"
+
+CRATE_ASSET = """\
+schema_version: 1
+id: crate
+name: Supply Crate
+status: modeling
+constraints:
+  tri_budget: 12000
+"""
+
+LOCAL_PROJECT = """\
+schema_version: 1
+name: Ronin
+defaults:
+  naming: "SM_{asset}_LOD{n}"
+"""
+
+CLEAN = 0
+"""What `canon validate` exits with when an export satisfies its specification."""
+
+DENY_NETWORK = '''\
+"""Every outbound connection and every name lookup raises in this process."""
+
+import socket
+
+
+def _denied(*_arguments, **_keywords):
+    raise OSError("network access is denied")
+
+
+socket.socket.connect = _denied
+socket.socket.connect_ex = _denied
+socket.create_connection = _denied
+socket.getaddrinfo = _denied
+socket.gethostbyname = _denied
+'''
+
+DENY_LISTENING = '''\
+"""This process may not become a network server. Binding and listening raise."""
+
+import socket
+
+
+def _denied(*_arguments, **_keywords):
+    raise OSError("this process may not listen on a network port")
+
+
+socket.socket.bind = _denied
+socket.socket.listen = _denied
+socket.create_server = _denied
+'''
+
+
+def _a_developer_machine(tmp_path: Path) -> Path:
+    """A working copy with one asset and one export, and nothing hosted anywhere."""
+    from canon_fixtures import mesh as fixtures
+
+    root = tmp_path / "game"
+    (root / ".git").mkdir(parents=True, exist_ok=True)
+    for path, text in ((".canon/project.yaml", LOCAL_PROJECT), (CRATE_SPEC, CRATE_ASSET)):
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    fixtures.write_static_glb(root / CRATE_EXPORT, name="SM_crate_LOD0")
+    return root
+
+
+def _denying(tmp_path: Path, name: str, source: str) -> dict[str, str]:
+    """An environment carrying nothing identifying, and a `sitecustomize` that refuses."""
+    directory = tmp_path / name
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "sitecustomize.py").write_text(source, encoding="utf-8")
+    stripped = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith(("CANON_", "CYBERDYNE_", "OPENAI_", "AWS_", "GIT_"))
+        and name not in {"HOME", "USER", "LOGNAME", "SSH_AUTH_SOCK", "GITHUB_TOKEN"}
+    }
+    return {**stripped, "PYTHONPATH": str(directory)}
+
+
+def _agent_answers(root: Path, calls: dict[str, dict[str, Any]], env: dict[str, str]):
+    """Spawn the agent server and call read tools over standard input and output."""
+    from fastmcp import Client
+    from fastmcp.client.transports import StdioTransport
+
+    async def _ask() -> dict[str, str]:
+        transport = StdioTransport(
+            command=sys.executable,
+            args=["-m", "cybercanon.cli", "mcp", "serve", str(root)],
+            env=env,
+            cwd=str(root),
+        )
+        async with Client(transport) as client:
+            answered = {}
+            for tool, payload in calls.items():
+                result = await client.call_tool(tool, payload)
+                answered[tool] = "\n".join(block.text for block in result.content)
+            return answered
+
+    return asyncio.run(_ask())
+
+
+def _canon(root: Path, *arguments: str, env: dict[str, str]):
+    return subprocess.run(
+        [sys.executable, "-m", "cybercanon.cli", *arguments],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+
+def _declared(repo_root: Path) -> deployed.Inventory:
+    return deployed.load(repo_root / deployed.MANIFEST_PATH)
+
+
+def _non_conformance(repo_root: Path, inventory: deployed.Inventory) -> tuple[str, ...]:
+    return deployed.findings(
+        inventory,
+        required=configuration.REQUIRED,
+        optional=configuration.OPTIONAL,
+        web_required=web_variables(repo_root),
+    )
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "The inventory is enumerable and complete",
+)
+def test_the_inventory_is_enumerable_and_complete() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "A component restarts without taking the others down",
+)
+def test_a_component_restarts_without_taking_the_others_down() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Hosting the agent surface is a specification change",
+)
+def test_hosting_the_agent_surface_is_a_specification_change() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "No network listener for the agent server",
+)
+def test_no_network_listener_for_the_agent_server() -> None: ...
+
+
+@scenario(
+    "../features/add-coolify-deployment/deployment-operations.feature",
+    "Local tools work with the hosted environment unreachable",
+)
+def test_local_tools_work_with_the_hosted_environment_unreachable() -> None: ...
+
+
+# -- the inventory is exactly four -----------------------------------------
+
+
+@given("a deployed environment")
+def _a_deployed_environment(deployment: dict[str, Any], repo_root: Path) -> None:
+    deployment["inventory"] = _declared(repo_root)
+    deployment["non_conformance"] = _non_conformance(repo_root, deployment["inventory"])
+
+
+@when("its components are enumerated")
+def _its_components_are_enumerated(deployment: dict[str, Any]) -> None:
+    deployment["components"] = deployment["inventory"].components
+
+
+@then(
+    "exactly the HTTP API service, the web application, the index database and the blob "
+    "store SHALL be present"
+)
+def _exactly_the_four_are_present(deployment: dict[str, Any]) -> None:
+    assert set(deployment["components"]) == set(deployed.COMPONENTS)
+    assert len(deployment["components"]) == len(deployed.COMPONENTS)
+    assert deployment["non_conformance"] == ()
+
+
+# -- one of them restarts ---------------------------------------------------
+
+
+@given("all four components are running")
+def _all_four_components_are_running(deployment: dict[str, Any], repo_root: Path) -> None:
+    """The four, wired: the API over its index, its blob mirror and its working copy."""
+    running = a_deployment(
+        dependencies=(
+            available(SEARCH_INDEX),
+            available(OBJECT_STORE),
+            available(WORKING_COPY),
+        )
+    )
+    deployment["deployed"] = running
+    deployment["inventory"] = _declared(repo_root)
+    deployment["state"] = {
+        SEARCH_INDEX: running.fakes["search_index"].get(SCOUT, PROJECT),
+        WORKING_COPY: running.host.head(PROJECT).value,
+    }
+    assert running.get(READY_PATH).json()[STATUS_FIELD] == READY
+
+
+@when("any one of them is restarted")
+def _any_one_of_them_is_restarted(deployment: dict[str, Any]) -> None:
+    """Each in turn, because *"any one"* is a claim about all four of them.
+
+    A restart is the component's *process* being replaced while its volume stays
+    where it is: the index and the blob mirror go away and come back, and the
+    API is rebuilt over the fakes that are its volumes. The web application is
+    the fourth, and it depends on none of the others — its own artifact is
+    started, stopped and read by `tests/integration/test_web_readiness_process.py`.
+    """
+    observed: dict[str, Any] = {}
+    for component in (SEARCH_INDEX, OBJECT_STORE):
+        down = a_deployment(dependencies=(unavailable(component, "restarting"),))
+        observed[component] = down.get(READY_PATH).json()
+    deployment["during"] = observed
+
+    replaced = a_deployment(
+        dependencies=(
+            available(SEARCH_INDEX),
+            available(OBJECT_STORE),
+            available(WORKING_COPY),
+        )
+    )
+    deployment["after"] = replaced
+    deployment["recovered"] = {
+        SEARCH_INDEX: replaced.fakes["search_index"].get(SCOUT, PROJECT),
+        WORKING_COPY: replaced.host.head(PROJECT).value,
+    }
+
+
+@then("the remaining three SHALL continue running")
+def _the_remaining_three_continue_running(deployment: dict[str, Any]) -> None:
+    """A restart of one is a degraded feature, never a service that stops."""
+    for component, answered in deployment["during"].items():
+        assert answered[STATUS_FIELD] == READY, f"{component} restarting withheld traffic"
+        assert answered[DEGRADED_FIELD] == [component]
+    assert deployment["inventory"].by_component(deployed.WEB_APPLICATION).volumes == ()
+
+
+@then("the restarted component SHALL return to serving without manual intervention")
+def _the_restarted_component_returns_to_serving(deployment: dict[str, Any]) -> None:
+    after = deployment["after"]
+
+    assert after.get(LIVE_PATH).json()[STATUS_FIELD] == ALIVE
+    assert after.get(READY_PATH).json()[DEGRADED_FIELD] == []
+    assert deployment["recovered"] == deployment["state"], "state did not survive the restart"
+
+
+# -- hosting the agent surface is refused -----------------------------------
+
+
+@given("a request to expose the agent surface over the network")
+def _a_request_to_expose_the_agent_surface(deployment: dict[str, Any], repo_root: Path) -> None:
+    """The request, granted: a fifth application, with a host, serving it."""
+    inventory = _declared(repo_root)
+    deployment["inventory"] = replace(
+        inventory,
+        applications=(
+            *inventory.applications,
+            deployed.Application(
+                name="mcp",
+                component=deployed.AGENT_SERVER,
+                host=f"mcp.{inventory.host_suffix}",
+                dockerfile="deploy/mcp.Dockerfile",
+            ),
+        ),
+    )
+
+
+@when("the deployed inventory is checked against this specification")
+def _the_inventory_is_checked(deployment: dict[str, Any], repo_root: Path) -> None:
+    deployment["non_conformance"] = _non_conformance(repo_root, deployment["inventory"])
+
+
+@then("the deployment SHALL be rejected as non-conforming")
+def _the_deployment_is_rejected(deployment: dict[str, Any]) -> None:
+    found = deployment["non_conformance"]
+
+    assert found, "a deployment hosting the agent server was accepted"
+    assert any(deployed.AGENT_SERVER in line for line in found)
+    assert any("specification change" in line for line in found)
+
+
+# -- the agent server listens on nothing ------------------------------------
+
+
+@given("the agent server is running on a developer machine")
+def _the_agent_server_is_running(deployment: dict[str, Any], tmp_path: Path) -> None:
+    deployment["root"] = _a_developer_machine(tmp_path)
+    deployment["environment"] = _denying(tmp_path, "unlistenable", DENY_LISTENING)
+
+
+@when("its open network ports are inspected")
+def _its_open_network_ports_are_inspected(deployment: dict[str, Any]) -> None:
+    """Denied rather than counted: the process may not open one, and still answers."""
+    deployment["answers"] = _agent_answers(
+        deployment["root"],
+        {"where_is": {"asset_id": CRATE}, "list_assets": {}},
+        deployment["environment"],
+    )
+    deployment["listener"] = subprocess.run(
+        [sys.executable, "-c", "import socket; socket.create_server(('127.0.0.1', 0))"],
+        cwd=deployment["root"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=deployment["environment"],
+    )
+
+
+@then("it SHALL be listening on none")
+def _it_is_listening_on_none(deployment: dict[str, Any]) -> None:
+    assert CRATE in deployment["answers"]["where_is"]
+    assert CRATE in deployment["answers"]["list_assets"]
+    assert deployment["listener"].returncode != 0, "the prohibition was not in force"
+    assert "may not listen" in deployment["listener"].stderr
+
+
+# -- both local tools work with nothing hosted reachable ---------------------
+
+
+@given("every hosted component is unreachable")
+def _every_hosted_component_is_unreachable(deployment: dict[str, Any], tmp_path: Path) -> None:
+    deployment["root"] = _a_developer_machine(tmp_path)
+    deployment["environment"] = _denying(tmp_path, "offline", DENY_NETWORK)
+
+
+@when("a developer validates an export and asks the agent server where an asset lives")
+def _a_developer_validates_and_asks(deployment: dict[str, Any]) -> None:
+    deployment["validated"] = _canon(
+        deployment["root"], "validate", CRATE_EXPORT, env=deployment["environment"]
+    )
+    deployment["answers"] = _agent_answers(
+        deployment["root"], {"where_is": {"asset_id": CRATE}}, deployment["environment"]
+    )
+
+
+@then("both SHALL complete normally")
+def _both_complete_normally(deployment: dict[str, Any]) -> None:
+    validated = deployment["validated"]
+
+    assert validated.returncode == CLEAN, validated.stdout + validated.stderr
+    assert "PASSING" in validated.stdout
+    assert "props/crate" in deployment["answers"]["where_is"]

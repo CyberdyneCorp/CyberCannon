@@ -24,11 +24,14 @@ passes one backed by `os.stat`, and a unit test passes rows that fingerprint to
 ``None`` fingerprints compare equal, so a repository-free test is simply a
 repository where nothing has changed.
 
-**What a scan cannot restore, it does not destroy.** A validated export and its
-validation date are recorded by a *validation run*, not by reading `asset.yaml`,
-so a rebuild carries the two fields forward from the row it replaces rather than
-blanking them. They remain derived — re-validating the export produces them
-again — and nothing else survives a rebuild.
+**A validated export is repository content, and a rebuild reads it** (G2). The
+validation worker writes the outcome of a run as a file beside the asset and
+commits it, so `validations` — a lookup over those files, injected exactly as
+`fingerprints` is — is what makes *"dropping the index loses no answer"* true
+for the one field `asset.yaml` does not carry. A caller with no repository to
+read them from (a laptop, a unit test) passes none, and the rebuild then carries
+the two fields forward from the row it replaces rather than blanking them: what
+a scan cannot restore, it does not destroy.
 """
 
 from __future__ import annotations
@@ -45,7 +48,12 @@ from cybercanon.application.ports.search_index import (
 )
 from cybercanon.application.ports.spec_store import LoadedSpec, ProjectConfig, SpecStore
 from cybercanon.application.results import as_result
+from cybercanon.application.use_cases.validation_records import (
+    ValidationLookup,
+    no_validations,
+)
 from cybercanon.domain.asset import Links
+from cybercanon.domain.validation_outcome import ValidationRecord
 
 Fingerprinter = Callable[[str], FileFingerprint | None]
 """How a caller answers *what does this file look like right now* (D8).
@@ -164,6 +172,7 @@ def entry_for(
     project: ProjectConfig | None = None,
     fingerprint: FileFingerprint | None = None,
     previous: IndexedAsset | None = None,
+    validation: ValidationRecord | None = None,
 ) -> IndexedAsset:
     """One parsed specification as the index holds it.
 
@@ -194,10 +203,26 @@ def entry_for(
         owner_art=asset.owner_art,
         owner_design=asset.owner_design,
         owner_code=asset.owner_code,
-        validated_export=previous.validated_export if previous else None,
-        validated_at=previous.validated_at if previous else None,
+        validated_export=_validated_export(validation, previous),
+        validated_at=_validated_at(validation, previous),
         fingerprint=fingerprint,
     )
+
+
+def _validated_export(
+    validation: ValidationRecord | None, previous: IndexedAsset | None
+) -> str | None:
+    """Which export was validated: the repository's answer, then the old row's."""
+    if validation is not None:
+        return validation.export
+    return previous.validated_export if previous else None
+
+
+def _validated_at(validation: ValidationRecord | None, previous: IndexedAsset | None) -> str | None:
+    """When it was validated, in the shape every surface renders it from."""
+    if validation is not None:
+        return validation.validated_at.isoformat()
+    return previous.validated_at if previous else None
 
 
 def directory_of(spec_path: str) -> str:
@@ -215,6 +240,7 @@ def rebuild_index(
     fingerprints: Fingerprinter = no_fingerprints,
     progress: Progress = no_progress,
     resume: bool = False,
+    validations: ValidationLookup = no_validations,
 ) -> RebuildReport:
     """Scan every specification under `root` and rewrite the project's rows.
 
@@ -241,7 +267,9 @@ def rebuild_index(
     unreadable: list[UnreadableSpec] = []
     for position, path in enumerate(paths, start=1):
         already = _carried_over(path, carried, fingerprints)
-        row = already or _row_for(path, project, spec_store, fingerprints, known, unreadable)
+        row = already or _row_for(
+            path, project, spec_store, fingerprints, known, unreadable, validations
+        )
         if row is not None and already is None:
             search_index.upsert(row)
         if row is not None:
@@ -340,6 +368,7 @@ def _row_for(
     fingerprints: Fingerprinter,
     known: dict[str, IndexedAsset],
     unreadable: list[UnreadableSpec],
+    validations: ValidationLookup = no_validations,
 ) -> IndexedAsset | None:
     """One scanned file as a row, or ``None`` with the failure recorded."""
     try:
@@ -352,6 +381,7 @@ def _row_for(
         project,
         fingerprints(path),
         previous=known.get(loaded.asset.id.value),
+        validation=validations(path),
     )
 
 

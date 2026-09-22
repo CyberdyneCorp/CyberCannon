@@ -15,7 +15,7 @@ it on every build.
 
 | State | Lives on | Recovered from | Lost |
 |---|---|---|---|
-| Specifications, actors mapping, asset requests | the working copy | the remote repository | nothing |
+| Specifications, actors mapping, asset requests, validation outcomes | the working copy | the remote repository | nothing |
 | Asset index, search, lookups | PostgreSQL | a rebuild over the working copy | nothing |
 | Views, exports, preview meshes | the object store | a re-mirror over the working copy | nothing |
 | Idempotency keys | PostgreSQL | nothing — they expire anyway | a replayed write becomes a fresh one, which D5's per-file precondition then refuses |
@@ -23,7 +23,11 @@ it on every build.
 
 Nothing else is held. A request is repository content (D7), which is why the
 drill can assert that its state, its assignee and its attribution survive a
-database that no longer exists.
+database that no longer exists. A validation outcome is repository content for
+the same reason (G2 in `openspec/project.md`): the worker writes
+`asset.validation.json` beside the asset it concerns and commits it, so *which
+export was validated and when* is restored by the rebuild rather than by a row
+somebody hoped was still there.
 
 ## The procedure
 

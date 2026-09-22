@@ -25,7 +25,7 @@
 - [x] 3.4 Verify declining re-authentication leaves the input on screen and unsubmitted
 - [x] 3.5 Implement sign-out clearing all cached project and asset content and verify nothing remains reachable without signing in again
 - [x] 3.6 Display the acting identity on every authenticated screen and verify it matches the session's person
-- [ ] 3.7 Implement the early warning for a person with no mapped git identity, naming the unavailable actions, and verify it appears before any write is attempted
+- [x] 3.7 Implement the early warning for a person with no mapped git identity, naming the unavailable actions, and verify it appears before any write is attempted
 - [x] 3.8 Verify reads continue during an identity provider outage with the unavailability stated
 
 ## 4. Asset browser and search
@@ -41,21 +41,21 @@
 
 ## 5. Project navigation
 
-- [ ] 5.1 Implement project selection and switching, and verify listing, filter and search state are discarded across a switch
-- [ ] 5.2 Verify switching project with an asset open lands on the new project's browser rather than a missing asset
-- [ ] 5.3 Display the owning project on every asset screen and verify it is present on each
-- [ ] 5.4 Implement distinct not-found and not-permitted screens and verify neither reveals the name or content of an asset the person may not read
+- [x] 5.1 Implement project selection and switching, and verify listing, filter and search state are discarded across a switch
+- [x] 5.2 Verify switching project with an asset open lands on the new project's browser rather than a missing asset
+- [x] 5.3 Display the owning project on every asset screen and verify it is present on each
+- [x] 5.4 Implement distinct not-found and not-permitted screens and verify neither reveals the name or content of an asset the person may not read
 
 ## 6. The asset page
 
-- [ ] 6.1 Implement the asset page presenting identity, status, the three owners, effective constraints, open annotations, views, exports with validation outcome, and links; verify each section against a fully populated asset
-- [ ] 6.2 Verify absent content is stated rather than omitted, using an asset with no exports and no annotations
-- [ ] 6.3 Provide the entry points from which the model sheet and the 3D viewer are reached, and verify each address opens its surface
-- [ ] 6.4 Implement address-restores-the-view including surface selection, with degradation to the default view when the named surface no longer exists; verify both
+- [x] 6.1 Implement the asset page presenting identity, status, the three owners, effective constraints, open annotations, views, exports with validation outcome, and links; verify each section against a fully populated asset
+- [x] 6.2 Verify absent content is stated rather than omitted, using an asset with no exports and no annotations
+- [x] 6.3 Provide the entry points from which the model sheet and the 3D viewer are reached, and verify each address opens its surface
+- [x] 6.4 Implement address-restores-the-view including surface selection, with degradation to the default view when the named surface no longer exists; verify both
 
 ## 7. Acceptance
 
-- [ ] 7.1 Verify the application at phone width and on a tablet: the browser, asset page and session flows remain usable, with no horizontal scrolling of the page body
-- [ ] 7.2 Verify every screen in the closed route-state set has been implemented, by enumerating states per route in a test rather than by inspection
+- [x] 7.1 Verify the application at phone width and on a tablet: the browser, asset page and session flows remain usable, with no horizontal scrolling of the page body
+- [x] 7.2 Verify every screen in the closed route-state set has been implemented, by enumerating states per route in a test rather than by inspection
 - [ ] 7.3 Run the acceptance test: a developer who has never seen the tool finds a named asset, reads its constraints and opens its concept, without being told where to click
-- [ ] 7.4 Run `just check` and confirm `openspec validate --all --strict`, the test suite and the D1/D4 structural tests all pass
+- [x] 7.4 Run `just check` and confirm `openspec validate --all --strict`, the test suite and the D1/D4 structural tests all pass
