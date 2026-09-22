@@ -19,6 +19,13 @@ value, per D7 — and hands the adapters to the container, plus the two callable
 the core deliberately refuses to grow a port for: the file fingerprint the
 staleness rule compares (D8) and the commit authors the unmapped-author list
 works through (D12).
+
+**The working copy this container writes through is a
+:class:`~cybercanon.adapters.outbound.git.local_host.LocalRepositoryHost`, not
+the hosted one.** `canon` does not own the checkout and never pushes it: the
+artist cloned it and the artist decides when her work leaves her machine. The
+*use case* above it is the hosted surface's, unchanged, which is what makes
+`canon add-view` and the ingestion endpoint produce the same commit.
 """
 
 from __future__ import annotations
@@ -31,7 +38,10 @@ from cybercanon.adapters.outbound.auth.flows import DeviceAuthorization, Endpoin
 from cybercanon.adapters.outbound.auth.keychain import KeychainCredentialStore
 from cybercanon.adapters.outbound.fs.blob_store import FsBlobStore
 from cybercanon.adapters.outbound.git import revisions
+from cybercanon.adapters.outbound.git.local_host import LocalRepositoryHost
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
+from cybercanon.adapters.outbound.image.inspector import PillowImageInspector
+from cybercanon.adapters.outbound.image.thumbnails import PillowThumbnailRenderer
 from cybercanon.adapters.outbound.mesh.gltf_preview import PreviewSettings
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
 from cybercanon.adapters.outbound.sqlite.search_index import SqliteSearchIndex
@@ -72,17 +82,21 @@ def build_container(root: str | Path, environment: Mapping[str, str] | None = No
     is used) while the sign-in flow is wired only when an issuer is configured.
     """
     spec_store = GitSpecStore(root)
-    settings = preview_settings(spec_store.load_project("").preview)
+    project = spec_store.load_project("")
+    settings = preview_settings(project.preview)
     return Container(
         spec_store=spec_store,
         mesh_inspector=TrimeshInspector(root=spec_store.root, settings=settings),
         blob_store=FsBlobStore(spec_store.root / CANON_DIR),
         search_index=SqliteSearchIndex(spec_store.root),
-        actor_resolver=ActorResolver(project=spec_store.load_project("").name or ""),
+        actor_resolver=ActorResolver(project=project.name or ""),
         fingerprints=file_fingerprints(spec_store.root),
         authors=commit_authors(spec_store.root),
         credential_store=KeychainCredentialStore(),
         interactive_sign_in=device_sign_in(environment),
+        repository_host=LocalRepositoryHost(spec_store.root, project.name or ""),
+        image_inspector=PillowImageInspector(),
+        thumbnail_renderer=PillowThumbnailRenderer(),
     )
 
 

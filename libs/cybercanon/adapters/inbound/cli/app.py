@@ -14,8 +14,16 @@ not, the product has the bug it exists to prevent.
   themselves, plus whatever the project configuration got wrong.
 * `canon changed FILE...` — the pre-commit entry point: validate only the assets
   the changed files belong to, and exit `0` when none of them belong to one.
+* `canon add-view ASSET IMAGE --slot NAME` — a concept view into the working
+  copy, committed in the acting person's name. It is the *same use case* the
+  ingestion endpoint calls, which is what makes the two produce the same
+  commit; what differs is only the working copy underneath — the person's own
+  checkout here, the hosted volume there.
 * `canon index rebuild|misses` — maintenance of the derived index, and the
   zero-result search terms it recorded locally (D11).
+* `canon views rebuild` — re-mirror every concept view and re-derive its
+  thumbnails. Both are derived from the repository by specification, so this is
+  the documented recovery rather than a repair.
 * `canon actors unmapped` — the git authors and recorded owners
   `.canon/actors.yaml` does not bind yet, listed so the file can be completed.
 * `canon auth login|logout|status` — the device-authorization sign-in, the
@@ -58,6 +66,8 @@ from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.errors import OperationFailed
 from cybercanon.application.results import Ok, Result, classify, first_refusal, succeeded
 from cybercanon.application.use_cases.compile_spec import COMPILED_FILENAME
+from cybercanon.application.use_cases.hosted_repository import author_for
+from cybercanon.application.use_cases.ingest_views import UploadedImage
 from cybercanon.application.use_cases.lint_spec import LintReport
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.domain.mesh_facts import MeshFormat
@@ -72,6 +82,13 @@ Validation, checking and compilation need no login, no token and no network.
 NOTHING_TO_DO = "canon: no changed file belongs to an asset"
 
 INDEX_HELP = "Maintain the derived lookup index, and read what it recorded."
+VIEWS_HELP = """\
+Concept views: bring one in, and rebuild what derives from them.
+
+The mirror and the thumbnails are both droppable by specification — the views
+themselves are files in the repository — so `views rebuild` is a recovery
+somebody runs rather than a repair somebody hopes for.
+"""
 ACTORS_HELP = "The people a project's `.canon/actors.yaml` does or does not bind."
 AUTH_HELP = """\
 Sign in to CyberdyneAuth, or sign out again.
@@ -166,14 +183,36 @@ def build_app(container: Container, container_for: ContainerFor | None = None) -
         """Validate only the assets a list of changed files belongs to."""
         _run("changed", json_output, lambda: _changed(container, files))
 
+    @app.command(name="add-view")
+    def add_view(
+        asset: Annotated[str, typer.Argument(help="The asset the view belongs to.")],
+        image: Annotated[Path, typer.Argument(help="The image file to ingest.")],
+        slot: Annotated[
+            str, typer.Option("--slot", help="Which view of the asset this is.")
+        ] = "front",
+        name: Annotated[
+            str, typer.Option("--name", help="The asset's name, when the upload creates it.")
+        ] = "",
+        json_output: JsonOption = False,
+    ) -> None:
+        """Ingest a concept view, committed to this working copy in your name."""
+        _run("add-view", json_output, lambda: _add_view(container, asset, slot, image, name))
+
+    views_app = typer.Typer(add_completion=False, help=VIEWS_HELP, no_args_is_help=True)
     index_app = typer.Typer(add_completion=False, help=INDEX_HELP, no_args_is_help=True)
     actors_app = typer.Typer(add_completion=False, help=ACTORS_HELP, no_args_is_help=True)
     auth_app = typer.Typer(add_completion=False, help=AUTH_HELP, no_args_is_help=True)
     mcp_app = typer.Typer(add_completion=False, help=MCP_HELP, no_args_is_help=True)
+    app.add_typer(views_app, name="views")
     app.add_typer(index_app, name="index")
     app.add_typer(actors_app, name="actors")
     app.add_typer(auth_app, name="auth")
     app.add_typer(mcp_app, name="mcp")
+
+    @views_app.command(name="rebuild")
+    def rebuild_views(json_output: JsonOption = False) -> None:
+        """Re-mirror every concept view and re-derive its thumbnails."""
+        _run("views rebuild", json_output, lambda: _rebuild_views(container))
 
     @index_app.command(name="rebuild")
     def rebuild(
@@ -322,6 +361,54 @@ def _check(container: Container, path: Path) -> Result[Produced]:
             payload=payloads.lint_payload(report, notes),
             text=_check_text(report, notes),
             passed=report.passed,
+        )
+    )
+
+
+def _add_view(
+    container: Container, asset: str, slot: str, image: Path, name: str
+) -> Result[Produced]:
+    """One image into one slot — the same use case the ingestion endpoint calls.
+
+    The author is resolved exactly as every other write resolves one: the acting
+    person through `.canon/actors.yaml` (D5). A person with no entry is refused
+    *naming the missing entry*, here as over HTTP, because committing concept
+    art under a shared identity is how `git blame` stops answering the question
+    the tool exists to answer.
+    """
+    identity = author_for(container.resolve_actor(), container.spec_store)
+    uploads = [UploadedImage(slot=slot, content=_bytes(image), filename=image.name)]
+    result = container.add_views(
+        asset, uploads, author=identity.author, subject=identity.actor.subject, name=name
+    )
+    if not succeeded(result):
+        return result
+    outcome = result.value
+    return Ok(
+        Produced(
+            payload=payloads.ingest_payload(outcome),
+            text=rendering.render_ingestion(outcome),
+            passed=True,
+        )
+    )
+
+
+def _bytes(image: Path) -> bytes:
+    """The file's bytes. The only file this command reads, and it reads it whole."""
+    return image.read_bytes()
+
+
+def _rebuild_views(container: Container) -> Result[Produced]:
+    """Task 3.5's command: the mirror, rebuilt from the repository alone."""
+    result = container.rebuild_view_mirror()
+    if not succeeded(result):
+        return result
+    report = result.value
+    return Ok(
+        Produced(
+            payload=payloads.view_mirror_payload(report),
+            text=rendering.render_view_mirror(report),
+            passed=True,
         )
     )
 

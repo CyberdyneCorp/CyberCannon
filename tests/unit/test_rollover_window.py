@@ -40,6 +40,7 @@ from cybercanon.adapters.wiring.configuration import (
 pytestmark = pytest.mark.unit
 
 COMPLETE = {
+    "CANON_PROJECT": "ronin",
     "CANON_REPOSITORY_URL": "git@github.com:cyberdynecorp/ronin.git",
     "CANON_REPOSITORY_BRANCH": "canon",
     "CANON_REPOSITORY_CREDENTIAL": "a-deploy-key",

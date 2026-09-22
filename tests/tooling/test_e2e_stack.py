@@ -199,6 +199,39 @@ def _failure(stubbed: ModuleType, repo_root: Path) -> str:
     return str(raised.value)
 
 
+def test_the_stack_rebuilds_its_images_before_it_starts_them(
+    fixture: ModuleType, repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`compose up` builds only a *missing* image, which is how a suite goes stale.
+
+    Without `--build`, a machine that has run this suite before starts the API
+    and the web application it built the last time somebody rebuilt them by
+    hand. Every assertion then passes about code that is not running, and the
+    run reports green — the same failure as a silent skip, wearing a passing
+    result. This is the regression test for that.
+    """
+    recorded = tmp_path / "invocations"
+    script = tmp_path / "docker"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'echo " $* " >> "{recorded}"\n'
+        'case " $* " in\n'
+        '  *" up "*) exit 1;;\n'
+        "  *) exit 0;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+    with pytest.raises(fixture.StackDidNotStart), fixture.compose_stack(repo_root):
+        pytest.fail("the stack cannot have come up")
+
+    ups = [line for line in recorded.read_text(encoding="utf-8").splitlines() if " up " in line]
+    assert ups, "the stack never ran `compose up`"
+    assert all("--build" in line for line in ups), ups
+
+
 def test_a_refused_stack_reports_what_docker_printed(stubbed: ModuleType, repo_root: Path) -> None:
     """The stderr that used to reach only a `CalledProcessError` nobody printed."""
     assert REFUSED in _failure(stubbed, repo_root)

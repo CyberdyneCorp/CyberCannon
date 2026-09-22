@@ -16,6 +16,8 @@
 
 import {
 	SURFACE_VERSION,
+	type AnchorResolutions,
+	type AnnotationListing,
 	type ApiResult,
 	type AssetRow,
 	type CompiledSpec,
@@ -26,10 +28,14 @@ import {
 	type LocationAnswer,
 	type Page,
 	type ProjectBriefing,
+	type PreviewContent,
+	type PreviewDescriptor,
+	type RecordedAnnotation,
 	type RecordedRequest,
 	type RequestListing,
 	type SearchHit,
 	type StatusReport,
+	type TriageQueue,
 	type UnreadItems,
 	type ValidationOutcome,
 	type WriteOutcome,
@@ -135,6 +141,44 @@ export class CanonClient {
 	}
 
 	/**
+	 * One asset's threads, filtered by the same vocabulary every surface uses.
+	 *
+	 * The filter is sent and never applied here: `model-sheet-2d` requires the
+	 * sheet and any other surface to present *"the same set of annotations"* for
+	 * one filter, and a client that narrowed a second time would be the place
+	 * they stopped agreeing.
+	 */
+	listAnnotations(
+		project: string,
+		asset: string,
+		options: AnnotationQuery = {}
+	): Promise<ApiResult<AnnotationListing>> {
+		return this.#get(`${annotations(project, asset)}`, annotationParameters(options));
+	}
+
+	/**
+	 * What the 3D viewer loads, where it came from, and what its export measured.
+	 *
+	 * Three reads and no fourth: there is no method here that addresses a working
+	 * export, and there is no address on the surface that would answer one (D7).
+	 */
+	readPreview(project: string, asset: string): Promise<ApiResult<PreviewDescriptor>> {
+		return this.#get(preview(project, asset));
+	}
+
+	readPreviewContent(project: string, asset: string): Promise<ApiResult<PreviewContent>> {
+		return this.#get(`${preview(project, asset)}/content`);
+	}
+
+	readAnchorResolutions(project: string, asset: string): Promise<ApiResult<AnchorResolutions>> {
+		return this.#get(`${preview(project, asset)}/resolutions`);
+	}
+
+	readTriage(project: string, options: TriageQuery = {}): Promise<ApiResult<TriageQueue>> {
+		return this.#get(`/projects/${enc(project)}/triage`, triageParameters(options));
+	}
+
+	/**
 	 * The projects this credential may read, as the deployment reports them.
 	 *
 	 * It is authenticated and it applies the same read decision every other read
@@ -192,6 +236,110 @@ export class CanonClient {
 		);
 	}
 
+	createAnnotation(
+		project: string,
+		asset: string,
+		body: unknown,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('POST', annotations(project, asset), body, options);
+	}
+
+	replyToAnnotation(
+		project: string,
+		asset: string,
+		annotation: string,
+		body: unknown,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('POST', `${one(project, asset, annotation)}/replies`, body, options);
+	}
+
+	editAnnotation(
+		project: string,
+		asset: string,
+		annotation: string,
+		body: unknown,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('PATCH', one(project, asset, annotation), body, options);
+	}
+
+	withdrawAnnotation(
+		project: string,
+		asset: string,
+		annotation: string,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('DELETE', one(project, asset, annotation), null, options);
+	}
+
+	moveAnnotation(
+		project: string,
+		asset: string,
+		annotation: string,
+		body: unknown,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('POST', `${one(project, asset, annotation)}/anchor`, body, options);
+	}
+
+	/**
+	 * Rescue an orphan by naming the subject it belongs on now.
+	 *
+	 * Its own address rather than `\u007banchor\u007d`, because it is not the same
+	 * operation: a move is *its author* putting their own pin somewhere else, and
+	 * a re-anchor is anybody with write access rescuing a thread whose part is
+	 * gone — attributed as a re-anchoring, and refused for an automated caller
+	 * acting on its own.
+	 */
+	reanchorAnnotation(
+		project: string,
+		asset: string,
+		annotation: string,
+		body: unknown,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('POST', `${one(project, asset, annotation)}/reanchor`, body, options);
+	}
+
+	resolveAnnotation(
+		project: string,
+		asset: string,
+		annotation: string,
+		body: unknown,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('POST', `${one(project, asset, annotation)}/resolution`, body, options);
+	}
+
+	reopenAnnotation(
+		project: string,
+		asset: string,
+		annotation: string,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('DELETE', `${one(project, asset, annotation)}/resolution`, null, options);
+	}
+
+	/**
+	 * The one exit this client cannot make available to everybody.
+	 *
+	 * It is an ordinary call — the refusal is the system's, not the client's —
+	 * and that is `model-sheet-2d`'s point in so many words: *"hiding an action
+	 * SHALL NOT be the only enforcement"*. The panel offers it to a director;
+	 * this method exists for anybody, and the server decides.
+	 */
+	promoteAnnotation(
+		project: string,
+		asset: string,
+		annotation: string,
+		body: unknown,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedAnnotation>> {
+		return this.#send('POST', `${one(project, asset, annotation)}/promotion`, body, options);
+	}
+
 	dismiss(
 		project: string,
 		request: string,
@@ -213,7 +361,13 @@ export class CanonClient {
 		addressing: Addressing = {}
 	): Promise<ApiResult<T>> {
 		const search = new URLSearchParams(parameters).toString();
-		return this.#request<T>('GET', `${path}${search ? `?${search}` : ''}`, undefined, {}, addressing);
+		return this.#request<T>(
+			'GET',
+			`${path}${search ? `?${search}` : ''}`,
+			undefined,
+			{},
+			addressing
+		);
 	}
 
 	#send<T>(
@@ -254,6 +408,46 @@ export class CanonClient {
 
 function enc(segment: string): string {
 	return encodeURIComponent(segment);
+}
+
+function preview(project: string, asset: string): string {
+	return `/projects/${enc(project)}/assets/${enc(asset)}/preview`;
+}
+
+function annotations(project: string, asset: string): string {
+	return `/projects/${enc(project)}/assets/${enc(asset)}/annotations`;
+}
+
+function one(project: string, asset: string, annotation: string): string {
+	return `${annotations(project, asset)}/${enc(annotation)}`;
+}
+
+/** What a thread listing may be narrowed by — the kinds, and the exit states. */
+export interface AnnotationQuery {
+	readonly kinds?: readonly string[];
+	readonly states?: readonly string[];
+}
+
+/** What the art director's pass may be narrowed by. */
+export interface TriageQuery {
+	readonly kind?: string;
+	readonly asset?: string;
+	readonly owner?: string;
+}
+
+function annotationParameters(options: AnnotationQuery): Record<string, string> {
+	const parameters: Record<string, string> = {};
+	if (options.kinds?.length) parameters.kind = options.kinds.join(',');
+	if (options.states?.length) parameters.state = options.states.join(',');
+	return parameters;
+}
+
+function triageParameters(options: TriageQuery): Record<string, string> {
+	const parameters: Record<string, string> = {};
+	if (options.kind) parameters.kind = options.kind;
+	if (options.asset) parameters.asset = options.asset;
+	if (options.owner) parameters.owner = options.owner;
+	return parameters;
 }
 
 function listParameters(options: ListOptions): Record<string, string> {

@@ -19,10 +19,12 @@ three:
 * recovery throws away whatever is queued and resets to the remote, reporting
   what it discarded.
 
-Three seams let a test stage the cases that matter and cannot be staged by
+Four seams let a test stage the cases that matter and cannot be staged by
 arranging content alone: :meth:`push_to_remote` is somebody else committing
-directly, :meth:`fail_next_fetch` is the network going away for one call, and
-:meth:`reject_next_pushes` is the remote advancing between a commit and its push.
+directly, :meth:`fail_next_fetch` is the network going away for one call,
+:meth:`reject_next_pushes` is the remote advancing between a commit and its
+push, and :meth:`truncate_history` is a shallow clone that holds only part of a
+file's history.
 """
 
 from __future__ import annotations
@@ -36,6 +38,8 @@ from datetime import UTC, datetime
 from cybercanon.application.ports.repository_host import (
     Commit,
     FileChange,
+    FileHistory,
+    FileRevision,
     ProjectNotReady,
     ProjectState,
     ProjectStatus,
@@ -45,7 +49,7 @@ from cybercanon.application.ports.repository_host import (
     RevisionUnreachable,
 )
 from cybercanon.domain.actors import GitAuthor
-from cybercanon.domain.revisions import Revision, ServedRevision
+from cybercanon.domain.revisions import ContentHash, Revision, ServedRevision
 
 EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 """When a project that nobody dated was cloned."""
@@ -67,6 +71,7 @@ class _Project:
     fail_fetches: int = 0
     reject_pushes: int = 0
     unreachable: str = ""
+    truncated_before: str = ""
     lock: threading.RLock = field(default_factory=threading.RLock)
 
 
@@ -110,6 +115,16 @@ class InMemoryRepositoryHost:
     def reject_next_pushes(self, project: str, times: int = 1) -> None:
         """The remote advanced: the next `times` pushes are rejected (D6)."""
         self._held(project).reject_pushes = times
+
+    def truncate_history(self, project: str, before: str) -> None:
+        """This working copy is shallow from `before` backwards — the fourth seam.
+
+        `view-versioning`'s truncated-history requirement cannot be staged by
+        arranging content, because content is exactly what a shallow clone still
+        has: what it lacks is the commits behind it. So it is a seam, like an
+        unreachable remote and a rejected push.
+        """
+        self._held(project).truncated_before = before
 
     def unpushed(self, project: str) -> tuple[Commit, ...]:
         """The commits this working copy holds and the remote does not."""
@@ -224,6 +239,37 @@ class InMemoryRepositoryHost:
         held.remote_head = held.served.revision.value
         held.queued.clear()
         return Revision(held.remote_head)
+
+    def history(self, project: str, path: str, limit: int | None = None) -> FileHistory:
+        """Every commit this host recorded that changed `path`, newest first.
+
+        Built from the recorded commits rather than from a second structure, so
+        the fake cannot list a revision the commit log does not contain — which
+        is the shape a caller gets from git and the shape the conformance suite
+        pins both implementations to.
+        """
+        held = self._held(project)
+        entries = [
+            self._revision_of(held, commit, path)
+            for commit in self._history.get(project, ())
+            if path in commit.paths
+        ]
+        entries.reverse()
+        bounded = entries if limit is None else entries[:limit]
+        return FileHistory(
+            path=path, revisions=tuple(bounded), truncated_before=held.truncated_before
+        )
+
+    def _revision_of(self, held: _Project, commit: Commit, path: str) -> FileRevision:
+        """What `path` held at that commit — absent means the commit removed it."""
+        content = held.revisions.get(commit.revision.value, {}).get(path)
+        return FileRevision(
+            revision=commit.revision,
+            author=commit.author,
+            at=commit.at or self._now,
+            content=ContentHash.of(content) if content is not None else None,
+            byte_size=len(content) if content is not None else 0,
+        )
 
     def recover(self, project: str) -> Recovery:
         held = self._held(project)

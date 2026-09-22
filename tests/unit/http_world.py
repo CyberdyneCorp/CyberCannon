@@ -123,9 +123,23 @@ class Wired:
     def post(self, path: str, token: str = TOKEN, key: str = "", **arguments: Any) -> Any:
         return self.client.post(path, headers=_headers(token, key), **arguments)
 
+    def patch(self, path: str, token: str = TOKEN, key: str = "", **arguments: Any) -> Any:
+        return self.client.patch(path, headers=_headers(token, key), **arguments)
+
+    def delete(self, path: str, token: str = TOKEN, key: str = "", **arguments: Any) -> Any:
+        return self.client.request("DELETE", path, headers=_headers(token, key), **arguments)
+
     @property
     def notifier(self) -> Any:
         return self.fakes["notifier"]
+
+    @property
+    def image_inspector(self) -> Any:
+        return self.fakes["image_inspector"]
+
+    @property
+    def blob_store(self) -> Any:
+        return self.fakes["blob_store"]
 
     @property
     def dismissals(self) -> Any:
@@ -169,16 +183,27 @@ def a_surface(
     assets: Mapping[str, str] | None = None,
     dependencies: tuple[Dependency, ...] = (),
     mapped: bool = True,
+    declared: str = "",
+    origins: tuple[str, ...] = (),
 ) -> Wired:
     """A surface serving one project, with the assets a test asked for.
 
     `mapped` controls whether the acting person has a git identity in
     `.canon/actors.yaml` (D8). Off, every write is refused naming the missing
     entry — which is the behaviour, not a limitation of the fixture.
+
+    `declared` is what the working copy's `.canon/project.yaml` calls itself,
+    and it defaults to the address so that the ordinary fixture is the ordinary
+    deployment. A test that sets it to something else is asking the question the
+    address exists to answer: which of the two names is the project's identity.
+
+    `origins` is the browser origins this deployment permits
+    (:mod:`cybercanon.adapters.inbound.http.cors`). Empty means none, which is
+    what a service nobody pointed a web application at grants.
     """
     fakes = build_fakes()
     spec_store, index, host = fakes["spec_store"], fakes["search_index"], fakes["repository_host"]
-    spec_store.set_project(ProjectConfig(name=PROJECT))
+    spec_store.set_project(ProjectConfig(name=declared or PROJECT))
     for asset_id, spec_path in (assets or {SCOUT: SCOUT_SPEC}).items():
         spec_store.add(spec_path, an_asset(asset_id))
         index.upsert(an_index_row(asset_id, spec_path))
@@ -216,6 +241,10 @@ def a_surface(
         idempotency=InMemoryIdempotencyStore(),
         dismissals=fakes["dismissals"],
         notifier=fakes["notifier"],
+        image_inspector=fakes["image_inspector"],
+        thumbnail_renderer=fakes["thumbnail_renderer"],
+        view_index=fakes["view_index"],
         observe=lambda: dependencies,
+        web_origins=origins,
     )
     return Wired(client=TestClient(build_app(surface=surface)), surface=surface, fakes=fakes)

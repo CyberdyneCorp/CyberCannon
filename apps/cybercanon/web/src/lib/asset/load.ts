@@ -22,10 +22,14 @@
 import type { Surface } from '$lib/address';
 import { readAssetAddress } from '$lib/address';
 import type {
+	AnchorResolutions,
+	AnnotationListing,
 	ApiResult,
 	Failure,
 	LensedSpec,
 	LocationAnswer,
+	PreviewContent,
+	PreviewDescriptor,
 	ValidationOutcome
 } from '$lib/api';
 import { routeStateFor } from '$lib/api';
@@ -39,37 +43,164 @@ export interface AssetReads {
 	locations(project: string, asset: string): Promise<ApiResult<LocationAnswer>>;
 	asset(project: string, asset: string, lens?: string): Promise<ApiResult<LensedSpec>>;
 	validate(project: string, exportPath: string): Promise<ApiResult<ValidationOutcome>>;
+	annotations?(project: string, asset: string): Promise<ApiResult<AnnotationListing>>;
+	preview?(project: string, asset: string): Promise<ApiResult<PreviewDescriptor>>;
+	previewContent?(project: string, asset: string): Promise<ApiResult<PreviewContent>>;
+	anchorResolutions?(project: string, asset: string): Promise<ApiResult<AnchorResolutions>>;
 }
+
+/**
+ * What the 3D viewer needs, read by the route so the view reaches no API (D2).
+ *
+ * `null` on every other surface. The bytes travel base64 exactly as the surface
+ * renders them and are decoded once, here, so the component is handed a buffer
+ * and never learns what an encoding is.
+ */
+export interface ViewerReads {
+	readonly descriptor: PreviewDescriptor | null;
+	readonly resolutions: AnchorResolutions | null;
+	readonly bytes: ArrayBuffer | null;
+	/** Why the preview's bytes could not be read, when the descriptor named one. */
+	readonly unloadable: string | null;
+}
+
+export const NO_VIEWER: ViewerReads = {
+	descriptor: null,
+	resolutions: null,
+	bytes: null,
+	unloadable: null
+};
 
 /** The address as this asset resolves it, and the screen at it. */
 export interface AssetScreen {
-	readonly address: { readonly project: string; readonly asset: string; readonly surface: Surface };
+	readonly address: {
+		readonly project: string;
+		readonly asset: string;
+		readonly surface: Surface;
+		/** The thread the address opens on, when the triage pass linked to one. */
+		readonly annotation?: string;
+	};
 	readonly available: readonly Surface[];
 	readonly state: RouteState<AssetPage>;
+	/**
+	 * The asset's threads, read only when the sheet is the surface being opened.
+	 *
+	 * The route reads them so the sheet does not: *"views never call the API
+	 * directly"*, and the ViewModel is handed what the route already has (D9).
+	 * `null` on every other surface, because a screen that does not show threads
+	 * should not be paying for them.
+	 */
+	readonly annotations?: AnnotationListing | null;
+	/** What the 3D viewer needs, read only when the viewer is what is being opened. */
+	readonly viewer?: ViewerReads;
 }
 
 /** The surfaces an asset has before anything has been read about it. */
 export const BEFORE_READING: readonly Surface[] = ['overview'];
 
+/** What a caller can ask the asset screen to leave out. One entry, for one reason. */
+export interface AssetOptions {
+	/**
+	 * Whether to read the preview's bytes.
+	 *
+	 * `false` during server rendering. The descriptor, the orphan count and every
+	 * sentence the viewer states are all read either way — what is skipped is the
+	 * one expensive thing, and it is the one thing only a browser can use: the
+	 * mesh is handed to a renderer that does not exist on the server, and the
+	 * universal `load` runs again in the browser, which is where it is fetched.
+	 */
+	readonly previewBytes?: boolean;
+}
+
 export async function assetScreen(
 	api: AssetReads,
 	project: string,
 	asset: string,
-	url: URL
+	url: URL,
+	options: AssetOptions = {}
 ): Promise<AssetScreen> {
 	const locations = await api.locations(project, asset);
 	if (!locations.ok) return refused(project, asset, url, locations.failure);
 	const spec = await api.asset(project, asset);
 	if (!spec.ok) return refused(project, asset, url, spec.failure);
 	const validation = await verdict(api, project, locations.data);
-	const page = assetPage({ project, locations: locations.data, document: spec.data.full, validation });
+	const page = assetPage({
+		project,
+		locations: locations.data,
+		document: spec.data.full,
+		validation
+	});
 	const available = availableSurfaces(page);
 	const address = readAssetAddress(project, asset, url, available);
 	const state = screenFor<AssetPage>(
 		{ ok: true, data: page, freshness: locations.freshness },
 		{ unavailable: disclosures(address.notice, locations.data) }
 	);
-	return { address, available, state };
+	return {
+		address,
+		available,
+		state,
+		annotations: await threads(api, project, asset, address.surface),
+		viewer: await viewerReads(api, project, asset, address.surface, options)
+	};
+}
+
+/**
+ * The preview descriptor, the orphan count and the preview's bytes.
+ *
+ * Read here rather than in the component for the reason every other read is:
+ * *"views never call the API directly"*, and the query cache is the one place
+ * server state lives (D2). The descriptor and the resolutions are read even
+ * when there is no preview — the descriptor is what *carries* the reason there
+ * is none, and the orphan count is answerable with no renderer at all (D6).
+ */
+async function viewerReads(
+	api: AssetReads,
+	project: string,
+	asset: string,
+	surface: Surface,
+	options: AssetOptions
+): Promise<ViewerReads> {
+	if (surface !== 'viewer' || !api.preview) return NO_VIEWER;
+	const described = await api.preview(project, asset);
+	if (!described.ok) return NO_VIEWER;
+	const resolutions = api.anchorResolutions
+		? await api.anchorResolutions(project, asset)
+		: null;
+	const wanted = options.previewBytes ?? true;
+	const content =
+		wanted && described.data.preview && api.previewContent
+			? await api.previewContent(project, asset)
+			: null;
+	return {
+		descriptor: described.data,
+		resolutions: resolutions?.ok ? resolutions.data : null,
+		bytes: content?.ok ? decode(content.data.content) : null,
+		unloadable: content && !content.ok ? content.failure.message : null
+	};
+}
+
+/** The preview's bytes, decoded once. The component is handed a buffer. */
+function decode(base64: string): ArrayBuffer {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+	return bytes.buffer;
+}
+
+/** The asset's threads, when the sheet is what is being opened, and never otherwise. */
+async function threads(
+	api: AssetReads,
+	project: string,
+	asset: string,
+	surface: Surface
+): Promise<AnnotationListing | null> {
+	// Both annotating surfaces need them, and for the same reason: the threads
+	// are the valuable half, and the viewer lists them — orphans included —
+	// whether or not anything renders (D11).
+	if ((surface !== 'sheet' && surface !== 'viewer') || !api.annotations) return null;
+	const listing = await api.annotations(project, asset);
+	return listing.ok ? listing.data : null;
 }
 
 /**

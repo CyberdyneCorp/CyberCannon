@@ -15,96 +15,27 @@
 
 agent-identity :: Scheduled run cannot act as a person
 agent-identity :: Unattainable budget is reported, not changed
-anchor-resolution :: A moved hint does not break resolution
-anchor-resolution :: Bone absent, part present
 anchor-resolution :: Hint lands on the named part, not the nearest surface
 anchor-resolution :: Large displacement is flagged
 anchor-resolution :: No saved camera falls back to framing the part
-anchor-resolution :: Nothing re-anchors on its own
-anchor-resolution :: Orphan status is determinable without rendering
-anchor-resolution :: Orphans are listed
-anchor-resolution :: Part and bone both present
 anchor-resolution :: Part dropped by preview emission is not an orphan
 anchor-resolution :: Placement on empty space is refused
-anchor-resolution :: Placement records the named part
-anchor-resolution :: Re-anchoring clears the orphan state
-anchor-resolution :: Re-anchoring is attributed
-anchor-resolution :: Re-anchoring preserves the conversation
-anchor-resolution :: Renamed part orphans rather than relocates
 anchor-resolution :: Resolution does not depend on the camera
 anchor-resolution :: Restoring does not rewrite the annotation
-anchor-resolution :: Retopology preserves the anchor
 anchor-resolution :: Same part resolved in both
 anchor-resolution :: Saved camera is restored
 anchor-resolution :: Small displacement is not flagged
-anchor-resolution :: Topology identifiers are not stored
-animation-playback :: A deliberately unanimated state is not a gap
 animation-playback :: A preview with no clips says so
-animation-playback :: An unclaimed clip is labelled, not rejected
-animation-playback :: Clip and position are recorded
-animation-playback :: Clip is attributed to its state
 animation-playback :: Clips are listed
 animation-playback :: Clips lost in preview emission
 animation-playback :: Frame and camera are restored together
 animation-playback :: Missing clip degrades without breaking the annotation
-animation-playback :: Missing clip is shown, not omitted
 animation-playback :: Pause holds the displayed pose
 animation-playback :: Playback does not rewrite anchors
 animation-playback :: Playback leaves no trace in the specification
 animation-playback :: Pose does not corrupt the hint
 animation-playback :: Scrubbing is deterministic
 animation-playback :: Speed does not alter the clip
-animation-playback :: The durable key is unaffected
-annotation-authoring :: A mixed list is uniform
-annotation-authoring :: Agent-originated annotation names both
-annotation-authoring :: Anchor naming an absent subject refused
-annotation-authoring :: Anchorless annotation refused
-annotation-authoring :: Annotation created on a view
-annotation-authoring :: Annotation is visible in version control
-annotation-authoring :: Deleting a thread with replies refused
-annotation-authoring :: Deleting an untouched annotation succeeds
-annotation-authoring :: Editing another person's annotation refused
-annotation-authoring :: Engineer raises art direction feedback
-annotation-authoring :: Index rebuild loses nothing
-annotation-authoring :: Kind is machine-readable
-annotation-authoring :: Marks travel with the annotation
-annotation-authoring :: Move is attributed and visible
-annotation-authoring :: New annotation is awaiting triage
-annotation-authoring :: New annotation reaches the briefing
-annotation-authoring :: Orphan can still be resolved
-annotation-authoring :: Read-only person refused
-annotation-authoring :: Removed view orphans its annotations
-annotation-authoring :: Reply inherits the thread's anchor
-annotation-authoring :: Same operations, same outcomes across media
-annotation-authoring :: Source image untouched
-annotation-authoring :: Submitted author field is ignored
-annotation-authoring :: Text edit leaves the anchor untouched
-annotation-authoring :: Thread order is stable
-annotation-authoring :: Unattributable contribution refused
-annotation-authoring :: Unknown kind refused
-annotation-triage :: A second exit is refused
-annotation-triage :: An uninvolved person may not resolve
-annotation-triage :: Art director's agent refused
-annotation-triage :: Artist attempting promotion refused
-annotation-triage :: Failed write leaves nothing half-done
-annotation-triage :: Index rebuild preserves the promotion
-annotation-triage :: Invalid resulting constraint refused
-annotation-triage :: Mixed queue is ordered by the same signals
-annotation-triage :: Only two exits are offered
-annotation-triage :: Promotion adds a rule, not a thread
-annotation-triage :: Promotion is absent from the agent surface
-annotation-triage :: Promotion is visible in history
-annotation-triage :: Promotion lands the rule
-annotation-triage :: Promotion with no destination refused
-annotation-triage :: Queue is filterable for a pass
-annotation-triage :: Queue needs no derived store
-annotation-triage :: Refusal does not remove other exits
-annotation-triage :: Reopening a promotion refused
-annotation-triage :: Reopening a resolved issue
-annotation-triage :: Repeated feedback rises
-annotation-triage :: Resolved annotation leaves the briefing
-annotation-triage :: Same exit, either medium
-annotation-triage :: Settling many issues does not inflate the briefing
 app-navigation :: A link to a specific surface opens it
 app-navigation :: A shared link still resolves after a rename
 app-navigation :: Absent content is stated, not hidden
@@ -131,41 +62,6 @@ asset-spec :: Missing part yields an orphan, not a wrong placement
 asset-spec :: Promotion retires the annotation
 asset-spec :: Resolution does not become permanent context
 asset-validation :: Reporting a result is separable and non-blocking
-concept-ingestion :: A first view does not promote an asset
-concept-ingestion :: A late concept view does not demote an asset
-concept-ingestion :: A newly exported render appears
-concept-ingestion :: A slot holds one view
-concept-ingestion :: A supplied author is ignored
-concept-ingestion :: Agent-mediated upload names both
-concept-ingestion :: An invalid asset identifier creates nothing
-concept-ingestion :: An unmappable person is refused before any write
-concept-ingestion :: An unsupported format is rejected
-concept-ingestion :: Arbitrary named view
-concept-ingestion :: Cached images are distinguishable by content
-concept-ingestion :: Canonical slot
-concept-ingestion :: Commit authorship is the uploader
-concept-ingestion :: Content decides, not the extension
-concept-ingestion :: Creating an asset by uploading its first concept
-concept-ingestion :: Deterministic derivation
-concept-ingestion :: Exactly at the limit is accepted
-concept-ingestion :: Existing authored content is untouched
-concept-ingestion :: Failure before commit retains no blob object
-concept-ingestion :: Failure while writing leaves the working copy as it was
-concept-ingestion :: Freshness cannot be established
-concept-ingestion :: Ingestion with model access disabled
-concept-ingestion :: Invalid slot name
-concept-ingestion :: Mirror outage does not block ingestion
-concept-ingestion :: No blob storage configured at all
-concept-ingestion :: One bad image rejects the request
-concept-ingestion :: Oversized dimensions are rejected
-concept-ingestion :: Oversized file is rejected with numbers
-concept-ingestion :: Post-commit derived failure is a pending step, not a failed upload
-concept-ingestion :: Rebuilding the mirror from the repository
-concept-ingestion :: Three views, one commit
-concept-ingestion :: Thumbnails are recoverable
-concept-ingestion :: Thumbnails stay out of the repository
-concept-ingestion :: Two images cannot claim the same slot
-concept-ingestion :: Uploading generates nothing
 deployment-operations :: Promotion preserves the digest
 deployment-operations :: Rollback selects a previously built artifact
 deployment-operations :: The web application does not require the API to become ready
@@ -281,24 +177,13 @@ metadata-acceptance :: Rejected suggestion does not return
 metadata-acceptance :: Subset accepted
 model-sheet-2d :: Asset with no views
 model-sheet-2d :: Combined filter
-model-sheet-2d :: Default presentation shows open work
-model-sheet-2d :: Discarding before saving leaves nothing
 model-sheet-2d :: Failed write removes the pin
-model-sheet-2d :: Filtering agrees across surfaces
-model-sheet-2d :: Filtering changes nothing durable
 model-sheet-2d :: Finger navigates, stylus annotates
-model-sheet-2d :: Gesture on the background places nothing
-model-sheet-2d :: Hidden is not the same as forbidden
 model-sheet-2d :: Immediate feedback
-model-sheet-2d :: Orphans are visible but not placed
 model-sheet-2d :: Pencil and mouse agree
 model-sheet-2d :: Pin to thread
 model-sheet-2d :: Placement yields an anchor and nothing more
-model-sheet-2d :: Promotion is not offered to a non-director
-model-sheet-2d :: Reload agrees with the repository
-model-sheet-2d :: Round trip preserves the coordinate
 model-sheet-2d :: Same coordinate on a different device
-model-sheet-2d :: Scribble is attached to its annotation
 model-sheet-2d :: Strokes scale with the view
 model-sheet-2d :: Thread to pin across views
 model-sheet-2d :: Two pins at nearly the same coordinate
@@ -324,46 +209,13 @@ semantic-search-delegation :: Service credential is never end-user authority
 semantic-search-delegation :: Slow service does not hold the response
 semantic-search-delegation :: Two people get different results
 semantic-search-delegation :: Unreachable service degrades the response, not the search
-view-versioning :: A different aspect ratio orphans the pins
-view-versioning :: A historical revision is labelled
-view-versioning :: A person re-anchors an orphan
-view-versioning :: A removed view has no current revision
-view-versioning :: A revision list is complete and ordered
-view-versioning :: An identical re-upload is not a revision
-view-versioning :: An orphan can still be read against its own revision
-view-versioning :: Argument order does not change the presentation
-view-versioning :: Comparing a revision with itself
-view-versioning :: Comparing a superseded revision with the current one
-view-versioning :: Comparing two historical revisions
-view-versioning :: History survives a wiped mirror
-view-versioning :: Nothing re-anchors itself
-view-versioning :: Orphans still appear in the compiled briefing
-view-versioning :: Removing a view keeps its history
-view-versioning :: Replacement resolves nothing
-view-versioning :: Revision identifiers are stable
-view-versioning :: Same aspect ratio carries the pins
-view-versioning :: Shallow working copy
-view-versioning :: The outcome is never silent
-view-versioning :: Three uploads, three revisions
-view-versioning :: Unknown revision identifier
-viewer-3d :: Budget-relevant count is the source's
 viewer-3d :: Frame restores a known view
 viewer-3d :: Framing a part
 viewer-3d :: Isolation is reversible
 viewer-3d :: Isolation leaves no trace in the specification
-viewer-3d :: No export yet
 viewer-3d :: No rendering support
-viewer-3d :: No route exposes the working export
-viewer-3d :: Preview emission failed
-viewer-3d :: Preview is what is loaded
-viewer-3d :: Provenance is visible
 viewer-3d :: Rendering context lost mid-session
-viewer-3d :: Retrieval fails
-viewer-3d :: Same annotation state in both surfaces
 viewer-3d :: Selecting names the part
-viewer-3d :: Superseded preview is flagged
-viewer-3d :: Triage performed in 3D behaves identically
-viewer-3d :: Unrecorded count is absent, not inferred
 web-session :: Acting identity shown
 web-session :: Arriving signed out
 web-session :: Deep link through sign-in

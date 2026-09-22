@@ -23,7 +23,10 @@ ASCII form's ``Class::name``, reversed and with a different separator).
 
 **The graph.** Parent/child, skin bindings and material assignments are all
 `Connections` entries of the form ``"OO", child_id, parent_id`` — the child
-first. :meth:`FbxDocument.parents_of` is that table, read once.
+first. :meth:`FbxDocument.parents_of` is that table, read once. An animation
+curve is attached to *one named property* of its target instead
+(``"OP", child_id, parent_id, "d|X"``), so :meth:`FbxDocument.connections` keeps
+that fourth field and `parents_of` is the same table with it dropped.
 """
 
 from __future__ import annotations
@@ -99,6 +102,21 @@ class FbxNode:
 
 
 @dataclass(frozen=True)
+class FbxConnection:
+    """One `Connections` entry: what is attached to what, and to which property.
+
+    `relation` is ``"OO"`` for an object attached to an object and ``"OP"`` for
+    an object attached to one named property of an object — which is how an
+    animation curve says it drives ``d|X`` of a translation.
+    """
+
+    relation: str
+    child: int
+    parent: int
+    property: str | None = None
+
+
+@dataclass(frozen=True)
 class FbxDocument:
     """A parsed binary FBX: its version, its top-level records, and its graph."""
 
@@ -146,25 +164,62 @@ class FbxDocument:
                 return entry.properties[4] if len(entry.properties) > 4 else None
         return None
 
+    def connections(self) -> tuple[FbxConnection, ...]:
+        """The `Connections` table, in file order, with the property field kept."""
+        container = self.root("Connections")
+        entries = container.children_named("C") if container else ()
+        return tuple(
+            connection for entry in entries if (connection := _connection(entry)) is not None
+        )
+
     def parents_of(self) -> dict[int, tuple[int, ...]]:
         """child id -> the ids it is connected to, from the `Connections` table."""
         table: dict[int, list[int]] = {}
-        container = self.root("Connections")
-        for entry in container.children_named("C") if container else ():
-            if len(entry.properties) >= 3 and entry.text(0).startswith("O"):
-                child, parent = entry.properties[1], entry.properties[2]
-                if isinstance(child, int) and isinstance(parent, int):
-                    table.setdefault(child, []).append(parent)
+        for connection in self.connections():
+            table.setdefault(connection.child, []).append(connection.parent)
         return {child: tuple(parents) for child, parents in table.items()}
 
 
 def object_property(node: FbxNode, name: str) -> Any | None:
     """One `Properties70` entry of an object record, by name."""
+    values = object_values(node, name)
+    return values[0] if values else None
+
+
+def object_values(node: FbxNode, name: str) -> tuple[Any, ...]:
+    """Every value of one `Properties70` entry — ``Lcl Translation`` carries three."""
     properties = node.child("Properties70")
     for entry in properties.children_named("P") if properties else ():
         if entry.text(0) == name:
-            return entry.properties[4] if len(entry.properties) > 4 else None
-    return None
+            return entry.properties[4:]
+    return ()
+
+
+def object_vector(
+    node: FbxNode, name: str, default: tuple[float, float, float]
+) -> tuple[float, ...]:
+    """A three-component `Properties70` entry, or `default` when it is absent.
+
+    An exporter omits a property at its default value, so absence means the
+    default and not zero — writing zero for an omitted ``Lcl Scaling`` would
+    flatten the object it is read for.
+    """
+    values = object_values(node, name)
+    if len(values) < 3 or not all(isinstance(value, int | float) for value in values[:3]):
+        return default
+    return tuple(float(value) for value in values[:3])
+
+
+def _connection(entry: FbxNode) -> FbxConnection | None:
+    """One `C` record, or ``None`` for one this reader cannot read as a link."""
+    relation = entry.text(0)
+    if len(entry.properties) < 3 or not relation.startswith("O"):
+        return None
+    child, parent = entry.properties[1], entry.properties[2]
+    if not isinstance(child, int) or not isinstance(parent, int):
+        return None
+    named = entry.text(3) if len(entry.properties) > 3 else None
+    return FbxConnection(relation=relation, child=child, parent=parent, property=named)
 
 
 # --------------------------------------------------------------------------
@@ -275,8 +330,11 @@ __all__ = [
     "NAME_SEPARATOR",
     "OLDEST_VERSION",
     "WIDE_VERSION",
+    "FbxConnection",
     "FbxDocument",
     "FbxNode",
     "FbxUnreadable",
     "object_property",
+    "object_values",
+    "object_vector",
 ]

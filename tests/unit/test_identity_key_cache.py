@@ -55,6 +55,7 @@ from cybercanon.application.use_cases.service_health import (
 pytestmark = pytest.mark.unit
 
 COMPLETE = {
+    "CANON_PROJECT": "ironwood",
     "CANON_REPOSITORY_URL": "git@github.com:cyberdynecorp/ironwood.git",
     "CANON_REPOSITORY_BRANCH": "canon",
     "CANON_REPOSITORY_CREDENTIAL": "a-deploy-key",

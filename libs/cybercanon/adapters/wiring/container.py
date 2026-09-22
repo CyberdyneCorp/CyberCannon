@@ -28,10 +28,14 @@ from dataclasses import dataclass
 
 from cybercanon.application.ports.blob_store import BlobStore
 from cybercanon.application.ports.credential_store import CredentialStore
+from cybercanon.application.ports.image_inspector import ImageInspector
 from cybercanon.application.ports.interactive_sign_in import InteractiveSignIn
 from cybercanon.application.ports.mesh_inspector import MeshInspector
+from cybercanon.application.ports.repository_host import RepositoryHost
 from cybercanon.application.ports.search_index import RecordedMiss, SearchIndex
 from cybercanon.application.ports.spec_store import ProjectConfig, SpecStore
+from cybercanon.application.ports.thumbnail_renderer import ThumbnailRenderer
+from cybercanon.application.ports.view_index import ViewIndex
 from cybercanon.application.results import Result, Unavailable
 from cybercanon.application.use_cases.compile_spec import (
     CompiledBriefing,
@@ -45,6 +49,13 @@ from cybercanon.application.use_cases.index_assets import (
     RebuildReport,
     no_fingerprints,
     rebuild_index,
+)
+from cybercanon.application.use_cases.ingest_views import (
+    IngestionOutcome,
+    UploadedImage,
+    ingest_views,
+    limits_of,
+    remove_view,
 )
 from cybercanon.application.use_cases.lint_spec import (
     LintFinding,
@@ -90,6 +101,12 @@ from cybercanon.application.use_cases.spec_lens import (
     read_open_annotations,
 )
 from cybercanon.application.use_cases.validate_export import ValidationOutcome, validate_export
+from cybercanon.application.use_cases.view_mirror import ViewMirrorReport, mirror_views
+from cybercanon.application.use_cases.view_revisions import (
+    ConceptView,
+    list_view_revisions,
+)
+from cybercanon.domain.actors import GitAuthor
 
 NO_INDEX = (
     "this container was built without a search index; lookup, search and "
@@ -107,6 +124,35 @@ SIGN_IN_UNAVAILABLE = Unavailable(identifier="sign_in.unconfigured", message=NO_
 A refusal rather than a crash, and *unavailable* rather than *invalid*: nothing
 the person typed is wrong, and the fix is a configured issuer rather than a
 different command.
+"""
+
+NO_WORKING_COPY = (
+    "this container was built with no working copy, so nothing can be committed "
+    "to a repository through it; run `canon` inside a git checkout"
+)
+
+WORKING_COPY_UNAVAILABLE = Unavailable(
+    identifier="project.no_working_copy", message=NO_WORKING_COPY
+)
+"""What a container built for validation alone answers to a write.
+
+A returned refusal rather than a raise, exactly as :data:`INDEX_UNAVAILABLE` is:
+it reaches an inbound adapter as an outcome like every other, and no surface
+needs an `except` to render it.
+"""
+
+NO_BLOB_STORE = (
+    "this container was built with no blob storage, so there is no mirror to "
+    "rebuild; the views themselves are in the repository either way"
+)
+
+BLOB_STORE_UNAVAILABLE = Unavailable(identifier="blob.unconfigured", message=NO_BLOB_STORE)
+"""What a container with no mirror answers to a re-mirror. Not a failure.
+
+`concept-ingestion` makes the mirror optional by specification — *"with no blob
+storage configured at all, ingestion SHALL commit and the view SHALL be readable
+from the repository"* — so asking an unmirrored project to re-mirror is a
+request that cannot apply rather than one that went wrong.
 """
 
 INDEX_UNAVAILABLE = Unavailable(identifier="index.unavailable", message=NO_INDEX)
@@ -166,6 +212,38 @@ class Container:
     authors: AuthorSource = no_authors
     credential_store: CredentialStore | None = None
     interactive_sign_in: InteractiveSignIn | None = None
+    repository_host: RepositoryHost | None = None
+    """The working copy this container writes through, when it has one.
+
+    Absent for a container built for validation alone, which reads a checkout
+    and writes nothing. Present for `canon` — over the checkout the person is
+    standing in — and for the hosted surface, over the volume it fetched.
+    Concept ingestion is the first use case in the container that needs it,
+    because it is the first one that commits.
+    """
+
+    image_inspector: ImageInspector | None = None
+    thumbnail_renderer: ThumbnailRenderer | None = None
+    view_index: ViewIndex | None = None
+    """The three ports concept ingestion brings (add-concept-ingestion D1, D3, D9).
+
+    All optional, and their absence is a local wiring rather than a broken one:
+    without a thumbnail renderer nothing is derived, without a view index
+    nothing is recorded, and both are rebuildable from the repository by
+    specification.
+    """
+
+    project_id: str = ""
+    """What this container serves its project as, when that is not the declared name.
+
+    Empty on a laptop: `canon` is standing *in* a working copy, and the project
+    is whatever `.canon/project.yaml` calls itself. A hosted deployment sets it
+    to the address it serves the project at, because `http-api` makes that
+    address permanent while the declared name is repository content a commit can
+    change — and because every project-keyed decision has to be made with one
+    string. Entitlement, the index rows and the working-copy directory then agree
+    by construction instead of agreeing whenever the two happen to match.
+    """
 
     # -- validation ------------------------------------------------------
 
@@ -222,8 +300,14 @@ class Container:
 
     @property
     def project_name(self) -> str:
-        """The project this working copy is, as the index and the entitlement spell it."""
-        return self.project().name or ""
+        """The project this working copy is, as the index and the entitlement spell it.
+
+        :attr:`project_id` wins when it is set. It is the address a deployment
+        serves this working copy at, and an address that stopped meaning the same
+        project the moment somebody edited `name:` would be an entitlement that
+        changed in a commit.
+        """
+        return self.project_id or self.project().name or ""
 
     def over_index[T](self, operation: Callable[[SearchIndex], Result[T]]) -> Result[T]:
         """Run a use case that needs the index, or say this container has none.
@@ -355,6 +439,7 @@ class Container:
                 spec_store=self.spec_store,
                 search_index=index,
                 fingerprints=self.fingerprints,
+                project=self.project_id,
             )
         )
 
@@ -399,6 +484,100 @@ class Container:
             )
         )
 
+    # -- concept views (add-concept-ingestion) ---------------------------
+
+    def over_working_copy[T](self, operation: Callable[[RepositoryHost], Result[T]]) -> Result[T]:
+        """Run a use case that commits, or say this container has no working copy.
+
+        The same shape as :meth:`over_index`, and about wiring rather than about
+        an asset: a pre-commit container reads a checkout and writes nothing, so
+        "no working copy" is one sentence in one place instead of four.
+        """
+        if self.repository_host is None:
+            return WORKING_COPY_UNAVAILABLE
+        return operation(self.repository_host)
+
+    def add_views(
+        self,
+        asset_id: str,
+        uploads: Sequence[UploadedImage],
+        *,
+        author: GitAuthor | None,
+        subject: str = "",
+        agent: str = "",
+        name: str = "",
+    ) -> Result[IngestionOutcome]:
+        """Ingest one or more concept views — the same use case every surface calls."""
+        return self.over_working_copy(
+            lambda host: ingest_views(
+                self.project_name,
+                asset_id,
+                uploads,
+                repository_host=host,
+                spec_store=self.spec_store,
+                image_inspector=self.image_inspector,
+                author=author,
+                limits=limits_of(self.project()),
+                blob_store=self.blob_store,
+                thumbnail_renderer=self.thumbnail_renderer,
+                view_index=self.view_index,
+                subject=subject,
+                agent=agent,
+                name=name,
+            )
+        )
+
+    def remove_view(
+        self, asset_id: str, slot: str, *, author: GitAuthor | None, subject: str = ""
+    ) -> Result[IngestionOutcome]:
+        """Remove a view. A removal is a revision, and nothing earlier is lost."""
+        return self.over_working_copy(
+            lambda host: remove_view(
+                self.project_name,
+                asset_id,
+                slot,
+                repository_host=host,
+                spec_store=self.spec_store,
+                author=author,
+                subject=subject,
+            )
+        )
+
+    def view_revisions(self, asset_id: str, slot: str) -> Result[ConceptView]:
+        """One view's revisions, newest first, read from the repository alone."""
+        return self.over_working_copy(
+            lambda host: list_view_revisions(
+                self.project_name,
+                asset_id,
+                slot,
+                repository_host=host,
+                spec_store=self.spec_store,
+                image_inspector=self.image_inspector,
+            )
+        )
+
+    def rebuild_view_mirror(self) -> Result[ViewMirrorReport]:
+        """Re-mirror every concept view and re-derive its thumbnails (task 3.5).
+
+        The recovery `concept-ingestion` specifies, as an operation somebody can
+        run: *"deleting every mirrored object and every thumbnail and rebuilding
+        SHALL restore every view"*. It is the same pass ingestion's own
+        mirroring step takes — one function, called twice — so the keys it lands
+        on are the keys it had.
+        """
+        if self.blob_store is None:
+            return BLOB_STORE_UNAVAILABLE
+        return self.over_working_copy(
+            lambda host: mirror_views(
+                self.project_name,
+                repository_host=host,
+                spec_store=self.spec_store,
+                blob_store=self.blob_store,
+                view_index=self.view_index,
+                thumbnail_renderer=self.thumbnail_renderer,
+            )
+        )
+
     # -- history (D10) ---------------------------------------------------
 
     def diff_spec(self, asset_id: str, revision: str) -> Result[SpecDifference]:
@@ -419,6 +598,7 @@ __all__ = [
     "INDEX_UNAVAILABLE",
     "NO_INDEX",
     "NO_SIGN_IN",
+    "NO_WORKING_COPY",
     "SIGN_IN_UNAVAILABLE",
     "USE_CASES",
     "Container",

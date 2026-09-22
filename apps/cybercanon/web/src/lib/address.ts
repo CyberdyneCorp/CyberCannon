@@ -40,6 +40,15 @@ export interface AssetAddress {
 	readonly project: string;
 	readonly asset: string;
 	readonly surface: Surface;
+	/**
+	 * The thread this address opens on, when it opens on one.
+	 *
+	 * The art director's pass links straight to the annotation it is about, so
+	 * *"the promotion flow from the triage view"* is one click rather than a
+	 * hunt through a sheet. It is in the address rather than in a store for the
+	 * ordinary D3 reason: a link somebody sends has to open the same thread.
+	 */
+	readonly annotation?: string;
 }
 
 /** A surface read back from an address, and whether it was the one that was asked for. */
@@ -78,7 +87,11 @@ export function browserAddress(address: BrowserAddress): string {
  */
 export function assetAddress(address: AssetAddress): string {
 	const path = `${projectAddress(address.project)}/a/${encodeURIComponent(address.asset)}`;
-	return address.surface === DEFAULT_SURFACE ? path : `${path}?surface=${address.surface}`;
+	const parameters = new URLSearchParams();
+	if (address.surface !== DEFAULT_SURFACE) parameters.set('surface', address.surface);
+	if (address.annotation) parameters.set('annotation', address.annotation);
+	const search = parameters.toString();
+	return search ? `${path}?${search}` : path;
 }
 
 /** The browser address a URL names. Unknown parameters are simply not carried. */
@@ -109,7 +122,9 @@ export function withoutFilters(address: BrowserAddress): BrowserAddress {
 }
 
 /** Which filters are on, in the order they are specified, for a screen to render. */
-export function activeFilters(address: BrowserAddress): readonly { name: FilterName; value: string }[] {
+export function activeFilters(
+	address: BrowserAddress
+): readonly { name: FilterName; value: string }[] {
 	return FILTERS.filter((name) => address.filters[name]).map((name) => ({
 		name,
 		value: address.filters[name] as string
@@ -144,7 +159,13 @@ export function readAssetAddress(
 	available: readonly Surface[] = SURFACES
 ): AssetAddress & { readonly notice: string | null } {
 	const resolved = resolveSurface(url.searchParams.get('surface'), available);
-	return { project, asset, surface: resolved.surface, notice: resolved.notice };
+	return {
+		project,
+		asset,
+		surface: resolved.surface,
+		annotation: url.searchParams.get('annotation')?.trim() || undefined,
+		notice: resolved.notice
+	};
 }
 
 function unknownSurface(named: string): string {

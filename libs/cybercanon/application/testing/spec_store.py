@@ -37,6 +37,7 @@ from cybercanon.application.ports.spec_store import (
     LoadedMapping,
     LoadedSpec,
     ProjectConfig,
+    SpecDocument,
     SpecNotFound,
     SpecUnreadable,
 )
@@ -60,6 +61,9 @@ class InMemorySpecStore:
         self._mapping = LoadedMapping()
         self._revision = revision
         self._snapshots: dict[str, InMemorySpecStore] = {}
+        self._documents: dict[str, bytes] = {}
+        self._parsed: dict[bytes, LoadedSpec] = {}
+        self._serial = 0
 
     # -- seeding ---------------------------------------------------------
 
@@ -67,6 +71,7 @@ class InMemorySpecStore:
         """Register one specification at a path, as the store would have parsed it."""
         loaded = LoadedSpec(asset=asset, path=_normalised(path), warnings=warnings)
         self._specs[loaded.path] = loaded
+        self._documents[loaded.path] = self._remember(loaded)
         return loaded
 
     def add_unreadable(self, path: str, reason: str) -> None:
@@ -111,6 +116,8 @@ class InMemorySpecStore:
         frozen._project = self._project
         frozen._history = {path: dict(series) for path, series in self._history.items()}
         frozen._mapping = self._mapping
+        frozen._documents = dict(self._documents)
+        frozen._parsed = dict(self._parsed)
         self._snapshots[revision] = frozen
         return revision
 
@@ -212,6 +219,68 @@ class InMemorySpecStore:
         """
         self._raise_if_configured()
         return self._mapping
+
+    # -- editing (add-model-sheet-2d, D4 and D5) --------------------------
+
+    def read_document(self, spec_path: str, revision: str | None = None) -> SpecDocument:
+        """The specification at a path, with bytes an edit can state a hash of.
+
+        The bytes an in-memory store hands back are its own handle on the value
+        rather than a serialisation of it — there is no file here and inventing
+        a YAML renderer for a fake would be a second file format that nobody
+        reads. What the contract needs of them is what they provide: they differ
+        when the specification differs, they are stable while it does not, and
+        :meth:`parse_document` turns them back into exactly what produced them.
+        """
+        self._raise_if_configured()
+        loaded = self.load(spec_path) if revision is None else self.load_at(spec_path, revision)
+        return SpecDocument(
+            path=loaded.path,
+            content=self._documents.get(loaded.path) or self._remember(loaded),
+            asset=loaded.asset,
+            warnings=loaded.warnings,
+            revision=revision or self._revision or "",
+        )
+
+    def parse_document(self, spec_path: str, content: bytes) -> SpecDocument:
+        """What these bytes mean — what :meth:`edited` produced, or what the path holds.
+
+        The fallback matters: a scenario seeds a repository host with authored
+        bytes this store never produced, and *"the specification at that path"*
+        is the honest answer for a store whose whole knowledge is by path.
+        """
+        self._raise_if_configured()
+        path = _normalised(spec_path)
+        loaded = self._parsed.get(content) or self._specs.get(path)
+        if loaded is None:
+            raise SpecUnreadable(path, "no specification is registered at that path")
+        return SpecDocument(
+            path=path, content=content, asset=loaded.asset, warnings=loaded.warnings
+        )
+
+    def edited(self, document: SpecDocument, asset: Asset) -> bytes:
+        """New bytes meaning this asset, leaving the document itself untouched.
+
+        Nothing registered at the path changes: a write that is composed and
+        then fails must leave the store answering exactly what it answered
+        before, which is *"a failed write leaves nothing half-done"* asserted
+        against the fake rather than assumed of it.
+        """
+        self._raise_if_configured()
+        return self._remember(
+            LoadedSpec(asset=asset, path=document.path, warnings=document.warnings)
+        )
+
+    def _remember(self, loaded: LoadedSpec) -> bytes:
+        """A stable handle for this specification, registered so it reads back."""
+        self._serial += 1
+        content = (
+            f"# in-memory specification {loaded.path}\n"
+            f"id: {loaded.asset.id}\n"
+            f"# handle {self._serial}\n"
+        ).encode()
+        self._parsed[content] = loaded
+        return content
 
     def _raise_if_configured(self) -> None:
         if self._failure is not None:

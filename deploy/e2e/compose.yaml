@@ -74,6 +74,11 @@ services:
       minio: {condition: service_healthy}
       repository: {condition: service_healthy}
     environment:
+      # The address the project is served at, and therefore the identity every
+      # project-keyed decision underneath is made with: the entitlement, the
+      # index rows and the working-copy directory. Deliberately *not* derived
+      # from the repository URL or from `.canon/project.yaml`, which disagree.
+      CANON_PROJECT: ronin
       CANON_REPOSITORY_URL: git://repository:9418/ronin
       CANON_REPOSITORY_BRANCH: main
       CANON_REPOSITORY_CREDENTIAL: unused-for-the-git-protocol
@@ -95,6 +100,13 @@ services:
       # block against that table so the two cannot drift again.
       CANON_WRITE_BACK_TIMEOUT_S: "30"
       CANON_DRAIN_WINDOW_S: "60"
+      # The browser loads the application from `localhost:5173` and calls this
+      # API at `localhost:8000`: two origins, so without this the browser
+      # refuses every response the application already received. Exactly the
+      # split `deploy/coolify.yaml` has between `canon.backend` and
+      # `api.backend`, which is why the stack reproduces it rather than putting
+      # both behind one host.
+      CANON_WEB_ORIGINS: http://localhost:5173
     ports:
       # Published because the browser reaches the API from the host, which is
       # where `PUBLIC_CANON_API_URL` is resolved.

@@ -1,6 +1,7 @@
 # CyberCanon — Roadmap
 
-**Status:** 12 changes specified, none implemented. 32 capabilities · 300 requirements · 657 scenarios · **535 tasks**.
+**Status:** 12 changes specified, M0–M3 implemented. 32 capabilities · 300 requirements ·
+657 scenarios (446 executing, 211 pending) · **442 of 566 tasks**.
 Detail lives in `openspec/changes/<change>/`. This file is the ordering, the slicing, and the reasoning behind both.
 
 ---
@@ -81,7 +82,7 @@ joins at S9 and, between the two bursts, works on adapters — which is also how
 | **S23** | `add-derived-metadata` g3–5 | 18 | 0 | **18** | Derived records, normalisation, boundary enforcement |  |
 | **S24** | `add-derived-metadata` g6–7 · `add-mcp-writes` g1–2 | 24 | 0 | **24** | **M4 — integrations.** The `asset.yaml` writer; observations and write policy | **M4** |
 | **S25** | `add-mcp-writes` g3–6 | 23 | 0 | **23** | **M5 — agents write.** Outbox, exactly two tools, visible agent authorship | **M5** |
-**Totals:** 559 tasks · 26 sprints · max 26 · min 16 · avg 21.5
+**Totals:** 566 tasks · 26 sprints · max 26 · min 16 · avg 21.5
 
 E2E setup (`add-test-strategy` g6) deliberately sits at **S9**, not S0 — there is no
 surface to drive end to end until the frontend starts.

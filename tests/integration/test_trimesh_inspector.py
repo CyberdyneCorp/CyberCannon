@@ -36,6 +36,7 @@ SKINNED = "characters/mech_scout/exports/SM_mech_scout_LOD0.glb"
 SKINNED_GLTF = "characters/mech_scout/exports/SM_mech_scout_LOD0.gltf"
 STATIC_GLB = "props/crate/exports/SM_crate_LOD0.glb"
 STATIC_OBJ = "props/crate/exports/SM_crate_LOD0.obj"
+MULTIPART_OBJ = "characters/mech_scout/exports/SM_mech_scout_parts_LOD0.obj"
 
 
 @pytest.fixture
@@ -45,6 +46,7 @@ def repository(tmp_path: Path) -> Path:
     fixtures.write_skinned_gltf(tmp_path / SKINNED_GLTF)
     fixtures.write_static_glb(tmp_path / STATIC_GLB)
     fixtures.write_static_obj(tmp_path / STATIC_OBJ)
+    fixtures.write_multipart_obj(tmp_path / MULTIPART_OBJ)
     return tmp_path
 
 
@@ -114,6 +116,28 @@ def test_obj_triangles_objects_and_materials_match_the_authored_source(
     assert facts.objects == authored.objects
     assert facts.materials == authored.materials
     assert facts.uv_sets == authored.uv_sets
+
+
+def test_every_object_in_a_multi_object_obj_reaches_the_report(
+    repository: Path, inspector: TrimeshInspector
+) -> None:
+    """Regression: `trimesh` merges `o` groups unless it is told not to.
+
+    Its OBJ loader defaults to `split_objects=False`, and the merge is silent —
+    the triangle total stays right while every part name but the first
+    disappears. What that costs is not a cosmetic list: a part name is the
+    durable key an annotation is anchored to, so a merged group means a pin
+    resolving against the wrong geometry instead of reporting itself orphaned
+    (`tests/integration/test_preview_anchoring.py` asks that half).
+    """
+    authored = fixtures.write_multipart_obj(repository / MULTIPART_OBJ)
+
+    facts = inspector.inspect(MULTIPART_OBJ).facts
+
+    assert len(authored.objects) > 1
+    assert set(facts.objects or ()) == set(authored.objects)
+    assert set(facts.materials or ()) == set(authored.materials)
+    assert facts.triangles == authored.triangles
 
 
 def test_reading_the_same_export_twice_is_the_same_answer(inspector: TrimeshInspector) -> None:

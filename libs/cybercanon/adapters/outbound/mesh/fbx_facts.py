@@ -99,19 +99,37 @@ def _triangles(document: FbxDocument) -> int:
 
 
 def _geometry_triangles(geometry: FbxNode) -> int:
-    """A polygon's last index is stored negated, which is how polygons are counted.
+    """Every polygon fanned into triangles — the same fan a preview is built from."""
+    return sum(max(len(polygon) - 2, 0) for polygon in polygons(geometry))
 
-    A non-empty list with no negated index is not a polygon list this reader
-    understands, and counting it anyway would report every index as a triangle —
-    a triangle budget is the rule artists feel first, so it is refused instead.
+
+def polygons(geometry: FbxNode) -> tuple[tuple[int, ...], ...]:
+    """One `Geometry`'s polygons, each as its control point indices.
+
+    A polygon's last index is stored negated, which is how FBX marks where a
+    polygon ends. A non-empty list with no negated index is not a polygon list
+    this reader understands, and reading it anyway would report every index as
+    its own triangle — a triangle budget is the rule artists feel first, so it
+    is refused instead.
+
+    Public because the preview converter has to fan exactly the polygons the
+    triangle count was taken over: two readings of one list disagree eventually,
+    and the report and the viewer disagreeing is the failure this codebase
+    refuses everywhere else.
     """
     indices = _polygon_indices(geometry)
-    polygons = sum(1 for index in indices if index < 0)
-    if indices and not polygons:
+    if indices and not any(index < 0 for index in indices):
         raise FbxUnreadable(
             f"geometry {geometry.object_name!r} has a polygon list with no polygon ends"
         )
-    return max(len(indices) - 2 * polygons, 0)
+    found: list[tuple[int, ...]] = []
+    current: list[int] = []
+    for index in indices:
+        current.append(index if index >= 0 else ~index)
+        if index < 0:
+            found.append(tuple(current))
+            current = []
+    return tuple(found)
 
 
 def _polygon_indices(geometry: FbxNode) -> list[int]:
@@ -192,4 +210,4 @@ def _duration(stack: FbxNode) -> float:
     return (stop - begins) / KTIME_PER_SECOND
 
 
-__all__ = ["AXIS_NAMES", "CLIP_NAME_SEPARATOR", "clip_name", "read_facts"]
+__all__ = ["AXIS_NAMES", "CLIP_NAME_SEPARATOR", "clip_name", "polygons", "read_facts"]

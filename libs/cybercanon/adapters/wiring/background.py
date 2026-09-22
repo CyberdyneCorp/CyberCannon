@@ -29,6 +29,7 @@ from __future__ import annotations
 import queue
 import threading
 from collections.abc import Callable
+from datetime import timedelta
 
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.repository_host import RepositoryHost
@@ -47,7 +48,19 @@ type ErrorSink = Callable[[str, BaseException], None]
 _STOP = None
 
 DEFAULT_NAME = "canon-background"
+DEFAULT_TICKER_NAME = "canon-schedule"
 JOIN_TIMEOUT_S = 5.0
+
+MINIMUM_INTERVAL_S = 0.01
+"""A floor, so a misconfigured interval is slow rather than a busy loop."""
+
+
+type TickSink = Callable[[BaseException], None]
+"""Where a failed tick goes. Never nowhere, and never into a caller."""
+
+
+def _ignore_tick(error: BaseException) -> None:
+    """The default sink: a ticker nobody configured still must not crash."""
 
 
 def ignore(project: str, error: BaseException) -> None:
@@ -163,6 +176,69 @@ class BackgroundWork:
                 self._done.set()
 
 
+class Ticker:
+    """A callable run every interval on a daemon thread, starting immediately.
+
+    D4 makes the schedule the *guarantee* and the webhook only an optimisation:
+    *"A webhook is lost, misconfigured or silently disabled by a repository
+    administrator; a timer is not."* This is that timer, and it is mechanism
+    rather than policy — what one tick does is the composition root's callable,
+    and it is the same one the notification endpoint drives.
+
+    **The first tick happens at once**, because a process that has just started
+    holds a working copy nobody has fetched since the last deploy, and waiting a
+    whole interval to find out would make every rollover begin with a stale
+    project.
+
+    **A tick that raises does not stop the ticker**, for the same reason a job
+    that raises does not stop the runner: one unreachable remote must not end
+    the schedule for the life of the process.
+    """
+
+    def __init__(
+        self,
+        tick: Callable[[], object],
+        interval: timedelta,
+        *,
+        name: str = DEFAULT_TICKER_NAME,
+        on_error: TickSink = _ignore_tick,
+    ) -> None:
+        self._tick = tick
+        self._interval = max(interval.total_seconds(), MINIMUM_INTERVAL_S)
+        self._name = name
+        self._on_error = on_error
+        self._stopped = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> Ticker:
+        """Begin ticking. Idempotent, so a second call is not a second thread."""
+        if self._thread is not None:
+            return self
+        self._thread = threading.Thread(target=self._run, name=self._name, daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self, timeout: float = JOIN_TIMEOUT_S) -> None:
+        """Ask the thread to stop at the end of the current wait. Safe to call twice."""
+        self._stopped.set()
+        if self._thread is not None:
+            self._thread.join(timeout)
+            self._thread = None
+
+    def tick_once(self) -> None:
+        """One tick, with its failure reported rather than raised. For tests, and for
+        the first tick the thread performs."""
+        try:
+            self._tick()
+        except BaseException as failure:  # one bad tick is not the end of the schedule
+            self._on_error(failure)
+
+    def _run(self) -> None:
+        while not self._stopped.is_set():
+            self.tick_once()
+            self._stopped.wait(self._interval)
+
+
 def validation_job(container: Container, repository_host: RepositoryHost) -> Job:
     """The job the API deployment runs off the request path: G1's worker.
 
@@ -188,10 +264,14 @@ def validation_job(container: Container, repository_host: RepositoryHost) -> Job
 
 __all__ = [
     "DEFAULT_NAME",
+    "DEFAULT_TICKER_NAME",
     "JOIN_TIMEOUT_S",
+    "MINIMUM_INTERVAL_S",
     "BackgroundWork",
     "ErrorSink",
     "Job",
+    "TickSink",
+    "Ticker",
     "ignore",
     "validation_job",
 ]

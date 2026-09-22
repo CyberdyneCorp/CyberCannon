@@ -55,10 +55,11 @@ environment (D3, and "one artifact, promoted unchanged").
 
 ### `api` — required
 
-The service will not start without these fourteen.
+The service will not start without these fifteen.
 
 | Variable | Shape | Secret | What it is |
 |---|---|:--:|---|
+| `CANON_PROJECT` | the identifier this deployment serves its project as | | **the address.** Every resource is reachable at `/v1/projects/<this>/…`, the entitlement decision is made with it, and the index rows and the working-copy directory are keyed by it |
 | `CANON_REPOSITORY_URL` | a git remote the service can reach | | where the project's repository lives |
 | `CANON_REPOSITORY_BRANCH` | a branch name | | the branch write-backs are committed to |
 | `CANON_REPOSITORY_CREDENTIAL` | a deploy credential | ● | read/write access to that remote |
@@ -80,6 +81,13 @@ Absent means the feature is off — or, for the key cache, that its default
 applies — not that the deployment is broken. The service starts, and everything
 that needs a model reports itself **unavailable** on `/status`.
 
+`CANON_WEB_ORIGINS` is what makes the web application usable at all: D1 puts the
+API on `api.backend…` and the application on `canon.backend…`, so every request
+the application makes is cross-origin and the browser will only hand the
+response to the page if this service names the page's origin. It is a list, per
+environment, and never `*` — a surface authenticated with a bearer credential
+cannot use a wildcard origin even if somebody configured one.
+
 `CANON_AUTH_KEY_CACHE_TTL_S` is the one number D8 leaves to a deployment: the
 identity provider's signing keys are cached for that long, so an outage of
 CyberdyneAuth costs **new sign-ins and nothing else** — credentials already
@@ -90,6 +98,8 @@ outage is not honoured until the window ends.
 | Variable | Shape | Secret | Default | What it is |
 |---|---|:--:|---|---|
 | `CANON_AUTH_KEY_CACHE_TTL_S` | a whole number of seconds | | 900 | how long cached signing keys keep verifying while CyberdyneAuth is unreachable (D8) |
+| `CANON_WORKING_COPIES` | a directory on the working-copy volume | | `/data/worktrees` | where the persistent working copies live; the manifest mounts the volume there |
+| `CANON_WEB_ORIGINS` | `scheme://host,scheme://host` | | — | the browser origins permitted to read this API. Absent grants none, and `*` is refused: the API and the web application are on different hosts, so the application's origin has to be named |
 | `CANON_LLM_ENABLED` | a switch | | off | the master switch (`project.md`) |
 | `CANON_LLM_BASE_URL` | an OpenAI-compatible endpoint | | — | point it at the on-prem gateway from inside the deployment network |
 | `CANON_LLM_API_KEY` | a bearer credential | ● | — | for that endpoint |
@@ -168,6 +178,14 @@ Three commands, each a `just` recipe over `tools/canon_release`, and each one's
 exit code is the gate:
 
 ```
+# the build itself. `--provenance=false --sbom=false` is not an optimisation:
+# BuildKit's default attestation records when and where the build ran, which
+# makes every rebuild of one revision a different digest — and puts the
+# building machine's identity inside an artifact that is supposed to reveal
+# nothing about where it is running.
+docker build --provenance=false --sbom=false \
+    --file deploy/api.Dockerfile --tag cybercanon-api:$GIT_SHA .
+
 # the build pipeline's step, run immediately after an image is built
 just release-record --image api --revision $GIT_SHA \
     --digest "$(docker image inspect --format '{{.Id}}' cybercanon-api:$GIT_SHA)"

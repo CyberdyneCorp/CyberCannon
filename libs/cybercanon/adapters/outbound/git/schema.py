@@ -28,7 +28,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from cybercanon.application.ports.spec_store import PreviewDefaults
+from cybercanon.application.ports.spec_store import IngestionDefaults, PreviewDefaults
 from cybercanon.domain.actors import ActorBinding, ActorMapping
 from cybercanon.domain.annotations import (
     Anchor,
@@ -39,6 +39,8 @@ from cybercanon.domain.annotations import (
     AnnotationState,
     Camera,
     Point,
+    Reply,
+    Stroke,
 )
 from cybercanon.domain.asset import Asset, AssetId, Links
 from cybercanon.domain.concept import Concept
@@ -169,15 +171,78 @@ class AnchorFile(_Block):
     point: tuple[float, float, float] | None = None
     normal: tuple[float, float, float] | None = None
     camera: CameraFile | None = None
+    clip: str | None = None
+    t: float | None = None
+    """The playback hint `add-viewer-3d` records beside the camera (D9).
+
+    A proportion of the clip's duration, never a frame index — and there is
+    deliberately no field here that could hold one, for the same reason there is
+    none for a triangle index.
+    """
+
+
+class ReplyFile(_Block):
+    """One reply, as `asset.yaml` writes it.
+
+    There is deliberately no `target`, no `kind` and no `state` here:
+    `annotation-authoring` requires a thread to have one anchor and one exit,
+    both the root's, and a format that could express a second one would make
+    that a rule somebody enforces rather than a shape nothing can violate.
+    """
+
+    id: str
+    author: str = ""
+    text: str = ""
+    at: str = ""
+    via: str = ""
+    edited_at: str = ""
 
 
 class AnnotationFile(_Block):
+    """One annotation, as `asset.yaml` writes it.
+
+    `authored_against` is the revision of the view or mesh the pin was placed
+    on (`view-versioning`). It is authored content in the weakest sense — it is
+    recorded at the moment the pin is made and never edited afterwards — and it
+    is what lets a carried pin be read as *this predates what you are looking
+    at* rather than as a claim about the current image. The anchor *state* is
+    deliberately not a field: carried-or-orphaned is derived from this revision
+    and the view's history, so it cannot drift from the images.
+    """
+
     id: str
     author: str = ""
     kind: str = "technical"
     text: str = ""
     state: str = "open"
+    authored_against: str = ""
     target: AnchorFile | None = None
+    via: str = ""
+    created_at: str = ""
+    edited_at: str = ""
+    reanchored_by: str = ""
+    reanchored_at: str = ""
+    """Who re-anchored this annotation onto a different subject, and when.
+
+    Written by `add-viewer-3d`'s re-anchor path so that an orphan rescued by
+    hand carries the record `anchor-resolution` requires — *"attributed to the
+    person who performed it"*. Optional, so a file written before it parses
+    unchanged.
+    """
+
+    moved_by: str = ""
+    moved_at: str = ""
+    closed_by: str = ""
+    closed_at: str = ""
+    closing_text: str = ""
+    replies: tuple[ReplyFile, ...] = ()
+    strokes: tuple[tuple[tuple[float, float], ...], ...] = ()
+    """The freehand marks, as ordered normalized `[u, v]` pairs (D8).
+
+    Two optional members added by `add-model-sheet-2d`, which is why the change
+    is additive: a file written before it parses unchanged, and a file written
+    after it is still read correctly by the surfaces that predate it.
+    """
 
 
 class AssetFile(_Block):
@@ -205,6 +270,22 @@ class PreviewFile(_Block):
     ceiling: int | None = None
 
 
+class IngestionFile(_Block):
+    """`ingestion:` — what this project accepts, and how fresh a view must look.
+
+    Every field is optional and ``None`` means *not declared*, which the domain
+    merges with its own defaults
+    (:meth:`~cybercanon.domain.views.IngestionLimits.declared`). A project that
+    only wants a higher pixel ceiling writes one line.
+    """
+
+    accepted_formats: tuple[str, ...] | None = None
+    max_bytes: int | None = None
+    max_dimension: int | None = None
+    freshness_seconds: float | None = None
+    aspect_tolerance: float | None = None
+
+
 class ProjectFile(_Block):
     """`.canon/project.yaml` — the defaults half of the merge (D3), and the knobs.
 
@@ -224,6 +305,7 @@ class ProjectFile(_Block):
     engine_content_root: str | None = None
     severity: dict[str, str] = {}
     preview: PreviewFile | None = None
+    ingestion: IngestionFile | None = None
 
 
 class ActorEntryFile(_Block):
@@ -559,6 +641,29 @@ def to_severities(
     return known, tuple(violations)
 
 
+def to_ingestion(parsed: IngestionFile | None) -> IngestionDefaults | None:
+    """`ingestion:` as the port's value object, or ``None`` when it is absent.
+
+    Nothing is defaulted here: a project that declared no formats must reach the
+    domain as *undeclared* rather than as the default set, or a later change to
+    the default would silently not reach any project that had a configuration
+    file at all.
+    """
+    if parsed is None:
+        return None
+    return IngestionDefaults(
+        accepted_formats=(
+            tuple(name.lower() for name in parsed.accepted_formats)
+            if parsed.accepted_formats is not None
+            else None
+        ),
+        max_bytes=parsed.max_bytes,
+        max_dimension=parsed.max_dimension,
+        freshness_seconds=parsed.freshness_seconds,
+        aspect_tolerance=parsed.aspect_tolerance,
+    )
+
+
 def to_preview(parsed: PreviewFile | None) -> PreviewDefaults | None:
     """`preview:` — the decimation settings, as the neutral numbers the port holds."""
     if parsed is None:
@@ -617,9 +722,53 @@ def _annotations(
                 text=entry.text,
                 target=anchor,
                 state=state or AnnotationState.OPEN,
+                authored_against=entry.authored_against,
+                via=entry.via,
+                replies=_replies(entry.replies),
+                strokes=_strokes(entry.strokes),
+                created_at=entry.created_at,
+                edited_at=entry.edited_at,
+                reanchored_by=entry.reanchored_by,
+                reanchored_at=entry.reanchored_at,
+                moved_by=entry.moved_by,
+                moved_at=entry.moved_at,
+                closed_by=entry.closed_by,
+                closed_at=entry.closed_at,
+                closing_text=entry.closing_text,
             )
         )
     return tuple(annotations), tuple(violations)
+
+
+def _replies(parsed: Sequence[ReplyFile]) -> tuple[Reply, ...]:
+    """The thread in the order the file lists it — creation order, always."""
+    return tuple(
+        Reply(
+            id=entry.id,
+            author=entry.author,
+            text=entry.text,
+            at=entry.at,
+            via=entry.via,
+            edited_at=entry.edited_at,
+        )
+        for entry in parsed
+    )
+
+
+def _strokes(parsed: Sequence[Sequence[Sequence[float]]]) -> tuple[Stroke, ...]:
+    """The marks, dropping anything that is not a drawable polyline.
+
+    A malformed stroke is dropped rather than raised over, exactly as a field of
+    the wrong type is: one bad mark must not deny the artist every other finding
+    in the same run, and a mark is decoration beside the text it belongs to.
+    """
+    strokes = []
+    for points in parsed:
+        try:
+            strokes.append(Stroke(tuple((float(u), float(v)) for u, v in points)))
+        except (TypeError, ValueError):
+            continue
+    return tuple(stroke for stroke in strokes if not stroke.is_empty)
 
 
 def _anchor(parsed: AnchorFile | None) -> Anchor | None:
@@ -633,6 +782,8 @@ def _anchor(parsed: AnchorFile | None) -> Anchor | None:
             point=_point(parsed.point),
             normal=_point(parsed.normal),
             camera=_camera(parsed.camera),
+            clip=parsed.clip,
+            t=_proportion(parsed.t),
         )
     if parsed.view and parsed.u is not None and parsed.v is not None:
         return Anchor2D(view=parsed.view, u=parsed.u, v=parsed.v)
@@ -641,6 +792,18 @@ def _anchor(parsed: AnchorFile | None) -> Anchor | None:
 
 def _point(values: tuple[float, float, float] | None) -> Point | None:
     return None if values is None else (float(values[0]), float(values[1]), float(values[2]))
+
+
+def _proportion(value: float | None) -> float | None:
+    """A playback position a file declared, or ``None`` when it is not one (D9).
+
+    A value outside 0.0-1.0 is dropped rather than raised over, exactly as a
+    malformed stroke is: the hint is a convenience for replaying a pose, and one
+    bad number must not deny a reader the annotation it belongs to.
+    """
+    if value is None:
+        return None
+    return float(value) if 0.0 <= float(value) <= 1.0 else None
 
 
 def _camera(parsed: CameraFile | None) -> Camera | None:
@@ -694,6 +857,7 @@ __all__ = [
     "AssetFile",
     "PreviewFile",
     "ProjectFile",
+    "ReplyFile",
     "SchemaTooNew",
     "check_schema_version",
     "parse_actors_file",

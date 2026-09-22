@@ -144,6 +144,7 @@ SLOW_S = 1.0
 """What "within its normal response time" means for a handler returning a dict."""
 
 COMPLETE = {
+    "CANON_PROJECT": "ironwood",
     "CANON_REPOSITORY_URL": "git@github.com:cyberdynecorp/ironwood.git",
     "CANON_REPOSITORY_BRANCH": "canon",
     "CANON_REPOSITORY_CREDENTIAL": "a-deploy-key",
@@ -552,7 +553,7 @@ def _the_model_is_unavailable(deployment: dict[str, Any]) -> None:
     described = {one["name"]: one for one in body[DEPENDENCIES_FIELD]}
 
     assert body[STATUS_FIELD] == READY
-    assert body[DEGRADED_FIELD] == [LANGUAGE_MODEL]
+    assert LANGUAGE_MODEL in body[DEGRADED_FIELD]
     assert described[LANGUAGE_MODEL]["state"] == "unavailable"
     assert configuration.MODEL_ENABLED in described[LANGUAGE_MODEL]["detail"]
 

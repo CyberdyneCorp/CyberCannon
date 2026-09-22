@@ -37,7 +37,11 @@ export interface Failure {
 }
 
 export type ApiResult<T> =
-	| { readonly ok: true; readonly data: T; readonly freshness: Freshness | null }
+	| {
+			readonly ok: true;
+			readonly data: T;
+			readonly freshness: Freshness | null;
+	  }
 	| { readonly ok: false; readonly failure: Failure };
 
 export interface Page<T> {
@@ -167,7 +171,10 @@ export interface RecordedRequest {
 export interface RequestListing {
 	readonly project: string;
 	readonly requests: readonly AssetRequest[];
-	readonly unreadable: readonly { readonly path: string; readonly reason: string }[];
+	readonly unreadable: readonly {
+		readonly path: string;
+		readonly reason: string;
+	}[];
 }
 
 export interface UnreadItems {
@@ -223,4 +230,251 @@ export interface ProjectStatus {
 
 export interface StatusReport {
 	readonly projects: readonly ProjectStatus[];
+}
+
+// --------------------------------------------------------------------------
+// Annotations, threads and the triage queue (add-model-sheet-2d)
+// --------------------------------------------------------------------------
+
+/** The three kinds an annotation can declare. A closed set, as the domain has it. */
+export const ANNOTATION_KINDS = ['art-direction', 'technical', 'design'] as const;
+export type AnnotationKind = (typeof ANNOTATION_KINDS)[number];
+
+/** The open state, and the two exits. There is no fourth. */
+export const ANNOTATION_STATES = ['open', 'promoted', 'resolved'] as const;
+export type AnnotationState = (typeof ANNOTATION_STATES)[number];
+
+/** Whether an anchor still resolves. Independent of the exit state, deliberately. */
+export type AnchorState = 'carried' | 'orphaned';
+
+/** The two destinations a promotion may name. */
+export const PROMOTION_TARGETS = ['constraints', 'concept.silhouette_rules'] as const;
+export type PromotionTarget = (typeof PROMOTION_TARGETS)[number];
+
+export function isAnnotationKind(value: string): value is AnnotationKind {
+	return (ANNOTATION_KINDS as readonly string[]).includes(value);
+}
+
+export function isAnnotationState(value: string): value is AnnotationState {
+	return (ANNOTATION_STATES as readonly string[]).includes(value);
+}
+
+/**
+ * One anchor, in the one shape the surface renders both forms in.
+ *
+ * `annotation-authoring` requires a mixed list to come back *"by the same
+ * filter with the same fields present"*, so there is deliberately no union
+ * here: the members a form does not carry are simply absent, and `durableKey`
+ * is what identifies it whichever form it is — which is what lets the shared
+ * ViewModel never ask.
+ */
+export interface Anchor {
+	readonly view?: string;
+	readonly u?: number;
+	readonly v?: number;
+	readonly part?: string;
+	readonly bone?: string;
+	readonly point?: readonly number[];
+	readonly normal?: readonly number[];
+	readonly camera?: Camera;
+	/**
+	 * The clip that was on screen, and how far through it, as viewing hints (D9).
+	 *
+	 * `t` is a **proportion of the clip's duration**, never a frame index: frame
+	 * indices are meaningless across a frame-rate change, and there is
+	 * deliberately no member here that could hold one. Neither is part of the
+	 * durable key — removing the clip from a later export does not orphan the
+	 * annotation.
+	 */
+	readonly clip?: string;
+	readonly t?: number;
+	readonly durable_key: string;
+}
+
+/** The viewing angle an annotation was authored from, so it can be restored. */
+export interface Camera {
+	readonly position: readonly number[];
+	readonly target: readonly number[];
+	readonly fov_deg: number;
+}
+
+export interface Reply {
+	readonly id: string;
+	readonly author: string;
+	readonly via: string | null;
+	readonly attribution: string;
+	readonly text: string;
+	readonly at: string;
+	readonly edited_at: string | null;
+}
+
+/** One freehand mark: ordered `[u, v]` pairs in the anchored view's image space. */
+export type Stroke = readonly (readonly [number, number])[];
+
+export interface Annotation {
+	readonly id: string;
+	readonly kind: AnnotationKind;
+	readonly author: string;
+	readonly via: string | null;
+	readonly attribution: string;
+	readonly text: string;
+	readonly state: AnnotationState;
+	readonly anchor: Anchor;
+	readonly anchor_state: AnchorState;
+	readonly authored_against: string | null;
+	readonly created_at: string | null;
+	readonly edited_at: string | null;
+	readonly moved_by: string | null;
+	readonly moved_at: string | null;
+	readonly closed_by: string | null;
+	readonly closed_at: string | null;
+	readonly closing_text: string | null;
+	readonly replies: readonly Reply[];
+	readonly strokes: readonly Stroke[];
+	/** The exits this annotation is offered. Exactly two, or none once it took one. */
+	readonly exits: readonly string[];
+}
+
+export interface Orphan {
+	readonly id: string;
+	readonly subject: string;
+	readonly reason: string;
+	readonly annotation: Annotation;
+}
+
+export interface AnnotationListing {
+	readonly project: string;
+	readonly asset: string;
+	readonly path: string;
+	readonly revision: string;
+	readonly annotations: readonly Annotation[];
+	readonly hidden: number;
+	readonly orphans: readonly Orphan[];
+	readonly view_names: readonly string[];
+	/** Who this was read as, so a panel knows whose contributions are whose. */
+	readonly actor: string;
+	/**
+	 * Whether this person may take the promotion exit — the domain's answer.
+	 *
+	 * `model-sheet-2d` requires the panel to offer promotion *"only to a person
+	 * permitted to promote"*, and a client that inferred it from a role claim
+	 * would be a second opinion about a permission. Hiding it is a courtesy;
+	 * the refusal is the guarantee.
+	 */
+	readonly may_promote: boolean;
+}
+
+export interface RecordedAnnotation {
+	readonly project: string;
+	readonly asset: string;
+	readonly path: string;
+	readonly revision: string;
+	readonly committed: boolean;
+	readonly annotation: Annotation;
+}
+
+export interface TriageEntry {
+	readonly asset: string;
+	readonly kind: AnnotationKind;
+	readonly same_kind_on_asset: number;
+	readonly same_kind_in_project: number;
+	readonly replies: number;
+	readonly age_seconds: number;
+	readonly discipline_owner: string | null;
+	readonly annotation: Annotation;
+}
+
+export interface TriageQueue {
+	readonly project: string;
+	readonly entries: readonly TriageEntry[];
+	readonly unreadable: readonly string[];
+}
+
+
+// --------------------------------------------------------------------------
+// The 3D viewer (add-viewer-3d)
+// --------------------------------------------------------------------------
+
+/** Why an asset has no preview. Three reasons, as the use case distinguishes them. */
+export const NO_PREVIEW_REASONS = [
+	'no_export_recorded',
+	'no_successful_validation',
+	'emission_failed'
+] as const;
+export type NoPreviewReason = (typeof NO_PREVIEW_REASONS)[number];
+
+/** What became of one declared design state against the clips on hand (D8). */
+export type StateCoverage = 'satisfied' | 'no clip' | 'declared unanimated';
+
+export interface CoveredState {
+	readonly state: string;
+	readonly clip: string | null;
+	readonly coverage: StateCoverage;
+}
+
+export interface ClipCoverage {
+	readonly states: readonly CoveredState[];
+	/** Clips the preview carries that no declared state requires. Listed, never an error. */
+	readonly unclaimed: readonly string[];
+}
+
+export interface StoredPreview {
+	readonly key: string;
+	readonly source_export: string;
+	readonly size_bytes: number;
+	readonly content_type: string;
+}
+
+/**
+ * Everything the viewer needs before it loads anything.
+ *
+ * `source_export` is a path the viewer *states*; it is not an address, and no
+ * route this surface publishes resolves to one (D7).
+ */
+export interface PreviewDescriptor {
+	readonly project: string;
+	readonly asset: string;
+	readonly path: string;
+	readonly revision: string;
+	readonly preview: StoredPreview | null;
+	readonly source_export: string | null;
+	readonly latest_validated_export: string | null;
+	readonly derived_from_latest: boolean;
+	readonly counts: {
+		readonly triangles: number | null;
+		readonly objects: number | null;
+		readonly materials: number | null;
+	};
+	readonly parts: readonly string[];
+	readonly clips: readonly string[];
+	readonly coverage: ClipCoverage;
+	readonly absent: NoPreviewReason | null;
+	readonly reason: string | null;
+}
+
+/** The preview's bytes, base64, exactly as the store holds them. */
+export interface PreviewContent {
+	readonly asset: string;
+	readonly preview: string;
+	readonly source_export: string | null;
+	readonly content_type: string;
+	readonly size_bytes: number;
+	readonly content: string;
+}
+
+export interface AnchorResolutionRow {
+	readonly id: string;
+	readonly outcome: 'resolved' | 'partial' | 'orphaned';
+	readonly part: string;
+	readonly bone: string | null;
+	readonly reason: string | null;
+}
+
+export interface AnchorResolutions {
+	readonly project: string;
+	readonly asset: string;
+	readonly export: string | null;
+	readonly revision: string;
+	readonly orphaned: number;
+	readonly resolutions: readonly AnchorResolutionRow[];
 }

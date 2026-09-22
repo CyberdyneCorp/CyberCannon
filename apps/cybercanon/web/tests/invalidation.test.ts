@@ -36,6 +36,15 @@ const POPULATION: Readonly<Record<string, ResourceKey>> = {
 	requests: resources.requests(PROJECT),
 	request: resources.request(PROJECT, REQUEST),
 	unread: resources.unread(PROJECT),
+	annotations: resources.annotations(PROJECT, ASSET, 'rev-1'),
+	'annotations:another-revision': resources.annotations(PROJECT, ASSET, 'rev-2'),
+	'annotations:other-asset': resources.annotations(PROJECT, 'crate_small', 'rev-1'),
+	preview: resources.preview(PROJECT, ASSET),
+	'preview-content': resources.previewContent(PROJECT, ASSET),
+	resolutions: resources.resolutions(PROJECT, ASSET),
+	'resolutions:other-asset': resources.resolutions(PROJECT, 'crate_small'),
+	triage: resources.triage(PROJECT),
+	'triage:filtered': resources.triage(PROJECT, { kind: 'art-direction' }),
 	'other-project:assets': resources.assets(OTHER),
 	'other-project:requests': resources.requests(OTHER),
 	'other-project:unread': resources.unread(OTHER)
@@ -113,6 +122,77 @@ describe.each(['assign-request', 'transition-request'] as const)('%s', (path) =>
 
 		expect(dropped).not.toContain('assets:unfiltered');
 		expect(dropped).not.toContain('asset:spec');
+	});
+});
+
+describe('annotate', () => {
+	it('drops the asset’s threads at every revision, its briefing and the queue', () => {
+		expect(forgottenBy('annotate', { asset: ASSET })).toEqual([
+			'annotations',
+			'annotations:another-revision',
+			'briefing',
+			'resolutions',
+			'triage',
+			'triage:filtered'
+		]);
+	});
+
+	it('drops the anchor resolutions, because a moved anchor resolves differently', () => {
+		expect(forgottenBy('annotate', { asset: ASSET })).toContain('resolutions');
+	});
+
+	it('keeps the preview and its bytes — an annotation changes no export', () => {
+		const dropped = forgottenBy('annotate', { asset: ASSET });
+
+		expect(dropped).not.toContain('preview');
+		expect(dropped).not.toContain('preview-content');
+		expect(dropped).not.toContain('resolutions:other-asset');
+	});
+
+	it('keeps the specification, the listing and the search — no declared field moved', () => {
+		const dropped = forgottenBy('annotate', { asset: ASSET });
+
+		expect(dropped).not.toContain('asset:spec');
+		expect(dropped).not.toContain('assets:unfiltered');
+		expect(dropped).not.toContain('search');
+	});
+
+	it('keeps another asset’s threads', () => {
+		expect(forgottenBy('annotate', { asset: ASSET })).not.toContain('annotations:other-asset');
+	});
+});
+
+describe('promote-annotation', () => {
+	it('drops everything a thread write drops and everything a specification write does', () => {
+		expect(forgottenBy('promote-annotation', { asset: ASSET })).toEqual([
+			'annotations',
+			'annotations:another-revision',
+			'asset:spec',
+			'asset:spec:lensed',
+			'assets:filtered',
+			'assets:unfiltered',
+			'briefing',
+			'locations',
+			'resolutions',
+			'search',
+			'triage',
+			'triage:filtered',
+			'validation'
+		]);
+	});
+
+	it('is wider than a thread write, because a promotion writes a durable rule', () => {
+		const promoted = forgottenBy('promote-annotation', { asset: ASSET });
+
+		expect(promoted).toContain('validation');
+		expect(forgottenBy('annotate', { asset: ASSET })).not.toContain('validation');
+	});
+
+	it('still leaves another project and the project briefing alone', () => {
+		const dropped = forgottenBy('promote-annotation', { asset: ASSET });
+
+		expect(dropped).not.toContain('project-briefing');
+		expect(dropped).not.toContain('other-project:assets');
 	});
 });
 

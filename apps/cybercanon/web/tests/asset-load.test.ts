@@ -122,6 +122,67 @@ function surface(options: {
 				ok({ asset: ASSET, source: 'assets/mech_scout/asset.yaml', lens: null, body: document, full: document, notice: '' })
 			);
 		},
+		async annotations() {
+			asked.push('annotations');
+			return ok({
+				project: PROJECT,
+				asset: ASSET,
+				path: 'assets/mech_scout/asset.yaml',
+				revision: 'rev-1',
+				annotations: [],
+				hidden: 0,
+				orphans: [],
+				view_names: [],
+				actor: 'auth|rafa',
+				may_promote: false
+			});
+		},
+		async preview() {
+			asked.push('preview');
+			return ok({
+				project: PROJECT,
+				asset: ASSET,
+				path: 'assets/mech_scout/asset.yaml',
+				revision: 'rev-1',
+				preview: {
+					key: 'previews/mech_scout.glb',
+					source_export: EXPORT,
+					size_bytes: 4,
+					content_type: 'model/gltf-binary'
+				},
+				source_export: EXPORT,
+				latest_validated_export: EXPORT,
+				derived_from_latest: true,
+				counts: { triangles: 14310, objects: 3, materials: 2 },
+				parts: ['SM_MechScout_Shoulder_L'],
+				clips: [],
+				coverage: { states: [], unclaimed: [] },
+				absent: null,
+				reason: null
+			});
+		},
+		async previewContent() {
+			asked.push('preview-content');
+			return ok({
+				asset: ASSET,
+				preview: 'previews/mech_scout.glb',
+				source_export: EXPORT,
+				content_type: 'model/gltf-binary',
+				size_bytes: 4,
+				content: 'Z2xURg=='
+			});
+		},
+		async anchorResolutions() {
+			asked.push('resolutions');
+			return ok({
+				project: PROJECT,
+				asset: ASSET,
+				export: EXPORT,
+				revision: 'rev-1',
+				orphaned: 2,
+				resolutions: []
+			});
+		},
 		async validate(_project: string, exportPath: string) {
 			asked.push(`validate:${exportPath}`);
 			return (
@@ -189,23 +250,15 @@ describe('opening an address restores the surface it named', () => {
 		expect(screen.state.kind).toBe('content');
 	});
 
-	it('degrades to the default view when the named surface no longer exists', async () => {
+	it('opens the viewer for an asset with no validated export', async () => {
+		// The override `add-viewer-3d` makes: the viewer is the surface that
+		// *states* why there is no preview, so it has to open in order to say so.
 		const { reads } = surface({ locations: ok(BARE_ANSWER), document: BARE });
 
 		const screen = await assetScreen(reads, PROJECT, ASSET, address('?surface=viewer'));
 
-		expect(screen.address.surface).toBe('overview');
-		expect(screen.state.kind).toBe('degraded');
-	});
-
-	it('tells the person why it degraded', async () => {
-		const { reads } = surface({ locations: ok(BARE_ANSWER), document: BARE });
-
-		const screen = await assetScreen(reads, PROJECT, ASSET, address('?surface=viewer'));
-
-		expect(screen.state.kind === 'degraded' && screen.state.unavailable.join(' ')).toContain(
-			'viewer'
-		);
+		expect(screen.address.surface).toBe('viewer');
+		expect(screen.state.kind).toBe('content');
 	});
 
 	it('degrades a surface this application does not have at all', async () => {
@@ -294,5 +347,55 @@ describe('what the page discloses beside its content', () => {
 		expect(screen.state.kind === 'degraded' && screen.state.unavailable.join(' ')).toContain(
 			'changed on disk'
 		);
+	});
+});
+
+
+describe('what the route reads for the 3D viewer, and when', () => {
+	it('reads the descriptor, the orphan count and the bytes when the viewer is opened', async () => {
+		const { asked, reads } = surface({});
+
+		const screen = await assetScreen(reads, PROJECT, ASSET, address('?surface=viewer'));
+
+		expect(asked).toContain('preview');
+		expect(asked).toContain('resolutions');
+		expect(asked).toContain('preview-content');
+		expect(screen.viewer?.descriptor?.source_export).toBe(EXPORT);
+		expect(screen.viewer?.resolutions?.orphaned).toBe(2);
+		expect(screen.viewer?.bytes?.byteLength).toBe(4);
+	});
+
+	it('reads the threads too, because the viewer lists them (D11)', async () => {
+		const { asked, reads } = surface({});
+
+		await assetScreen(reads, PROJECT, ASSET, address('?surface=viewer'));
+
+		expect(asked).toContain('annotations');
+	});
+
+	it('leaves the preview’s bytes alone during server rendering', async () => {
+		// The descriptor and the orphan count are still read — they are what the
+		// page *states* — and the one expensive read is the one only a browser
+		// can use.
+		const { asked, reads } = surface({});
+
+		const screen = await assetScreen(reads, PROJECT, ASSET, address('?surface=viewer'), {
+			previewBytes: false
+		});
+
+		expect(asked).toContain('preview');
+		expect(asked).not.toContain('preview-content');
+		expect(screen.viewer?.bytes).toBeNull();
+		expect(screen.viewer?.descriptor).not.toBeNull();
+	});
+
+	it('asks for none of it on a surface that shows no preview', async () => {
+		const { asked, reads } = surface({});
+
+		await assetScreen(reads, PROJECT, ASSET, address('?surface=sheet'));
+
+		expect(asked).not.toContain('preview');
+		expect(asked).not.toContain('resolutions');
+		expect(asked).toContain('annotations');
 	});
 });

@@ -173,6 +173,8 @@ def entry_for(
     fingerprint: FileFingerprint | None = None,
     previous: IndexedAsset | None = None,
     validation: ValidationRecord | None = None,
+    *,
+    name: str = "",
 ) -> IndexedAsset:
     """One parsed specification as the index holds it.
 
@@ -180,6 +182,11 @@ def entry_for(
     or from the path it was read at. Nothing is summarised, guessed or
     generated, because a row that carried an opinion would be a place where
     information originates — which is exactly what the index may not be.
+
+    `name` overrides the declared project name for the row's project column: a
+    hosted deployment keys its rows by the address it serves the working copy
+    at, so the index and the entitlement decision speak the same string. Left
+    empty — the command line — the declared name is used, as it always was.
 
     Tags and descriptions stay empty here. They are *derived* metadata keyed by
     a blob's content (openspec/project.md), and the block D7 lists for this
@@ -191,7 +198,7 @@ def entry_for(
     return IndexedAsset(
         asset_id=asset.id.value,
         name=asset.name,
-        project=_project_name(project),
+        project=name or _project_name(project),
         status=str(asset.status),
         aliases=asset.aliases,
         spec_path=loaded.path,
@@ -241,8 +248,15 @@ def rebuild_index(
     progress: Progress = no_progress,
     resume: bool = False,
     validations: ValidationLookup = no_validations,
+    project: str = "",
 ) -> RebuildReport:
     """Scan every specification under `root` and rewrite the project's rows.
+
+    `project` is the identifier the rows are keyed by, and it is a parameter for
+    the reason the address exists: a hosted deployment serves this working copy
+    at one name and must key every row by it, while `canon index` on a laptop
+    has no address and keys rows by what `.canon/project.yaml` declares. Passing
+    nothing keeps the second behaviour, so nothing about the command line moves.
 
     One unreadable file is a finding, never the end of the scan: a project with
     a broken `asset.yaml` still gets an index of everything else, and the
@@ -258,8 +272,8 @@ def rebuild_index(
     carries everything over, which is the honest answer for a store that cannot
     see files — *nothing has changed* is exactly what it knows.
     """
-    project = spec_store.load_project(root)
-    name = _project_name(project)
+    declared = spec_store.load_project(root)
+    name = project or _project_name(declared)
     known = {entry.asset_id: entry for entry in search_index.list_assets(project=name)}
     carried = {entry.spec_path: entry for entry in known.values()} if resume else {}
     paths = tuple(spec_store.specs_under(root))
@@ -268,7 +282,7 @@ def rebuild_index(
     for position, path in enumerate(paths, start=1):
         already = _carried_over(path, carried, fingerprints)
         row = already or _row_for(
-            path, project, spec_store, fingerprints, known, unreadable, validations
+            path, declared, name, spec_store, fingerprints, known, unreadable, validations
         )
         if row is not None and already is None:
             search_index.upsert(row)
@@ -363,7 +377,8 @@ def _reread(
 
 def _row_for(
     path: str,
-    project: ProjectConfig,
+    declared: ProjectConfig,
+    name: str,
     spec_store: SpecStore,
     fingerprints: Fingerprinter,
     known: dict[str, IndexedAsset],
@@ -378,10 +393,11 @@ def _row_for(
         return None
     return entry_for(
         loaded,
-        project,
+        declared,
         fingerprints(path),
         previous=known.get(loaded.asset.id.value),
         validation=validations(path),
+        name=name,
     )
 
 

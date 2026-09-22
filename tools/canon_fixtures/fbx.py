@@ -193,6 +193,34 @@ def write_static_fbx(path: Path, *, asset: str = "crate") -> ExportFacts:
     return _write(path, asset=asset, clips=(), skinned=False)
 
 
+def write_partly_skinned_fbx(path: Path, *, asset: str = "half_scout") -> ExportFacts:
+    """A skinned FBX whose clusters leave half the control points unbound.
+
+    What an artist hands over when a weight-painting pass missed a few vertices,
+    and a shape worth having a fixture for: glTF multiplies a vertex by the sum
+    of its weighted joint matrices, so a vertex left at four zero weights is
+    dragged onto the origin — a spike through the middle of the preview rather
+    than a vertex that stayed where it was.
+    """
+    clips = (ClipExpectation(name=f"A_{asset}_walk", duration_s=1.0, loop_closed=False),)
+    return _write(path, asset=asset, clips=clips, skinned=True, bound=len(CORNERS) // 2)
+
+
+def write_curveless_fbx(
+    path: Path, *, asset: str = "curveless", clips: tuple[ClipExpectation, ...] | None = None
+) -> ExportFacts:
+    """An FBX whose animation stacks carry no curves — a clip with no motion.
+
+    The file is well-formed and reads into facts exactly as any other does: the
+    clip names and their lengths are recorded and reach the report. What it has
+    no answer for is what the clip *does*, which is why the preview converter
+    refuses it rather than emitting a clip that holds a pose for the right
+    number of seconds.
+    """
+    clips = clips or (ClipExpectation(name=f"A_{asset}_idle", duration_s=1.0, loop_closed=False),)
+    return _write(path, asset=asset, clips=clips, skinned=False)
+
+
 def write_ascii_fbx(path: Path) -> None:
     """The grammar this reader does not read, so the refusal is exercised."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -226,8 +254,9 @@ def _write(
     clips: tuple[ClipExpectation, ...],
     skinned: bool,
     up_axis: int | None = 1,
+    bound: int | None = None,
 ) -> ExportFacts:
-    builder = _Builder(asset=asset, clips=clips, skinned=skinned, up_axis=up_axis)
+    builder = _Builder(asset=asset, clips=clips, skinned=skinned, up_axis=up_axis, bound=bound)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(_encode_document(builder.document()))
     return builder.facts()
@@ -243,11 +272,13 @@ class _Builder:
         clips: tuple[ClipExpectation, ...],
         skinned: bool,
         up_axis: int | None,
+        bound: int | None = None,
     ) -> None:
         self.asset = asset
         self.clips = clips
         self.skinned = skinned
         self.up_axis = up_axis
+        self.bound = len(CORNERS) if bound is None else bound
         self.object_name = f"SM_{asset}_LOD0"
         self.material = f"M_{asset}"
         self.socket = "SOCKET_muzzle_l"
@@ -372,7 +403,7 @@ class _Builder:
         self._connect(skin_id, geometry)
         for name, bone_id in bones.items():
             cluster_id = self._identifier()
-            self._objects.children.append(_cluster(cluster_id, name))
+            self._objects.children.append(_cluster(cluster_id, name, self.bound))
             self._connect(cluster_id, skin_id)
             self._connect(bone_id, cluster_id)
 
@@ -450,13 +481,17 @@ def _model(identifier: Int64, name: str, subtype: str) -> Node:
     return model
 
 
-def _cluster(identifier: Int64, name: str) -> Node:
-    """Every vertex bound to every bone, which keeps the weights legible."""
+def _cluster(identifier: Int64, name: str, bound: int = len(CORNERS)) -> Node:
+    """Every vertex bound to every bone, which keeps the weights legible.
+
+    `bound` binds only the first that many control points, which is how
+    :func:`write_partly_skinned_fbx` writes a mesh with unweighted vertices.
+    """
     cluster = Node("Deformer", (identifier, _named(name, "SubDeformer"), Str("Cluster")))
     cluster.add("Version", 100)
     cluster.add("UserData", Str(""), Str(""))
-    cluster.add("Indexes", Ints(range(len(CORNERS))))
-    cluster.add("Weights", Doubles(1.0 for _ in CORNERS))
+    cluster.add("Indexes", Ints(range(bound)))
+    cluster.add("Weights", Doubles(1.0 for _ in range(bound)))
     cluster.add("Transform", Doubles(_IDENTITY))
     cluster.add("TransformLink", Doubles(_IDENTITY))
     return cluster
@@ -499,6 +534,8 @@ __all__ = [
     "KTIME_PER_SECOND",
     "write_ascii_fbx",
     "write_axisless_fbx",
+    "write_curveless_fbx",
+    "write_partly_skinned_fbx",
     "write_skinned_fbx",
     "write_static_fbx",
     "write_unterminated_fbx",

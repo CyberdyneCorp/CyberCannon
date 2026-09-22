@@ -40,7 +40,16 @@ FORBIDDEN_IN_A_FIELD_NAME = (
 )
 
 ANCHOR_2D_FIELDS = {"view", "u", "v"}
-ANCHOR_3D_FIELDS = {"part", "bone", "point", "normal", "camera"}
+ANCHOR_3D_FIELDS = {"part", "bone", "point", "normal", "camera", "clip", "t"}
+"""`clip` and `t` are `add-viewer-3d`'s playback hint (D9), added in task 1.4.
+
+They widen the set by two members and by nothing else, which is the whole point
+of asserting the set exactly: a *frame index* would have been the obvious way to
+record where in a clip an annotation was authored, and it is precisely the
+`triangle index` mistake in a different costume — meaningless the moment the
+clip is re-exported at another rate. `t` is a proportion, and the type has
+nowhere to put the alternative.
+"""
 
 PART = "SM_MechScout_Shoulder_L"
 

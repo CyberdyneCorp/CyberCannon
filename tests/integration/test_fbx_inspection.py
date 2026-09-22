@@ -235,9 +235,76 @@ def test_a_truncated_fbx_is_named_not_assumed(
     assert "truncated.fbx" in raised.value.message
 
 
-def test_an_fbx_yields_no_preview_and_that_is_not_a_verdict(inspector: TrimeshInspector) -> None:
-    """Nothing here turns an FBX into a previewable document; D7 makes that free."""
-    inspected = inspector.inspect(SKINNED)
+def test_an_fbx_yields_a_preview_carrying_what_the_report_named(
+    repository: Path, inspector: TrimeshInspector
+) -> None:
+    """`fbx_gltf` converts the parsed FBX, so this format has a preview at all.
 
-    with pytest.raises(PreviewUnavailable):
+    It did not: the facts reached the report and nothing turned the same read
+    into a previewable document, which cost the 3D viewer a whole format and
+    left an FBX-only asset with nothing for an annotation to anchor against.
+    What the preview must carry is what the report offered — the object, the
+    socket, every bone and every clip — and `test_preview_anchoring.py` asks the
+    anchoring question the same way for FBX as for glTF.
+    """
+    authored = fixtures.write_skinned_fbx(repository / SKINNED)
+
+    preview = inspector.emit_preview(inspector.inspect(SKINNED))
+
+    assert set(authored.objects) | set(authored.empties) <= set(preview.parts)
+    assert set(authored.bones) <= set(preview.bones)
+    assert preview.clips == authored.clip_names
+    assert 0 < preview.triangles < authored.triangles
+
+
+def test_a_static_fbx_is_previewable_too(repository: Path, inspector: TrimeshInspector) -> None:
+    """No skeleton and no clips is not a degraded preview, it is a smaller one."""
+    authored = fixtures.write_static_fbx(repository / STATIC)
+
+    preview = inspector.emit_preview(inspector.inspect(STATIC))
+
+    assert set(authored.objects) | set(authored.empties) <= set(preview.parts)
+    assert preview.clips == ()
+
+
+def test_a_vertex_no_cluster_names_is_not_dragged_onto_the_origin(
+    repository: Path, inspector: TrimeshInspector
+) -> None:
+    """Weight painting misses vertices, and glTF punishes that differently.
+
+    A vertex left at four zero weights is multiplied by a zero matrix and ends
+    up at the origin — a spike through the middle of the preview rather than a
+    vertex that stayed where the export put it. Every vertex therefore leaves
+    this converter weighted to something, and the sum is what says so.
+    """
+    from cybercanon.adapters.outbound.mesh import fbx_gltf
+    from cybercanon.adapters.outbound.mesh.fbx_document import FbxDocument
+
+    export = "characters/half_scout/exports/SM_half_scout_LOD0.fbx"
+    fixtures.write_partly_skinned_fbx(repository / export)
+
+    converted = fbx_gltf.convert(FbxDocument.read(repository / export))
+
+    primitive = converted.gltf.meshes[0].primitives[0]
+    weights = converted.floats(primitive.attributes.WEIGHTS_0)
+    assert weights
+    assert all(sum(vertex) == pytest.approx(1.0) for vertex in weights)
+
+
+def test_an_fbx_this_converter_cannot_carry_is_refused_and_not_a_verdict(
+    repository: Path, inspector: TrimeshInspector
+) -> None:
+    """A clip with no curves is refused by name, and the facts are untouched (D7).
+
+    The refusal is a `PreviewUnavailable` rather than an `OperationFailed`, so
+    an export whose preview cannot be made still validates on everything the
+    rules were able to read.
+    """
+    export = "props/curveless/exports/SM_curveless_LOD0.fbx"
+    authored = fixtures.write_curveless_fbx(repository / export)
+
+    inspected = inspector.inspect(export)
+
+    assert inspected.facts.clip_names == authored.clip_names
+    with pytest.raises(PreviewUnavailable, match="carries no curve"):
         inspector.emit_preview(inspected)

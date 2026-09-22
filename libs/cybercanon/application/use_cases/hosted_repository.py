@@ -164,11 +164,23 @@ class Edit:
     `based_on` of ``None`` asserts the file did not exist when the edit was
     composed, which is how a new specification is written without racing a
     second author who had the same idea.
+
+    `content` of ``None`` is a **removal**, exactly as
+    :class:`~cybercanon.application.ports.repository_host.FileChange` spells
+    one. It arrived with concept ingestion, whose D4 turns a view whose format
+    changed into a rename — remove the old path, write the new one, in the same
+    commit — so that history follows the slot instead of showing a delete and an
+    unrelated add. A removal states its precondition like any other edit: the
+    digest of the bytes it expects to be removing.
     """
 
     path: str
-    content: bytes
+    content: bytes | None
     based_on: ContentHash | None = None
+
+    @property
+    def is_removal(self) -> bool:
+        return self.content is None
 
 
 @dataclass(frozen=True)
@@ -431,6 +443,13 @@ def rebuild_project_index(
     it runs, and one that was interrupted has to continue rather than start
     again.
 
+    **The rows are keyed by `project`** — the identifier this deployment serves
+    the working copy at — and not by the `name:` the working copy declares. The
+    two are usually the same string and the day they are not is the day the
+    address, which `http-api` makes permanent, would stop matching the rows a
+    rebuild wrote. The address is what a caller was authorized against, so it is
+    what the index is keyed by.
+
     **Validated exports are read back from the repository** (G2), at the same
     revision as everything else. That is not an extra: the validation worker
     commits its outcome beside the asset precisely so that a rebuild can restore
@@ -448,6 +467,7 @@ def rebuild_project_index(
         fingerprints=fingerprints,
         progress=progress,
         resume=resume,
+        project=project,
         validations=validations_from(project, repository_host, revision),
     )
 

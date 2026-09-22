@@ -159,6 +159,7 @@ def step_1_record_the_connection_settings(environment: Environment) -> None:
     """*"Create the PostgreSQL and MinIO applications ... record the connection
     settings as environment on the API application."*"""
     environment.settings = {
+        "CANON_PROJECT": PROJECT,
         "CANON_REPOSITORY_URL": str(environment.staged.bare),
         "CANON_REPOSITORY_BRANCH": BRANCH,
         "CANON_REPOSITORY_CREDENTIAL": "a-pre-production-deploy-key",

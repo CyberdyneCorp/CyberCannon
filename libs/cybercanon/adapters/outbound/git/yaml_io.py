@@ -22,6 +22,7 @@ import io
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedSeq
 from ruamel.yaml.error import YAMLError
 
 
@@ -59,6 +60,19 @@ def dump(data: Any) -> str:
     return stream.getvalue()
 
 
+def inline(values: Any) -> CommentedSeq:
+    """A sequence the dump writes on one line — `[0.25, 0.4]` rather than a block.
+
+    A coordinate pair and a polyline are *one value* to a reader, and a block
+    sequence spreads a stroke over three lines per point, which makes a diff
+    that nobody can read and a file nobody wants beside their asset. Presentation
+    only: it parses identically either way.
+    """
+    sequence = CommentedSeq(values)
+    sequence.fa.set_flow_style()
+    return sequence
+
+
 def load_mapping(text: str, *, subject: str) -> dict[str, Any]:
     """Parse and insist on a mapping, because every spec file is one.
 
@@ -74,4 +88,4 @@ def load_mapping(text: str, *, subject: str) -> dict[str, Any]:
     return dict(document)
 
 
-__all__ = ["YamlUnreadable", "dump", "load", "load_mapping"]
+__all__ = ["YamlUnreadable", "dump", "inline", "load", "load_mapping"]

@@ -24,10 +24,12 @@ from cybercanon.application.ports.search_index import RecordedMiss
 from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.compile_spec import CompiledSpec
 from cybercanon.application.use_cases.index_assets import RebuildReport
+from cybercanon.application.use_cases.ingest_views import IngestedView, IngestionOutcome
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
 from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
 from cybercanon.application.use_cases.sign_in import SignedIn, SignedOut, SignInStatus
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
+from cybercanon.application.use_cases.view_mirror import ViewMirrorReport
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import SpecViolation, Violation
 
@@ -150,6 +152,56 @@ def compile_payload(compiled: CompiledSpec, destination: str | None) -> dict[str
         source=compiled.source,
         written_to=destination,
         text=compiled.text,
+    )
+
+
+def ingest_payload(outcome: IngestionOutcome) -> dict[str, Any]:
+    """What `canon add-view` produced, in the same vocabulary the API answers in.
+
+    Field names match :mod:`cybercanon.adapters.inbound.http.payloads` on
+    purpose: the two documents are compared to check that the command line and
+    the web surface agree about what an ingestion did, and names that differed
+    would make the comparison a translation exercise.
+    """
+    return _document(
+        "add-view",
+        passed=outcome.committed or bool(outcome.unchanged),
+        asset=outcome.asset_id,
+        revision=outcome.revision.value,
+        committed=outcome.committed,
+        created_asset=outcome.created_asset,
+        message=outcome.commit_message,
+        views=[_ingested_view(view) for view in outcome.views],
+        unchanged=list(outcome.unchanged),
+        awaiting_mirror=list(outcome.awaiting_mirror),
+        thumbnails_pending=outcome.thumbnails_pending,
+        annotations_carried=outcome.carried,
+        annotations_orphaned=outcome.orphaned,
+    )
+
+
+def _ingested_view(view: IngestedView) -> dict[str, Any]:
+    return {
+        "slot": str(view.slot),
+        "path": view.path,
+        "content_hash": view.facts.content_hash.labelled,
+        "key": view.key,
+        "replaced": view.replaced,
+        "mirrored": view.mirrored,
+    }
+
+
+def view_mirror_payload(report: ViewMirrorReport) -> dict[str, Any]:
+    """What a re-mirror did: the keys it landed on, and what it derived."""
+    return _document(
+        "views rebuild",
+        passed=True,
+        project=report.project,
+        revision=report.revision.value,
+        mirrored=len(report.mirrored),
+        already_stored=len(report.already_stored),
+        thumbnails=report.thumbnails,
+        keys=report.keys,
     )
 
 

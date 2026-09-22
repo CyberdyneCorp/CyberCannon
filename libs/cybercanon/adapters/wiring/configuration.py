@@ -156,6 +156,18 @@ PAIR_SEPARATOR = "="
 
 SCHEME_SEPARATOR = "://"
 
+WILDCARD = "*"
+"""What a browser origin may never be configured as."""
+
+DEFAULT_WORKING_COPIES = "/data/worktrees"
+"""Where the persistent working copies live, matching `deploy/coolify.yaml`.
+
+A default rather than a required variable because it is the *volume's* mount
+point and it is declared in the deployment manifest, which the inventory check
+already reads against this module. An operator who mounts it elsewhere says so;
+one who follows the manifest does not have to.
+"""
+
 TRUE = ("1", "true", "yes", "on")
 FALSE = ("0", "false", "no", "off")
 
@@ -197,6 +209,27 @@ def flag(raw: str) -> bool:
     if lowered in FALSE:
         return False
     raise ValueError("expected a switch")
+
+
+def origins(raw: str) -> tuple[str, ...]:
+    """A comma-separated list of browser origins, each `scheme://host[:port]`.
+
+    A wildcard is refused rather than honoured. `deploy/coolify.yaml` puts the
+    API and the web application on different hosts, so the browser asks this
+    service whether the application's origin may read it — and the honest answer
+    is a list somebody wrote down, per environment. `*` would be the answer that
+    is the same everywhere and true nowhere, and it cannot carry credentials at
+    all, which is precisely what this surface's requests do.
+    """
+    declared = [entry.strip().rstrip("/") for entry in raw.split(GROUP_SEPARATOR)]
+    listed = [entry for entry in declared if entry]
+    if not listed:
+        raise ValueError("expected at least one origin")
+    for entry in listed:
+        if entry == WILDCARD:
+            raise ValueError("expected an origin, not a wildcard")
+        url(entry)
+    return tuple(dict.fromkeys(listed))
 
 
 def group_roles(declared: str) -> Mapping[str, str]:
@@ -246,6 +279,7 @@ class Setting:
     default: Any = None
 
 
+PROJECT = "CANON_PROJECT"
 REPOSITORY_URL = "CANON_REPOSITORY_URL"
 REPOSITORY_BRANCH = "CANON_REPOSITORY_BRANCH"
 REPOSITORY_CREDENTIAL = "CANON_REPOSITORY_CREDENTIAL"
@@ -261,6 +295,8 @@ OBJECT_STORE_URL = "CANON_OBJECT_STORE_URL"
 LINK_EXPIRY = "CANON_LINK_EXPIRY_S"
 WRITE_BACK_TIMEOUT = "CANON_WRITE_BACK_TIMEOUT_S"
 DRAIN_WINDOW = "CANON_DRAIN_WINDOW_S"
+WORKING_COPIES = "CANON_WORKING_COPIES"
+WEB_ORIGINS = "CANON_WEB_ORIGINS"
 
 MODEL_ENABLED = "CANON_LLM_ENABLED"
 MODEL_BASE_URL = "CANON_LLM_BASE_URL"
@@ -271,6 +307,7 @@ MODEL_TIMEOUT = "CANON_LLM_TIMEOUT_S"
 MODEL_MAX_RETRIES = "CANON_LLM_MAX_RETRIES"
 
 SETTINGS: tuple[Setting, ...] = (
+    Setting(PROJECT, "the identifier this deployment serves its project as"),
     Setting(REPOSITORY_URL, "a git remote the service can reach"),
     Setting(REPOSITORY_BRANCH, "the branch write-backs are committed to"),
     Setting(REPOSITORY_CREDENTIAL, "a deploy credential for that remote", secret=True),
@@ -286,6 +323,19 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(LINK_EXPIRY, "a whole number of seconds", read=seconds),
     Setting(WRITE_BACK_TIMEOUT, "a whole number of seconds", read=seconds),
     Setting(DRAIN_WINDOW, "a whole number of seconds", read=seconds),
+    Setting(
+        WORKING_COPIES,
+        "a directory on the working-copy volume",
+        required=False,
+        default=DEFAULT_WORKING_COPIES,
+    ),
+    Setting(
+        WEB_ORIGINS,
+        "a comma-separated list of `scheme://host` origins, never `*`",
+        read=origins,
+        required=False,
+        default=(),
+    ),
     Setting(MODEL_ENABLED, "a switch", read=flag, required=False, default=False),
     Setting(MODEL_BASE_URL, "an OpenAI-compatible endpoint", read=url, required=False, default=""),
     Setting(MODEL_API_KEY, "a bearer credential", required=False, secret=True, default=""),
@@ -296,15 +346,21 @@ SETTINGS: tuple[Setting, ...] = (
 )
 """Every variable this service reads, required and optional, in one table.
 
-The required fourteen — repository, branch, credential, fetch interval,
+The required fifteen — project, repository, branch, credential, fetch interval,
 webhook secret, issuer, audience, key set URL, group mapping, database, object
 store, link expiry, write-back timeout, drain window — are what the service
-refuses to start without. The last two are a *pair*: D7 makes "a commit or
+refuses to start without. `CANON_PROJECT` is required for the reason the others
+are: a hosted API that serves no project answers health and nothing else, and
+that is a deployment nobody notices is broken until somebody opens the web
+application. The last two are a *pair*: D7 makes "a commit or
 nothing" a property of two configured numbers in a known order, so they are
 read together and checked against each other (:class:`RolloverConfig`).
 
 The seven model variables are optional by `project.md`'s rule that *"the
-system SHALL be fully usable with it off"*, and the key-cache window is optional
+system SHALL be fully usable with it off"*; the working-copy volume is optional
+because the deployment manifest declares where it is mounted; the browser
+origins are optional because a deployment reached only by the command line and
+the agent surface grants none; and the key-cache window is optional
 because D8 fixes the *behaviour* — existing credentials keep verifying while the
 issuer is unreachable — and leaves the number to the deployment. `deploy/README.md`
 is checked against this table so the document and the code cannot drift, and so
@@ -343,13 +399,24 @@ a studio would rather pay is a deployment decision.
 
 @dataclass(frozen=True)
 class RepositoryConfig:
-    """Where a project's repository is, which branch is written, and how to reach it."""
+    """Where a project's repository is, which branch is written, and how to reach it.
+
+    `project` is the identifier this deployment serves the repository as, and it
+    is *the address*: `http-api` requires every resource to be reachable at
+    `/{version}/projects/{project}/…` for as long as it exists, so the name is
+    configuration rather than something derived from a URL or read out of a file
+    that a commit could change underneath a running service. Everything keyed by
+    a project — the entitlement decision, the index rows, the working-copy
+    directory — is keyed by this one string.
+    """
 
     url: str
     branch: str
     credential: Secret
     fetch_interval: timedelta
     webhook_secret: Secret
+    project: str = ""
+    working_copies: str = DEFAULT_WORKING_COPIES
 
 
 @dataclass(frozen=True)
@@ -469,6 +536,29 @@ class ModelConfig:
 
 
 @dataclass(frozen=True)
+class BrowserAccess:
+    """Which browser origins may read this API, and nothing wider.
+
+    `deploy/coolify.yaml` puts the API on `api.backend…` and the application on
+    `canon.backend…`, so every request the web application makes is
+    cross-origin: without this the browser refuses the response it already
+    received, and the application shows an unavailable state against a service
+    that is perfectly healthy.
+
+    Empty is the honest default. A deployment that has not been told which
+    application talks to it sends no cross-origin permission at all, which is
+    what a service reached only by the command line and the agent surface should
+    do — and it is why this is a configured list and never a wildcard.
+    """
+
+    origins: tuple[str, ...] = ()
+
+    @property
+    def permitted(self) -> bool:
+        return bool(self.origins)
+
+
+@dataclass(frozen=True)
 class ServiceConfiguration:
     """Everything the hosted service needs, already read and already checked."""
 
@@ -477,6 +567,7 @@ class ServiceConfiguration:
     storage: StorageConfig
     rollover: RolloverConfig
     model: ModelConfig = ModelConfig()
+    browser: BrowserAccess = BrowserAccess()
 
 
 def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
@@ -502,6 +593,8 @@ def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
             credential=Secret(values[REPOSITORY_CREDENTIAL]),
             fetch_interval=values[FETCH_INTERVAL],
             webhook_secret=Secret(values[WEBHOOK_SECRET]),
+            project=values[PROJECT],
+            working_copies=values[WORKING_COPIES] or DEFAULT_WORKING_COPIES,
         ),
         identity=IdentityConfig(
             issuer=values[AUTH_ISSUER],
@@ -516,6 +609,7 @@ def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
             link_expiry=values[LINK_EXPIRY],
         ),
         rollover=rollover,
+        browser=BrowserAccess(origins=tuple(values[WEB_ORIGINS] or ())),
         model=ModelConfig(
             enabled=values[MODEL_ENABLED],
             base_url=values[MODEL_BASE_URL],
@@ -573,6 +667,7 @@ def missing_from(environment: Mapping[str, str]) -> tuple[str, ...]:
 __all__ = [
     "DEFAULT_KEY_CACHE_TTL",
     "DEFAULT_MODEL_TIMEOUT",
+    "DEFAULT_WORKING_COPIES",
     "GROUP_SEPARATOR",
     "OPTIONAL",
     "PAIR_SEPARATOR",
@@ -581,6 +676,10 @@ __all__ = [
     "ROLLOVER_ORDER",
     "SECRETS",
     "SETTINGS",
+    "WEB_ORIGINS",
+    "WILDCARD",
+    "WORKING_COPIES",
+    "BrowserAccess",
     "ConfigurationIncomplete",
     "ConfigurationInvalid",
     "ConfigurationRejected",
@@ -596,6 +695,7 @@ __all__ = [
     "group_roles",
     "load",
     "missing_from",
+    "origins",
     "read",
     "refusal",
     "rollover_problems",

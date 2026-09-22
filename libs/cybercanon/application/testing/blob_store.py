@@ -113,6 +113,16 @@ class InMemoryBlobStore:
         self._raise_if_configured()
         return verified_bytes(key, self._blobs.get(key))
 
+    def keys(self) -> tuple[str, ...]:
+        """Every key this store holds, sorted.
+
+        An operation rather than a test reaching into the dictionary, because
+        `concept-ingestion` states a property *about the set* — *"no object
+        written for that request SHALL remain"* — and a drill that could only be
+        run by one implementation would not be a drill.
+        """
+        return tuple(sorted(self._blobs))
+
     def empty(self) -> None:
         """Lose every blob — the total loss `blob-storage` requires recovery from.
 
@@ -124,6 +134,16 @@ class InMemoryBlobStore:
         self._blobs.clear()
         self._previews.clear()
         self._types.clear()
+
+    def lose_contents(self) -> None:
+        """Lose the objects while keeping the records that name them.
+
+        The shape of the condition `viewer-3d` requires to be *reported rather
+        than left blank*: a preview that is recorded and cannot be retrieved is
+        a different answer from an asset that never had one, and a seam that
+        could only produce the second would leave the first untested.
+        """
+        self._blobs.clear()
 
     def _raise_if_configured(self) -> None:
         if self._failure is not None:

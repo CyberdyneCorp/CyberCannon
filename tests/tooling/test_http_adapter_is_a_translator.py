@@ -15,8 +15,10 @@ mapping, asserted rather than reviewed:
   module, so the failure names the file;
 * **it contains no conditional on specification content** — a walk of every
   `if`, `while`, ternary, comprehension guard and `assert` for a word from the
-  specification's vocabulary. Branching on whether a *page of results* exists is
-  translation; branching on whether a *socket* exists is deciding;
+  specification's vocabulary, which since `add-concept-ingestion` includes the
+  image vocabulary too (task 7.4). Branching on whether a *page of results*
+  exists is translation; branching on whether a *socket* exists, or on whether
+  an image is a PNG, is deciding;
 * **no route handler catches an exception** — the one `except` in this package
   is the middleware in `outcomes.py`, and D10 says why: *"a per-router
   `try/except` satisfies that on the day it is written and stops doing so at the
@@ -40,6 +42,33 @@ from test_mcp_adapter_is_a_formatter import SPEC_VOCABULARY
 
 HTTP = Path("libs/cybercanon/adapters/inbound/http")
 OUTBOUND = "cybercanon.adapters.outbound"
+
+IMAGE_VOCABULARY = frozenset(
+    {
+        # what an image is, as far as the domain is concerned (add-concept-ingestion D1)
+        "has_alpha",
+        "aspect",
+        "dimensions",
+        "width",
+        "height",
+        "image_format",
+        # the limits the domain decides against
+        "accepted_formats",
+        "max_bytes",
+        "max_dimension",
+        "largest_dimension",
+    }
+)
+"""Task 7.4 — the image half of the same rule.
+
+Deciding which formats are accepted, or how large an image may be, is
+:mod:`cybercanon.domain.views` deciding, exactly as deciding a triangle budget
+is the domain deciding. A surface that branched on either would be a second
+acceptance rule, which is the same class of bug as a second validator — and
+this time it would be visible to artists on the day it disagreed.
+"""
+
+VOCABULARY = SPEC_VOCABULARY | IMAGE_VOCABULARY
 
 CONDITIONALS = (ast.If, ast.IfExp, ast.While, ast.Assert)
 
@@ -120,7 +149,7 @@ def _decisions(tree: ast.Module) -> list[str]:
     return [
         f"{line} branches on {sorted(named)}"
         for line, test in _tests(tree)
-        if (named := _mentioned(test) & SPEC_VOCABULARY)
+        if (named := _mentioned(test) & VOCABULARY)
     ]
 
 

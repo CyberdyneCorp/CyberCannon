@@ -13,7 +13,7 @@ contract: a store hands back paths that read the same on every machine.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pytest
 
@@ -23,11 +23,28 @@ from cybercanon.application.ports.spec_store import (
     SpecNotFound,
     SpecStore,
 )
+from cybercanon.domain.annotations import (
+    Anchor2D,
+    Annotation,
+    AnnotationKind,
+    AnnotationState,
+)
 from cybercanon.domain.asset import Asset, AssetId
 from cybercanon.domain.constraints import AnimationDefaults, Constraints
 from cybercanon.domain.design import Design, Socket
+from cybercanon.domain.revisions import ContentHash
 from cybercanon.domain.status import Status
+from cybercanon.domain.triage import PromotionTarget, promote
 from cybercanon.domain.violations import Severity, SpecViolation
+
+A_PIN = Annotation(
+    id="an_contract_1",
+    author="rafa",
+    kind=AnnotationKind.ART_DIRECTION,
+    text="the pauldron reads as a backpack at 15 m",
+    target=Anchor2D(view="front", u=0.25, v=0.4),
+)
+"""One annotation the editing contract writes, reads back and promotes."""
 
 
 @dataclass(frozen=True)
@@ -183,3 +200,89 @@ class SpecStoreContract:
         """One failure at the point somebody chose the revision, not six later."""
         with pytest.raises(HistoryUnavailable):
             implementation.pinned("no-such-revision")
+
+    # -- editing (add-model-sheet-2d, task 2.1) --------------------------
+
+    def test_a_document_carries_the_bytes_and_the_meaning(self, implementation: SpecStore) -> None:
+        """Both halves of a write path: what the file says, and what it *is*."""
+        document = implementation.read_document(MECH_SCOUT.path)
+
+        assert document.path == MECH_SCOUT.path
+        assert document.asset.id.value == "mech_scout"
+        assert document.content
+
+    def test_a_documents_precondition_is_the_digest_of_its_own_bytes(
+        self, implementation: SpecStore
+    ) -> None:
+        """D5: the precondition is per file and by content, never the branch tip."""
+        document = implementation.read_document(MECH_SCOUT.path)
+
+        assert document.based_on == ContentHash.of(document.content)
+
+    def test_reading_a_document_twice_yields_the_same_bytes(
+        self, implementation: SpecStore
+    ) -> None:
+        """A precondition that changed between two reads would refuse every edit."""
+        first = implementation.read_document(MECH_SCOUT.path)
+        second = implementation.read_document(MECH_SCOUT.path)
+
+        assert first.content == second.content
+
+    def test_a_missing_document_is_reported_not_invented(self, implementation: SpecStore) -> None:
+        with pytest.raises(SpecNotFound):
+            implementation.read_document(UNKNOWN_SPEC)
+
+    def test_an_edit_reads_back_as_what_was_written(self, implementation: SpecStore) -> None:
+        """The round trip the whole annotation write path rests on."""
+        document = implementation.read_document(MECH_SCOUT.path)
+        edited = replace(document.asset, annotations=(A_PIN,))
+
+        written = implementation.parse_document(
+            MECH_SCOUT.path, implementation.edited(document, edited)
+        )
+
+        assert written.asset.annotations == (A_PIN,)
+
+    def test_an_edit_leaves_the_rest_of_the_specification_alone(
+        self, implementation: SpecStore
+    ) -> None:
+        """Adding an annotation is not licence to rewrite what engineering declared."""
+        document = implementation.read_document(MECH_SCOUT.path)
+        edited = replace(document.asset, annotations=(A_PIN,))
+
+        written = implementation.parse_document(
+            MECH_SCOUT.path, implementation.edited(document, edited)
+        )
+
+        assert written.asset.name == document.asset.name
+        assert written.asset.status is document.asset.status
+        assert written.asset.constraints == document.asset.constraints
+
+    def test_rendering_an_edit_does_not_change_the_stored_specification(
+        self, implementation: SpecStore
+    ) -> None:
+        """A composed write that never lands leaves nothing half-done."""
+        document = implementation.read_document(MECH_SCOUT.path)
+
+        implementation.edited(document, replace(document.asset, annotations=(A_PIN,)))
+
+        assert implementation.read_document(MECH_SCOUT.path).content == document.content
+        assert implementation.load(MECH_SCOUT.path).asset.annotations == ()
+
+    def test_a_promoted_rule_reads_back_from_the_document(self, implementation: SpecStore) -> None:
+        """The other destination: a durable rule, written where a reader finds it."""
+        document = implementation.read_document(MECH_SCOUT.path)
+        promoted = promote(
+            replace(document.asset, annotations=(A_PIN,)),
+            A_PIN.id,
+            "the lens glow is always emissive",
+            PromotionTarget.SILHOUETTE_RULES,
+        )
+
+        written = implementation.parse_document(
+            MECH_SCOUT.path, implementation.edited(document, promoted.asset)
+        )
+
+        assert written.asset.concept is not None
+        assert "the lens glow is always emissive" in written.asset.concept.silhouette_rules
+        assert written.asset.annotations[0].state is AnnotationState.PROMOTED

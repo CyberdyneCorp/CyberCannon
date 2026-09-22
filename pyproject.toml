@@ -38,6 +38,14 @@ dependencies = [
     # disappears the day something else stops pulling it in.
     "joserfc>=1.7.5",
     "keyring>=25.7.0",
+    # The image library behind `ImageInspector` and `ThumbnailRenderer`
+    # (add-concept-ingestion D1, D9). The domain gains nothing from it: it decides
+    # over `ImageFacts` exactly as it decides over `MeshFacts`, and Pillow is
+    # imported by `adapters/outbound/image` and nowhere else. It reads the format
+    # from the content rather than the file name, which is what
+    # `concept-ingestion` requires and what a home-grown header reader would get
+    # wrong on the first unusual file an artist produces.
+    "pillow>=11.0",
 ]
 
 [dependency-groups]
