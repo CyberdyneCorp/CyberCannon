@@ -108,3 +108,18 @@
 - [x] 11.5 Run the concurrency drill — two people editing the same specification and two editing different ones, with a commit pushed directly to the remote in between — and verify exactly the specified conflicts and successes
 - [x] 11.6 Update `openspec/project.md` to record the resolved git-access decision, remove the open-tension section, and move the roadmap's git-access question out of item 7
 - [x] 11.7 Run `openspec validate --all --strict`, the full test suite, `lint-imports` and the cognitive complexity check, and verify every function added by this change is within the backend target of 15
+
+## 12. The validation-outcome writer (G1/G2)
+
+Added after groups 1–11 were implemented: review found that no task owned the
+writer the gate decisions in `openspec/project.md` describe, so an asset's
+validated export and validation date — which `add-mcp-read-server` already ships
+a reader for — were always absent.
+
+- [ ] 12.1 Implement the fetch-triggered validation worker described by G1: when the hosted working copy fetches a changed export, run the **existing** `validate_export` use case for the asset that governs it; verify a test asserts it is the same use case the CLI and MCP surfaces call, and that the worker adds no rule of its own
+- [ ] 12.2 Run the worker outside the request path and verify an HTTP request never blocks on mesh loading, using a deliberately slow inspector
+- [ ] 12.3 Write the outcome as repository content beside the asset per G2, committed and attributed to the reporting actor or to automation when there is no person; verify the commit exists on the configured branch and names the export it concerns
+- [ ] 12.4 Commit only when the verdict or the export hash changes, and verify a repeated run over an unchanged export writes nothing
+- [ ] 12.5 Emit the preview from that same validation run rather than re-reading the export, and mirror it to blob storage keyed by the export's content hash; verify no second read of the mesh occurs
+- [ ] 12.6 Verify `where_is` now reports which export was validated and when, for an asset whose export the worker has processed — the reader shipped in `add-mcp-read-server` must need no change
+- [ ] 12.7 Verify the outcome survives an index rebuild: drop the index, rebuild from the working copy, and assert the validated-export answer is unchanged
