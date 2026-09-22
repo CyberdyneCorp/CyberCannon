@@ -1,0 +1,154 @@
+# The hosted inventory, as data rather than as clicks in a control panel.
+#
+# `deployment-operations` says the hosted deployment *"SHALL consist of exactly
+# four components: the HTTP API service, the web application, the index
+# database, and the blob store"*, that each *"SHALL be individually deployable,
+# individually restartable, and reachable under the studio's deployment host
+# convention"*, and that *"no other component SHALL be added to the hosted
+# inventory without a specification change"*.
+#
+# A requirement phrased that way is only worth what checks it, so the four
+# applications D1 describes are written here and `python -m canon_deploy check`
+# (`just deploy-check`) reads this file against the specification and against
+# the settings the service actually declares. Adding a fifth application, or
+# giving the agent server a host, fails that check — which is what makes the
+# exclusion mechanical rather than a paragraph somebody remembers.
+#
+# This file is the *declaration*. Coolify is configured from it by hand today:
+# there is one node and four applications, and a synchroniser that reached the
+# platform's API would be a fifth thing to operate and a credential to hold.
+# What it buys is that the declaration and the code cannot drift silently —
+# every variable, both health paths, the drain window and the volumes are
+# asserted against what the service reads.
+
+instance: https://coolify.cyberdynecorp.ai
+host_suffix: backend.coolify.cyberdynecorp.ai
+
+applications:
+  # -- the HTTP API service ------------------------------------------------
+  api:
+    component: http_api
+    host: api.backend.coolify.cyberdynecorp.ai
+    dockerfile: deploy/api.Dockerfile
+    command: python -m cybercanon.api
+    # D4 — migrations are a release step. A non-zero exit aborts the release
+    # and no instance of the new version ever starts.
+    pre_deploy: python -m cybercanon.api.migrate
+    volumes:
+      - name: worktrees
+        path: /data/worktrees
+    health:
+      liveness: /healthz
+      readiness: /readyz
+      # D7 — the platform's window and the service's are the same number, and
+      # the service refuses to start unless it is longer than the write-back
+      # budget. Named rather than copied, so the two cannot drift.
+      stop_grace_period: CANON_DRAIN_WINDOW_S
+    environment:
+      required:
+        - CANON_REPOSITORY_URL
+        - CANON_REPOSITORY_BRANCH
+        - CANON_REPOSITORY_CREDENTIAL
+        - CANON_FETCH_INTERVAL_S
+        - CANON_WEBHOOK_SECRET
+        - CANON_AUTH_ISSUER
+        - CANON_AUTH_AUDIENCE
+        - CANON_AUTH_KEY_SET_URL
+        - CANON_AUTH_GROUP_ROLES
+        - CANON_DATABASE_URL
+        - CANON_OBJECT_STORE_URL
+        - CANON_LINK_EXPIRY_S
+        - CANON_WRITE_BACK_TIMEOUT_S
+        - CANON_DRAIN_WINDOW_S
+      optional:
+        - CANON_AUTH_KEY_CACHE_TTL_S
+        - CANON_LLM_ENABLED
+        - CANON_LLM_BASE_URL
+        - CANON_LLM_API_KEY
+        - CANON_LLM_MODEL
+        - CANON_LLM_VISION_MODEL
+        - CANON_LLM_TIMEOUT_S
+        - CANON_LLM_MAX_RETRIES
+      # Values, for the settings whose *destination* is a deployment decision
+      # rather than a credential. `project.md`: *"CANON_LLM_BASE_URL points at
+      # the on-prem gateway from inside Coolify's network, which keeps
+      # unreleased concept art on the premises and makes the privacy question a
+      # deployment setting rather than a product argument."*
+      values:
+        CANON_LLM_BASE_URL: http://amini.backend.coolify.cyberdynecorp.ai/v1
+
+  # -- the web application -------------------------------------------------
+  web:
+    component: web_application
+    host: canon.backend.coolify.cyberdynecorp.ai
+    dockerfile: deploy/web.Dockerfile
+    command: node build
+    volumes: []
+    health:
+      # D10 — process-only. It never calls the API to decide it is ready.
+      liveness: /healthz
+      readiness: /readyz
+      stop_grace_period: CANON_DRAIN_WINDOW_S
+    environment:
+      required:
+        - PUBLIC_CANON_API_URL
+        - PUBLIC_CANON_AUTH_ISSUER
+        - PUBLIC_CANON_AUTH_CLIENT_ID
+        - PUBLIC_CANON_AUTH_AUDIENCE
+      optional: []
+      values: {}
+
+  # -- the index database --------------------------------------------------
+  postgres:
+    component: index_database
+    # Internal: the rebuildable index is reachable from the api application and
+    # from nowhere else, so it carries no host under the studio's convention.
+    host: ""
+    managed: postgres:16
+    volumes:
+      - name: index
+        path: /var/lib/postgresql/data
+    health:
+      liveness: pg_isready
+      readiness: pg_isready
+      stop_grace_period: ""
+    environment:
+      required: []
+      optional: []
+      values: {}
+
+  # -- the blob store ------------------------------------------------------
+  minio:
+    component: blob_store
+    host: ""
+    managed: minio/minio
+    volumes:
+      - name: blobs
+        path: /data
+    health:
+      liveness: /minio/health/live
+      readiness: /minio/health/ready
+      stop_grace_period: ""
+    environment:
+      required: []
+      optional: []
+      values: {}
+
+# What is deliberately absent, and why. `deployment-operations`: *"The `canon`
+# command line and the agent server SHALL NOT be deployed as network-reachable
+# services, in any environment, including behind authentication or on a private
+# network."* Naming them here is what lets the check say *why* a deployment that
+# added one is non-conforming, instead of only that the count is five.
+never_hosted:
+  command_line:
+    what: the `canon` binary
+    why: >-
+      it runs on the artist's and the programmer's machine, against their own
+      working copy, and needs no hosted component to be reachable.
+  agent_server:
+    what: the FastMCP agent server
+    why: >-
+      stdio and local-first by design. Hosting it would add an open port, a CORS
+      surface and a network threat model — all of which local-first exists to
+      avoid — and exposing it is a specification change, not a configuration
+      change.

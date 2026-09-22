@@ -226,8 +226,23 @@ def verified_bytes(key: str, content: bytes | None) -> bytes:
 class BlobStore(Protocol):
     """Stores derived blobs and content-addressed mirrors of repository content."""
 
-    def put_preview(self, asset_id: str, source_export: str, preview: PreviewMesh) -> StoredPreview:
-        """Store a preview against its asset and the export it came from."""
+    def put_preview(
+        self,
+        asset_id: str,
+        source_export: str,
+        preview: PreviewMesh,
+        *,
+        source_digest: ContentHash | None = None,
+    ) -> StoredPreview:
+        """Store a preview against its asset and the export it came from.
+
+        `source_digest` is the digest of the export's bytes, when the caller
+        knows it, and it becomes the key (G1: *"mirrored to blob storage keyed
+        by the export's content hash"*). A caller that does not know it — the
+        command line, which validated a file on a disk nobody has hashed — keys
+        by the export's name instead, and the two never collide because a digest
+        is not a file name.
+        """
         ...
 
     def preview_for(self, asset_id: str) -> StoredPreview | None:

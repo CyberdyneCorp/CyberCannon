@@ -29,6 +29,7 @@ import {
 	type RecordedRequest,
 	type RequestListing,
 	type SearchHit,
+	type StatusReport,
 	type UnreadItems,
 	type ValidationOutcome,
 	type WriteOutcome,
@@ -39,6 +40,13 @@ import { INTERNAL_IDENTIFIER, isFailureKind, kindForStatus } from './outcomes';
 export const AUTHORIZATION_HEADER = 'Authorization';
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key';
 export const CORRELATION_HEADER = 'X-Correlation-Id';
+
+/**
+ * The deployment's own report. Unversioned on purpose — it describes the
+ * deployment rather than the surface — which is why it is the one path this
+ * client addresses outside the version segment.
+ */
+export const STATUS_PATH = '/status';
 
 export type Fetch = typeof globalThis.fetch;
 
@@ -57,6 +65,11 @@ export interface ListOptions {
 	readonly tag?: string;
 	readonly page?: string | null;
 	readonly pageSize?: number;
+}
+
+/** Whether a path sits under the version segment. Everything but `/status` does. */
+interface Addressing {
+	readonly versioned?: boolean;
 }
 
 export interface WriteOptions {
@@ -121,6 +134,17 @@ export class CanonClient {
 		return this.#get(`/projects/${enc(project)}/unread`);
 	}
 
+	/**
+	 * The projects this credential may read, as the deployment reports them.
+	 *
+	 * It is authenticated and it applies the same read decision every other read
+	 * applies, so it names the entitled projects and no others — which is what
+	 * makes it safe to build a project switcher out of.
+	 */
+	readStatus(): Promise<ApiResult<StatusReport>> {
+		return this.#get(STATUS_PATH, {}, { versioned: false });
+	}
+
 	// --------------------------------------------------------------- writes
 
 	writeSpec(
@@ -183,9 +207,13 @@ export class CanonClient {
 
 	// ------------------------------------------------------------ machinery
 
-	#get<T>(path: string, parameters: Record<string, string> = {}): Promise<ApiResult<T>> {
+	#get<T>(
+		path: string,
+		parameters: Record<string, string> = {},
+		addressing: Addressing = {}
+	): Promise<ApiResult<T>> {
 		const search = new URLSearchParams(parameters).toString();
-		return this.#request<T>('GET', `${path}${search ? `?${search}` : ''}`, undefined, {});
+		return this.#request<T>('GET', `${path}${search ? `?${search}` : ''}`, undefined, {}, addressing);
 	}
 
 	#send<T>(
@@ -201,9 +229,11 @@ export class CanonClient {
 		method: string,
 		path: string,
 		body: string | undefined,
-		options: WriteOptions
+		options: WriteOptions,
+		addressing: Addressing = {}
 	): Promise<ApiResult<T>> {
-		const url = `${this.#baseUrl}/${SURFACE_VERSION}${path}`;
+		const version = addressing.versioned === false ? '' : `/${SURFACE_VERSION}`;
+		const url = `${this.#baseUrl}${version}${path}`;
 		const response = await this.#fetch(url, {
 			method,
 			headers: this.#headers(body !== undefined, options),

@@ -13,6 +13,7 @@
  */
 
 export const SCOPES = [
+	'projects',
 	'assets',
 	'asset',
 	'briefing',
@@ -48,6 +49,15 @@ export function isUnder(candidate: ResourceKey, prefix: ResourceKey): boolean {
 	return candidate === prefix || candidate.startsWith(`${prefix}${SEPARATOR}`);
 }
 
+/**
+ * What the one project-less resource is keyed by.
+ *
+ * `/status` takes no project — it answers *which* projects — so its key needs a
+ * second segment that is not one. `entitled` says what the answer actually is:
+ * the projects this credential may read.
+ */
+export const ENTITLED = 'entitled';
+
 /** The filters a listing key carries, spelled in one order so two callers agree. */
 export interface ListingFilters {
 	readonly status?: string;
@@ -66,6 +76,9 @@ export interface ListingFilters {
 }
 
 export const resources = {
+	projects(): ResourceKey {
+		return key('projects', ENTITLED);
+	},
 	assets(project: string, filters: ListingFilters = {}): ResourceKey {
 		return key(
 			'assets',

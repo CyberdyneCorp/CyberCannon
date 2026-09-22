@@ -16,13 +16,8 @@ import type { PageLoad } from './$types';
 import { intendedAddress } from '$lib/session/intent';
 import { signInConfiguration } from '$lib/config';
 import { content, degraded } from '$lib/route-state';
+import { NOT_CONFIGURED, SIGN_IN } from '$lib/session/messages';
 import type { SignInConfig } from '$lib/session/oidc';
-
-export const NOT_CONFIGURED =
-	'This deployment has no identity service configured, so nobody can sign in ' +
-	'here yet. Everything else about the application is working.';
-
-export const SIGN_IN = 'Sign-in';
 
 export interface SignInScreen {
 	readonly next: string;

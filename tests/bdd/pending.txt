@@ -166,23 +166,9 @@ concept-ingestion :: Thumbnails are recoverable
 concept-ingestion :: Thumbnails stay out of the repository
 concept-ingestion :: Two images cannot claim the same slot
 concept-ingestion :: Uploading generates nothing
-deployment-operations :: A component restarts without taking the others down
-deployment-operations :: A never-ready new version does not replace the old one
-deployment-operations :: A retiring instance drains before terminating
-deployment-operations :: Abandoned write-back leaves no partial edit
-deployment-operations :: Blob volume destroyed
-deployment-operations :: Continuous availability across a deploy
-deployment-operations :: Drills are executed, not assumed
-deployment-operations :: Hosting the agent surface is a specification change
-deployment-operations :: Index volume destroyed
-deployment-operations :: Local tools work with the hosted environment unreachable
-deployment-operations :: No network listener for the agent server
 deployment-operations :: Promotion preserves the digest
 deployment-operations :: Rollback selects a previously built artifact
-deployment-operations :: The inventory is enumerable and complete
 deployment-operations :: The web application does not require the API to become ready
-deployment-operations :: Working copy destroyed
-deployment-operations :: Write-back completes within the drain window
 derived-metadata :: Accepted alias outranks a suggestion
 derived-metadata :: Agent cannot accept a suggestion
 derived-metadata :: Changed image produces a new record

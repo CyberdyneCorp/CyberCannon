@@ -95,10 +95,17 @@ class S3BlobStore:
 
     # -- previews --------------------------------------------------------
 
-    def put_preview(self, asset_id: str, source_export: str, preview: PreviewMesh) -> StoredPreview:
+    def put_preview(
+        self,
+        asset_id: str,
+        source_export: str,
+        preview: PreviewMesh,
+        *,
+        source_digest: ContentHash | None = None,
+    ) -> StoredPreview:
         """Store the preview and the record saying which export it came from."""
         record = StoredPreview(
-            key=preview_key(asset_id, source_export),
+            key=preview_key(asset_id, source_export, source_digest),
             asset_id=asset_id,
             source_export=source_export,
             size_bytes=preview.size_bytes,
@@ -231,9 +238,21 @@ class S3BlobStore:
         )
 
 
-def preview_key(asset_id: str, source_export: str) -> str:
-    """Where a preview of that export is stored. Deterministic, and traceable."""
-    return f"{PREVIEWS}/{asset_id}/{source_export.rsplit('/', 1)[-1]}.preview.glb"
+def preview_key(asset_id: str, source_export: str, source_digest: ContentHash | None = None) -> str:
+    """Where a preview of that export is stored. Deterministic, and traceable.
+
+    Keyed by the export's content digest when the caller knows it (G1), so a
+    re-mirror after total loss lands the preview on the key it had and two runs
+    over the same bytes never produce two objects. Without a digest the key
+    carries the export's file name, which is what a local run has and is still
+    enough for two exports of one asset not to overwrite each other.
+    """
+    stem = source_digest.value if source_digest is not None else _name(source_export)
+    return f"{PREVIEWS}/{asset_id}/{stem}.preview.glb"
+
+
+def _name(source_export: str) -> str:
+    return source_export.rsplit("/", 1)[-1]
 
 
 def _record(stored: dict[str, Any]) -> StoredPreview:

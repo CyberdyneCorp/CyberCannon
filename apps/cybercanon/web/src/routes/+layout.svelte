@@ -14,27 +14,58 @@
 	 * in the frame for the same reason the project is: a disclosure that each
 	 * screen has to remember is a disclosure some screen will forget.
 	 *
+	 * The project switcher is in the frame for the same reason, and task 5.1
+	 * falls out of D3 once it is: switching is a link to an address that carries
+	 * no filter, no query and no asset, so the previous project's state cannot
+	 * come with it.
+	 *
 	 * The re-authentication prompt is here too, and that placement is D5: it has
 	 * to be able to appear without unmounting the screen holding somebody's
 	 * unsaved text.
 	 */
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
+	import { invalidate } from '$app/navigation';
+	import { sessionStore, type Session } from '$lib/session/session';
+	import ProjectBar from '$lib/components/ProjectBar.svelte';
 	import SessionBar from '$lib/components/SessionBar.svelte';
 	import SessionNotices from '$lib/components/SessionNotices.svelte';
 	import ReauthenticatePrompt from '$lib/components/ReauthenticatePrompt.svelte';
 	import type { LayoutData } from './$types';
+	import { SESSION_DEPENDENCY } from '$lib/session/dependency';
 
 	let { children, data }: { children: Snippet; data: LayoutData } = $props();
 
 	const project = $derived(page.params.project ?? null);
+
+	/**
+	 * The frame's data is re-read when the acting identity changes.
+	 *
+	 * Which projects a person may open is an answer about *that person*, and the
+	 * one thing this load does not take as a parameter is who they are. Watching
+	 * the session here means signing in, signing out and re-authenticating in
+	 * place all refresh it, and none of the three has to know that the switcher
+	 * exists.
+	 */
+	let subject = $state(subjectOf(sessionStore.current()));
+
+	$effect(() =>
+		sessionStore.subscribe((session) => {
+			const next = subjectOf(session);
+			if (next === subject) return;
+			subject = next;
+			void invalidate(SESSION_DEPENDENCY);
+		})
+	);
+
+	function subjectOf(session: Session): string | null {
+		return session.kind === 'anonymous' ? null : session.identity.subject;
+	}
 </script>
 
 <header>
 	<a class="home" href="/">CyberCanon</a>
-	{#if project}
-		<span class="project" data-project={project}>Project: {project}</span>
-	{/if}
+	<ProjectBar {project} projects={data.projects} />
 	<SessionBar />
 </header>
 

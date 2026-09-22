@@ -20,7 +20,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { load as loadBrowser } from '../src/routes/p/[project]/assets/+page';
 import { load as loadAsset } from '../src/routes/p/[project]/a/[asset]/+page';
-import { load as loadSignIn, NOT_CONFIGURED, SIGN_IN } from '../src/routes/sign-in/+page';
+import { load as loadSignIn } from '../src/routes/sign-in/+page';
+import { NOT_CONFIGURED, SIGN_IN } from '../src/lib/session/messages';
 import { sessionStore } from '../src/lib/session/session';
 import { queryCache } from '../src/lib/api/cache';
 import { resources } from '../src/lib/api/resources';

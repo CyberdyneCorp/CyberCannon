@@ -1,0 +1,41 @@
+# What may not enter an image's build context.
+#
+# `deployment-operations`: *"artifacts SHALL be free of environment-specific
+# values, so that inspecting an artifact reveals nothing about where it is
+# running"*. The two `Dockerfile`s declare no setting and copy no `.env` — but
+# the web image copies a whole directory (`COPY apps/cybercanon/web ./`), and
+# SvelteKit reads a `.env` sitting in it **at build time**. So a developer's
+# local `.env` would be baked into a promoted artifact by a build that changed
+# nothing and said nothing, and the same image would then carry one
+# environment's address into every other.
+#
+# This file is what makes that impossible rather than unlikely, and
+# `tests/tooling/test_container_artifacts.py` reads it: a path that is
+# environment-specific, machine-specific or already built has to be matched
+# here, or the build is refused a property it claims.
+
+# Environment-specific values, wherever they are.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/.npmrc.local
+
+# Machine state: none of it is the revision being built.
+.git
+.github
+.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.complexipy_cache
+**/.import_linter_cache
+**/.coverage
+**/.DS_Store
+
+# Already built here. An image builds from source, or it is reproducing a
+# developer's machine rather than a revision.
+**/.svelte-kit
+apps/cybercanon/web/build
+reports

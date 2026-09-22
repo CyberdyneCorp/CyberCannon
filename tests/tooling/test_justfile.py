@@ -59,3 +59,23 @@ def test_parser_reads_dependencies_and_bodies() -> None:
     assert parsed["check"].dependencies == ("lint", "test")
     assert parsed["lint"].body == ("uv run ruff check .",)
     assert parsed["test"].body == ("uv run pytest {{ args }}",)
+
+
+def test_the_web_artifact_is_built_before_the_suite_that_runs_it(
+    recipes: dict[str, Recipe],
+) -> None:
+    """`web-check` builds the application; an integration suite then starts it.
+
+    tests/integration/test_web_readiness_process.py runs the built artifact —
+    the `node build` the web image's command runs — to ask a *process* whether
+    it is ready with no API answering (task 2.4, D10). That is only a real
+    assertion while the build exists when `test` runs, so the order is asserted
+    here rather than relied on.
+    """
+    order = recipes["check"].dependencies
+
+    assert "web-check" in order and "test" in order
+    assert order.index("web-check") < order.index("test"), (
+        "`just check` runs `test` before `web-check`, so the web artifact is not "
+        "built when the suite that starts it runs, and that suite silently skips"
+    )

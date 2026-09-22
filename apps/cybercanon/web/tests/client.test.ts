@@ -152,3 +152,53 @@ describe('reads the envelope the surface writes', () => {
 		});
 	});
 });
+
+describe('the one path outside the version segment', () => {
+	const STATUS = {
+		version: SURFACE_VERSION,
+		data: {
+			ready: true,
+			projects: [
+				{
+					project: 'ironwood',
+					working_copy: {
+						state: 'ready',
+						revision: 'abc123',
+						last_fetch_at: '2026-09-19T10:00:00+00:00',
+						reason: ''
+					},
+					index: {
+						indexed_revision: 'abc123',
+						working_copy_revision: 'abc123',
+						in_sync: true,
+						rebuilding: false
+					}
+				}
+			]
+		}
+	};
+
+	it('addresses `/status` unversioned, because it describes the deployment', async () => {
+		const { calls, fetcher } = recording(200, STATUS);
+
+		await client(fetcher).readStatus();
+
+		expect(calls[0].url).toBe('https://canon.example/status');
+	});
+
+	it('carries the credential, because the answer names projects', async () => {
+		const { calls, fetcher } = recording(200, STATUS);
+
+		await client(fetcher).readStatus();
+
+		expect(calls[0].init.headers).toMatchObject({ Authorization: 'Bearer tok' });
+	});
+
+	it('reads the projects the deployment reported', async () => {
+		const { fetcher } = recording(200, STATUS);
+
+		const result = await client(fetcher).readStatus();
+
+		expect(result.ok && result.data.projects[0].project).toBe('ironwood');
+	});
+});

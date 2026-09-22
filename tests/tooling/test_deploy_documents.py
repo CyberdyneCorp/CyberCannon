@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from canon_lint.justfile import Recipe
 from cybercanon.adapters.wiring.configuration import OPTIONAL, REQUIRED, SECRETS, SETTINGS
 
 DEPLOY = Path("deploy") / "README.md"
@@ -120,3 +121,40 @@ def test_the_document_states_that_the_command_line_and_agent_server_are_not_host
 ) -> None:
     assert "not here" in document
     assert "stdio" in document
+
+
+# --------------------------------------------------------------------------
+# Task 3.3 — the pipeline step and the two checks are operations, so they are
+# recipes, and the document names the same ones
+# --------------------------------------------------------------------------
+
+RELEASE_RECIPES = ("release-record", "release-promotion", "release-rollback")
+LEDGER = Path("deploy") / "digests.json"
+
+
+def test_the_release_commands_are_justfile_recipes(recipes: dict[str, Recipe]) -> None:
+    """*"There is exactly one way to run any operation, and it is a recipe."*"""
+    missing = [name for name in RELEASE_RECIPES if name not in recipes]
+
+    assert not missing, (
+        f"the build pipeline records a digest and the promotion check reads it; "
+        f"{missing} are not recipes, so a pipeline would invoke a tool directly"
+    )
+
+
+def test_the_document_names_the_release_commands(document: str) -> None:
+    """An operator rolling back at three in the morning reads this, not the code."""
+    for name in RELEASE_RECIPES:
+        assert f"just {name}" in document, f"{DEPLOY} does not say how to run {name}"
+
+
+def test_the_document_states_rollback_as_a_redeploy_rather_than_a_rebuild(
+    document: str,
+) -> None:
+    assert "never a rebuild" in document
+    assert "digests.json" in document
+
+
+def test_the_ledger_the_commands_write_is_committed(repo_root: Path) -> None:
+    """The record is part of the revision, so the check runs from a checkout."""
+    assert (repo_root / LEDGER).is_file(), f"{LEDGER} is the record of what was built"

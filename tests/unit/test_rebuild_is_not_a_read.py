@@ -35,6 +35,7 @@ from cybercanon.application.use_cases import (
     lookup_assets,
     spec_lens,
     validate_export,
+    validation_records,
 )
 from cybercanon.domain.asset import Asset, AssetId
 
@@ -48,12 +49,16 @@ READ_MODULES = (
     lookup_assets,
     spec_lens,
     validate_export,
+    validation_records,
 )
 """Every module a read goes through. A rebuild called from one is the defect.
 
 `blob_mirror` is here because listing an asset's views and issuing a link to one
 are reads, and the mirroring pass beside them is exactly the kind of expensive
 operation a helpful read would reach for on finding an object missing.
+`validation_records` is here for the same reason: it is the reader an index
+rebuild uses to restore a validated export (G2), and a reader that rebuilt would
+be a recursion rather than a kindness.
 """
 
 SPEC_PATH = "characters/mech_scout/asset.yaml"
@@ -117,6 +122,7 @@ def test_the_read_modules_are_the_ones_on_disk(repo_root: Path) -> None:
         "resolve_actor",
         "service_health",
         "sign_in",
+        "validation_worker",
     }
 
 

@@ -7,16 +7,22 @@
 	 * chunk of its own: a person browsing an asset list never asks for it, and
 	 * a static import anywhere would silently undo that.
 	 * `tests/tooling/test_web_structure.py` fails the build if one appears.
+	 *
+	 * Which surface is shown is the address's answer (D3), already resolved
+	 * against the surfaces the asset has — so by the time this component runs,
+	 * a surface the asset no longer has has already degraded to the overview
+	 * and the person has already been told why.
 	 */
 	import type { Surface } from '$lib/address';
-	import type { LensedSpec } from '$lib/api';
+	import type { AssetPage } from '$lib/asset';
+	import AssetOverview from './AssetOverview.svelte';
 
 	interface Props {
 		surface: Surface;
-		asset: LensedSpec;
+		page: AssetPage;
 	}
 
-	let { surface, asset }: Props = $props();
+	let { surface, page }: Props = $props();
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 
@@ -32,11 +38,9 @@
 </script>
 
 {#if surface === 'overview'}
-	<article class="overview">
-		<pre>{asset.body}</pre>
-	</article>
+	<AssetOverview {page} />
 {:else if surface === 'sheet'}
-	<p>The model sheet is delivered by add-model-sheet-2d.</p>
+	<p class="pending">The model sheet over these views is delivered by add-model-sheet-2d.</p>
 {:else}
 	<canvas bind:this={canvas} width="640" height="360"></canvas>
 {/if}

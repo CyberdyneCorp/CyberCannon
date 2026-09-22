@@ -25,9 +25,7 @@ import { relaySignIn, type RelayTarget } from '$lib/session/reauthentication';
 import { sessionStore } from '$lib/session/session';
 import { browserStorage } from '$lib/session/storage';
 import { content, degraded, failed } from '$lib/route-state';
-import { NOT_CONFIGURED, SIGN_IN } from '../sign-in/+page';
-
-export const REFUSED = 'sign-in.refused';
+import { NOT_CONFIGURED, REFUSED, SIGN_IN } from '$lib/session/messages';
 
 export interface Completion {
 	/** True when this window's only job was to hand the answer back (D5). */

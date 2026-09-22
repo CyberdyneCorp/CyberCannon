@@ -40,7 +40,7 @@ const { load: loadSignIn } = await import('../src/routes/sign-in/+page');
 const { beginSignIn } = await import('../src/lib/session/oidc');
 const { browserStorage } = await import('../src/lib/session/storage');
 const { sessionStore } = await import('../src/lib/session/session');
-const { REFUSED } = await import('../src/routes/signed-in/+page');
+const { REFUSED } = await import('../src/lib/session/messages');
 const { mappedPerson } = await import('./support/credentials');
 
 /**

@@ -39,6 +39,7 @@ from cybercanon.application.ports.repository_host import (
     ProjectNotReady,
     ProjectStatus,
     PushRejected,
+    Recovery,
     RepositoryHost,
     RepositoryUnavailable,
 )
@@ -58,6 +59,7 @@ from cybercanon.application.use_cases.resolve_actor import (
     Resolution,
     resolve_git_identity,
 )
+from cybercanon.application.use_cases.validation_records import validations_from
 from cybercanon.domain.actors import GitAuthor
 from cybercanon.domain.revisions import ContentHash, Revision, ServedRevision
 
@@ -111,6 +113,29 @@ class AuthorUnmapped(OperationFailed):
             path or subject,
         )
         self.subject = subject
+
+
+class WriteBackAbandoned(OperationFailed):
+    """The write-back ran out of its own budget and gave itself up (D7).
+
+    *"The drain window is configured longer than the write-back timeout, so an
+    accepted write-back either finishes inside the window or is abandoned by the
+    timeout before termination."* This is the second half of that sentence, and
+    it is a refusal rather than a crash on purpose: abandoning means resetting
+    the working copy and telling the caller that **no change was recorded**, so
+    the instance can be terminated a moment later holding nothing half-applied.
+    """
+
+    kind = FailureKind.UNAVAILABLE
+    identifier = "edit.abandoned"
+
+    def __init__(self, path: str, budget: timedelta) -> None:
+        super().__init__(
+            f"the write-back did not complete within {int(budget.total_seconds())}s; "
+            f"{NOTHING_RECORDED}",
+            path,
+        )
+        self.budget = budget
 
 
 @dataclass(frozen=True)
@@ -200,6 +225,8 @@ def write_back(
     subject: str = "",
     agent: str = "",
     attempts: int = DEFAULT_ATTEMPTS,
+    timeout: timedelta | None = None,
+    clock: Clock = system_clock,
 ) -> WriteOutcome:
     """Apply one logical edit as one pushed commit, or refuse it (D2, D5, D6, D8).
 
@@ -217,8 +244,37 @@ def write_back(
     if not edits:
         raise WriteConflict(project, "an edit changes at least one file")
     recorded = performed_by(message, agent)
+    deadline = clock() + timeout if timeout is not None else None
     with repository_host.writer(project):
-        return _attempt_until(project, edits, repository_host, author, recorded, attempts)
+        return _attempt_until(
+            project,
+            edits,
+            repository_host,
+            author,
+            recorded,
+            attempts,
+            Deadline(at=deadline, budget=timeout, clock=clock),
+        )
+
+
+@dataclass(frozen=True)
+class Deadline:
+    """When this write-back gives up, and how long it was given (D7).
+
+    `at` of ``None`` is an unbudgeted call — the command line, a test, anything
+    that is not a hosted instance about to be retired — and it never expires.
+    """
+
+    at: datetime | None = None
+    budget: timedelta | None = None
+    clock: Clock = system_clock
+
+    def expired(self) -> bool:
+        return self.at is not None and self.clock() >= self.at
+
+
+NO_DEADLINE = Deadline()
+"""What a caller that configured no write-back budget is measured against."""
 
 
 def _attempt_until(
@@ -228,6 +284,7 @@ def _attempt_until(
     author: GitAuthor,
     message: str,
     attempts: int,
+    deadline: Deadline = NO_DEADLINE,
 ) -> WriteOutcome:
     """D6's bounded loop, inside the project's single-writer lock (task 5.7).
 
@@ -239,8 +296,18 @@ def _attempt_until(
     which is what makes *"a local commit that cannot be pushed is not reported
     as applied"* true for every way a push can fail rather than only for the
     interesting one (task 5.9).
+
+    And a third, which is D7's: the **budget** runs out. Checked before each
+    attempt rather than interrupting one, because a write-back that is mid-push
+    has to be allowed to finish or to fail on its own terms — an edit torn in
+    half is exactly what the deadline exists to prevent. Abandoning resets the
+    working copy first, so the instance can be terminated a moment later with
+    nothing half-applied on the volume it shares with its successor.
     """
     for attempt in range(1, attempts + 1):
+        if deadline.expired():
+            _reset(project, repository_host)
+            raise WriteBackAbandoned(edits[0].path, deadline.budget or timedelta())
         try:
             return _apply(project, edits, repository_host, author, message, attempt)
         except PushRejected:
@@ -318,6 +385,28 @@ def _reset(project: str, repository_host: RepositoryHost) -> None:
 
 
 @as_result
+def resume_project(project: str, *, repository_host: RepositoryHost) -> Recovery:
+    """The boot step: return the working copy to the configured branch (D7).
+
+    *"On startup, and after any failed write-back, the working copy SHALL be
+    returned to the state of the configured branch, discarding any uncommitted
+    change."* The second half is :func:`_reset` above; this is the first, and it
+    exists as its own operation because the case it covers is the one nothing
+    else can: an instance killed **between** modifying a file and committing it
+    leaves no failed write-back to clean up after — it leaves a volume, and the
+    next process to mount it is the only thing left that can notice.
+
+    It is :meth:`RepositoryHost.recover`, which clones a working copy that is
+    missing and resets one that diverged, reporting any local commit it
+    discarded rather than resolving toward the remote in silence. A boot that
+    re-cloned unconditionally would throw away the volume the redeploy was
+    supposed to continue from; a boot that adopted whatever was there would
+    serve a half-written specification as canon.
+    """
+    return repository_host.recover(project)
+
+
+@as_result
 def rebuild_project_index(
     project: str,
     *,
@@ -341,10 +430,17 @@ def rebuild_project_index(
     task 5.7): a rebuild long enough to be a recovery has to be watchable while
     it runs, and one that was interrupted has to continue rather than start
     again.
+
+    **Validated exports are read back from the repository** (G2), at the same
+    revision as everything else. That is not an extra: the validation worker
+    commits its outcome beside the asset precisely so that a rebuild can restore
+    it, and a rebuild that skipped those files would be the one place where
+    dropping the index loses an answer.
     """
     status = _ready(project, repository_host)
     assert status.served is not None
-    pinned = spec_store.pinned(status.served.revision.value)
+    revision = status.served.revision
+    pinned = spec_store.pinned(revision.value)
     return rebuild_index.raising(
         "",
         spec_store=pinned,
@@ -352,6 +448,7 @@ def rebuild_project_index(
         fingerprints=fingerprints,
         progress=progress,
         resume=resume,
+        validations=validations_from(project, repository_host, revision),
     )
 
 
@@ -555,13 +652,16 @@ __all__ = [
     "DEFAULT_ATTEMPTS",
     "DEFAULT_INTERVAL",
     "NOTHING_RECORDED",
+    "NO_DEADLINE",
     "AuthorUnmapped",
+    "Deadline",
     "Edit",
     "FetchSchedule",
     "Freshness",
     "PinnedRead",
     "RefreshOutcome",
     "Served",
+    "WriteBackAbandoned",
     "WriteConflict",
     "WriteOutcome",
     "author_for",
@@ -571,6 +671,7 @@ __all__ = [
     "read_at_revision",
     "rebuild_project_index",
     "refresh_project",
+    "resume_project",
     "scheduled_refresh",
     "served_after",
     "write_back",
