@@ -94,6 +94,7 @@ RELEASE = "{python} -m cybercanon.api.migrate {directory} && {python} -c {serve}
 def environment_for(dsn: str) -> dict[str, str]:
     """A complete service environment pointed at this database."""
     return {
+        "CANON_PROJECT": "ronin",
         "CANON_REPOSITORY_URL": "git@github.com:cyberdynecorp/ronin.git",
         "CANON_REPOSITORY_BRANCH": "main",
         "CANON_REPOSITORY_CREDENTIAL": "a-deploy-key",
@@ -394,7 +395,14 @@ def test_the_drop_removes_every_table_the_migration_set_creates(repo_root: Path)
     """A table nobody listed would survive a drop and outlive the loss it caused."""
     created = set(tables_in(migrations_in(repo_root / MIGRATIONS)))
 
-    assert created == {"assets", "search_misses", "idempotency_keys", "dismissals", LEDGER_TABLE}
+    assert created == {
+        "assets",
+        "search_misses",
+        "idempotency_keys",
+        "dismissals",
+        "concept_views",
+        LEDGER_TABLE,
+    }
 
 
 def test_a_rebuild_reports_progress_so_a_long_recovery_is_watchable(

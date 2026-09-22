@@ -42,8 +42,11 @@ from cybercanon.application.ports.clock import Clock, system_clock
 from cybercanon.application.ports.dismissals import Dismissals
 from cybercanon.application.ports.idempotency import IdempotencyStore
 from cybercanon.application.ports.identity_provider import Credential, IdentityProvider
+from cybercanon.application.ports.image_inspector import ImageInspector
 from cybercanon.application.ports.notifier import Notifier
 from cybercanon.application.ports.repository_host import RepositoryHost
+from cybercanon.application.ports.thumbnail_renderer import ThumbnailRenderer
+from cybercanon.application.ports.view_index import ViewIndex
 from cybercanon.application.results import Forbidden, NotFound, Ok, Refusal, Result, Unavailable
 from cybercanon.application.use_cases.authenticate import Authenticated, authenticate
 from cybercanon.application.use_cases.deployment_status import DeploymentJournal
@@ -104,12 +107,27 @@ class HostedProject:
     than a broken one: a container built over a working copy on disk answers
     every read without one, and simply states no revision. A hosted deployment
     always has one, which is how its reads become revision-pinned (D3).
+
+    **`name` is the address, and the address is the project's identity here.**
+    `http-api` requires a resource to stay reachable at one address for as long
+    as it exists, so what this deployment serves the project as is what every
+    project-keyed decision underneath is made with: the container is pinned to
+    it at construction. Without the pin there are two answers to *which project
+    is this* — the address, and the `name:` in the working copy's
+    `.canon/project.yaml` — and they are used by different endpoints: the
+    pipeline authorizes against the address, while a lensed read re-authorizes
+    inside the use case against the declared name. One actor, entitled to one
+    project, then gets a different verdict from `/assets` and from
+    `/assets/{asset}`, which is not a policy anybody wrote.
     """
 
     name: str
     container: Container
     repository_host: RepositoryHost | None = None
     interval: timedelta = DEFAULT_INTERVAL
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "container", replace(self.container, project_id=self.name))
 
 
 @dataclass(frozen=True)
@@ -126,9 +144,35 @@ class Surface:
     idempotency: IdempotencyStore | None = None
     dismissals: Dismissals | None = None
     notifier: Notifier | None = None
+    image_inspector: ImageInspector | None = None
+    """How an uploaded concept view is read (add-concept-ingestion D1).
+
+    Optional, like every other port here: a deployment wired without one serves
+    reads and refuses an upload through the use case's own vocabulary rather
+    than through a missing attribute.
+    """
+
+    thumbnail_renderer: ThumbnailRenderer | None = None
+    view_index: ViewIndex | None = None
+    """The two derived halves of ingestion (D3, D9). Absent means *not derived*.
+
+    Both are droppable by specification — the mirror rebuilds from the
+    repository and the index row is reconstructible by walking it — so a
+    deployment missing either still commits views, and says they are awaiting
+    their derived step.
+    """
+
     observe: Observe = observes_nothing
     journal: DeploymentJournal = field(default_factory=DeploymentJournal)
     clock: Clock = system_clock
+    web_origins: tuple[str, ...] = ()
+    """The browser origins this deployment permits (:mod:`cybercanon.adapters.inbound.http.cors`).
+
+    Empty by default, and empty means *no cross-origin permission at all* rather
+    than *any*. A deployment that has not been told which web application talks
+    to it is one reached by `canon` and the agent surface, and those are not
+    browsers.
+    """
 
     def project_names(self) -> tuple[str, ...]:
         return tuple(sorted(self.projects))

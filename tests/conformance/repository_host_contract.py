@@ -15,7 +15,11 @@ implementation can satisfy by accident:
   re-evaluates, and a push that lands puts it on the remote;
 * a **listing of the paths at a revision** is pinned exactly as a read is, and
   comes back in one deterministic order whoever produced it (D7);
-* **recovery discards what the remote does not have and says what it discarded.**
+* **recovery discards what the remote does not have and says what it discarded**;
+* the **history of one path** lists newest first with the content hash at each
+  revision, treats a removal as a revision of that path, and answers *no
+  revisions* rather than failing for a path nobody has committed
+  (`view-versioning`).
 
 `GitRepositoryHost` joins by adding one factory (group 5 of this change); the
 body below does not change, which is the whole reason it is written here rather
@@ -255,6 +259,55 @@ class RepositoryHostContract:
         _ready(implementation)
 
         assert not implementation.recover(PROJECT).discarded_anything
+
+    # -- the history of one path (`view-versioning`) ----------------------
+
+    def test_a_paths_history_is_newest_first_with_the_content_at_each_revision(
+        self, implementation: RepositoryHost
+    ) -> None:
+        """A concept view is a file, so its revisions are git's revisions of a path."""
+        _ready(implementation)
+        _commit(implementation)
+        implementation.push(PROJECT)
+
+        history = implementation.history(PROJECT, SPEC)
+
+        assert history.path == SPEC
+        assert history.revisions[0].content == ContentHash.of(EDITED)
+        assert history.revisions[0].author == RAFA
+        assert history.is_complete
+
+    def test_a_removal_is_a_revision_of_the_path_it_removed(
+        self, implementation: RepositoryHost
+    ) -> None:
+        """*"Removing a view SHALL likewise be recorded as a revision."*"""
+        _ready(implementation)
+        implementation.commit(
+            PROJECT, [FileChange(path=OTHER, content=None)], author=RAFA, message="drop the mule"
+        )
+        implementation.push(PROJECT)
+
+        history = implementation.history(PROJECT, OTHER)
+
+        assert history.revisions[0].is_removal
+        assert history.revisions[0].content is None
+
+    def test_a_path_that_was_never_committed_has_no_revisions_rather_than_failing(
+        self, implementation: RepositoryHost
+    ) -> None:
+        """*This file has no revisions* and *no such project* are different questions."""
+        _ready(implementation)
+
+        assert implementation.history(PROJECT, "props/nothing/asset.yaml").revisions == ()
+
+    def test_a_history_is_bounded_when_a_limit_is_given(
+        self, implementation: RepositoryHost
+    ) -> None:
+        _ready(implementation)
+        _commit(implementation)
+        implementation.push(PROJECT)
+
+        assert len(implementation.history(PROJECT, SPEC, 1).revisions) == 1
 
     # -- the precondition D5 is built on ---------------------------------
 

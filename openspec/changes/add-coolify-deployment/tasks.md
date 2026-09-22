@@ -21,11 +21,11 @@
 
 ## 3. Container artifacts and promotion
 
-- [ ] 3.1 Write the API `Dockerfile` with no environment-specific value at build time and verify a test that builds it twice from the same revision and asserts the resulting digests are equal
-- [ ] 3.2 Write the web application `Dockerfile` using the server runtime adapter (D10) and verify the built image serves the application with no API reachable
+- [x] 3.1 Write the API `Dockerfile` with no environment-specific value at build time and verify a test that builds it twice from the same revision and asserts the resulting digests are equal
+- [x] 3.2 Write the web application `Dockerfile` using the server runtime adapter (D10) and verify the built image serves the application with no API reachable
 - [x] 3.3 Add a build pipeline step that records the built digest against the revision, and verify a promotion check comparing the running digest in each environment against that record
 - [x] 3.4 Add a repository secret scan to the merge gate and an artifact scan for the declared secret settings' values; verify both by introducing a fake credential in a throwaway branch and asserting each scan fails
-- [ ] 3.5 Document and verify rollback as redeploying a previously recorded digest, by deploying revision N, then N-1, and asserting the previous version serves with no rebuild
+- [x] 3.5 Document and verify rollback as redeploying a previously recorded digest, by deploying revision N, then N-1, and asserting the previous version serves with no rebuild
 
 ## 4. Index migrations as a release step
 

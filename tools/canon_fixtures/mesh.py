@@ -340,7 +340,10 @@ def write_static_obj(
 
 
 def write_multipart_obj(
-    path: Path, *, parts: tuple[str, ...] = ("SM_mech_scout_LOD0", SHOULDER)
+    path: Path,
+    *,
+    parts: tuple[str, ...] = ("SM_mech_scout_LOD0", SHOULDER),
+    material: str = "M_mech_scout",
 ) -> ExportFacts:
     """An OBJ with more than one named object — what an artist exports for real.
 
@@ -348,12 +351,20 @@ def write_multipart_obj(
     has to be distinguishable from its neighbour: a reader that merged the two
     would still report the right triangle total and the wrong part list, and a
     pin anchored to the second name would have nowhere to land.
+
+    **The parts share one material deliberately.** That is the shape `trimesh`'s
+    OBJ loader merges when it is left at its defaults, and it is what an artist
+    exports: one material on a body and its shoulder is the ordinary case, not
+    the awkward one. The file declares the one material it actually contains —
+    `trimesh`'s exporter writes a material once however many parts reference it,
+    so a fixture claiming one per part would be claiming a fact its own file
+    does not hold.
     """
     scene = trimesh.Scene()
+    surface = trimesh.visual.material.SimpleMaterial()
+    surface.name = material
     for index, name in enumerate(parts):
         mesh = trimesh.creation.icosphere(subdivisions=2 + index)
-        surface = trimesh.visual.material.SimpleMaterial()
-        surface.name = f"M_{name}"
         mesh.visual = trimesh.visual.TextureVisuals(
             material=surface, uv=[(0.5, 0.5)] * len(mesh.vertices)
         )
@@ -362,7 +373,7 @@ def write_multipart_obj(
     scene.export(str(path))
     return ExportFacts(
         objects=parts,
-        materials=tuple(f"M_{name}" for name in parts),
+        materials=(material,),
         triangles=sum(len(mesh.faces) for mesh in scene.geometry.values()),
         uv_sets=1,
     )

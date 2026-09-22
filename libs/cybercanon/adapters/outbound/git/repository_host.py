@@ -48,7 +48,7 @@ import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cybercanon.adapters.outbound.git import commands
@@ -56,6 +56,8 @@ from cybercanon.application.ports.clock import Clock, system_clock
 from cybercanon.application.ports.repository_host import (
     Commit,
     FileChange,
+    FileHistory,
+    FileRevision,
     ProjectNotReady,
     ProjectState,
     ProjectStatus,
@@ -65,13 +67,19 @@ from cybercanon.application.ports.repository_host import (
     RevisionUnreachable,
 )
 from cybercanon.domain.actors import GitAuthor
-from cybercanon.domain.revisions import Revision, ServedRevision
+from cybercanon.domain.revisions import ContentHash, Revision, ServedRevision
 
 ORIGIN = "origin"
 """The one remote a working copy has. A second would be a second source of truth."""
 
 LOCK_SUFFIX = ".writer.lock"
 """What a project's single-writer lock file is called, beside its working copy."""
+
+UNIT = "\x1f"
+"""The separator between fields of one `git log` line. A byte nobody types."""
+
+HISTORY_FORMAT = f"--format=%H{UNIT}%an{UNIT}%ae{UNIT}%aI"
+"""Revision, author name, author address and the author date, ISO-8601."""
 
 CREDENTIAL_REFUSED = "the configured repository credential was refused by the remote"
 REMOTE_UNREACHABLE = "the remote could not be reached"
@@ -431,6 +439,54 @@ class GitRepositoryHost:
         listed = self._git(held, ["log", "--format=%H%x1f%an%x1f%ae%x1f%s", self._range(held)])
         return tuple(_parsed(line) for line in listed.lines) if listed.ok else ()
 
+    def history(self, project: str, path: str, limit: int | None = None) -> FileHistory:
+        """Every commit that touched that path, newest first (`view-versioning`).
+
+        The content hash of each revision is taken from the bytes that revision
+        holds rather than from git's own blob id: the product addresses content
+        by `sha256` everywhere — blob keys, edit preconditions, view identity —
+        and a second hash that only history spoke would be a second answer to
+        *are these the same bytes*.
+
+        A shallow working copy is reported rather than presented as complete.
+        `git log` in one stops where the graft does, with no error, which is
+        precisely the silent truncation `view-versioning` forbids, so the
+        shallow flag is read and the oldest revision reached is named.
+        """
+        held = self._ensure(project)
+        bounded = ["-n", str(limit)] if limit is not None else []
+        listed = self._git(held, ["log", HISTORY_FORMAT, *bounded, "--", path])
+        if not listed.ok:
+            return FileHistory(path=path)
+        revisions = tuple(
+            self._file_revision(held, line, path) for line in listed.lines if line.strip()
+        )
+        return FileHistory(
+            path=path, revisions=revisions, truncated_before=self._shallow_from(held, revisions)
+        )
+
+    def _file_revision(self, held: _Held, line: str, path: str) -> FileRevision:
+        """One `git log` line plus the bytes that revision held at `path`."""
+        revision, name, email, stamp = [*line.split(UNIT), "", "", ""][:4]
+        found = self._git(held, ["cat-file", "-p", f"{revision}:{path}"])
+        content = found.out if found.ok else None
+        return FileRevision(
+            revision=Revision(revision),
+            author=GitAuthor(name=name, email=email),
+            at=stamped(stamp),
+            content=ContentHash.of(content) if content is not None else None,
+            byte_size=len(content) if content is not None else 0,
+        )
+
+    def _shallow_from(self, held: _Held, revisions: Sequence[FileRevision]) -> str:
+        """The revision earlier history is unavailable from, or the empty string."""
+        if not revisions:
+            return ""
+        shallow = self._git(held, ["rev-parse", "--is-shallow-repository"])
+        if not shallow.ok or shallow.text.strip() != "true":
+            return ""
+        return revisions[-1].revision.value
+
     def recover(self, project: str) -> Recovery:
         """Re-obtain the working copy, discarding whatever the remote does not have."""
         held = self._held(project)
@@ -603,9 +659,22 @@ class GitRepositoryHost:
         )
 
 
+def stamped(value: str) -> datetime:
+    """An ISO-8601 author date, or the epoch when git gave none.
+
+    The epoch rather than a refusal: a revision whose date could not be read is
+    still a revision, and losing the whole listing over a timestamp would be a
+    truncation reported as an error.
+    """
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return datetime.fromtimestamp(0, tz=UTC)
+
+
 def _parsed(line: str) -> Commit:
     """One `git log` line back into a :class:`Commit`."""
-    revision, name, email, subject = [*line.split("\x1f"), "", "", ""][:4]
+    revision, name, email, subject = [*line.split(UNIT), "", "", ""][:4]
     return Commit(
         revision=Revision(revision),
         author=GitAuthor(name=name, email=email),

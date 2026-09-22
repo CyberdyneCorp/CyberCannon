@@ -19,9 +19,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	ABSENCES,
 	SECTIONS,
-	SHEET_ABSENT,
+	SHEET_EMPTY,
 	UNREADABLE_OUTCOME,
-	VIEWER_ABSENT,
 	assetPage,
 	availableSurfaces,
 	entriesOf,
@@ -320,7 +319,13 @@ describe('the surfaces this page is the way into', () => {
 		expect(viewer?.address).toBe(`/p/${PROJECT}/a/${ASSET}?surface=viewer`);
 	});
 
-	it('states why a surface cannot be opened rather than offering a dead link', () => {
+	it('opens the viewer for an asset with no preview, and lets it say why', () => {
+		// `add-viewer-3d` overrides the assumption this module made before it
+		// existed, exactly as `add-model-sheet-2d` did for the sheet: *"WHEN the
+		// asset is opened in the viewer THEN the viewer SHALL state that no
+		// preview exists because no export has been validated AND the asset's
+		// specification SHALL remain readable."* A surface that refused to open
+		// would replace that sentence with a silent degrade to the overview.
 		const bare = assetPage({
 			project: PROJECT,
 			locations: nothingRecorded(),
@@ -328,10 +333,24 @@ describe('the surfaces this page is the way into', () => {
 			validation: null
 		});
 
-		expect(availableSurfaces(bare)).toEqual(['overview']);
-		expect(bare.surfaces.find((entry) => entry.surface === 'sheet')?.absence).toBe(SHEET_ABSENT);
-		expect(bare.surfaces.find((entry) => entry.surface === 'viewer')?.absence).toBe(
-			VIEWER_ABSENT
-		);
+		expect(availableSurfaces(bare)).toEqual(['overview', 'sheet', 'viewer']);
+		expect(bare.surfaces.find((entry) => entry.surface === 'viewer')?.absence).toBeNull();
+	});
+
+	it('opens the sheet for an asset with no views, and says it has none', () => {
+		// `add-model-sheet-2d` overrides the assumption this module made before it
+		// existed: the sheet opens, states that the asset has no views, and still
+		// presents its identity and status — because an annotation anchored to a
+		// view that has gone is still a thread somebody owes an exit.
+		const bare = assetPage({
+			project: PROJECT,
+			locations: nothingRecorded(),
+			document: BARE_DOCUMENT,
+			validation: null
+		});
+
+		expect(availableSurfaces(bare)).toContain('sheet');
+		expect(bare.surfaces.find((entry) => entry.surface === 'sheet')?.absence).toBeNull();
+		expect(SHEET_EMPTY).toContain('no views');
 	});
 });

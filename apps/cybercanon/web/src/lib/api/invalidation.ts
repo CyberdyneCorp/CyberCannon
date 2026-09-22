@@ -25,6 +25,8 @@ import { key, resources, scopeOf } from './resources';
 
 export const WRITE_PATHS = [
 	'write-spec',
+	'annotate',
+	'promote-annotation',
 	'raise-request',
 	'assign-request',
 	'transition-request',
@@ -57,11 +59,26 @@ export interface WriteTarget {
  * * **assign-request** / **transition-request** — the same two, plus the one
  *   request's own record.
  * * **dismiss-notification** — the unread items, and nothing else.
+ * * **annotate** — creating, replying, editing, withdrawing, moving, re-anchoring,
+ *   resolving or reopening: the asset's threads at every revision, its compiled
+ *   briefing (an open issue appears in it and a settled one leaves it), its
+ *   anchor resolutions (an anchor that moved resolves differently), and the
+ *   project's triage queue. The preview *descriptor* stays: none of those
+ *   changes an export, a count or a clip. The asset's *specification* stays, because none of
+ *   those changes a declared field, and the project listing stays with it.
+ * * **promote-annotation** — everything `annotate` drops **and** everything a
+ *   specification write drops, because a promotion is one: it writes a durable
+ *   rule into `constraints` or `concept.silhouette_rules`, which changes what
+ *   an export is judged against and what a search matches.
  */
 export function invalidatedBy(path: WritePath, target: WriteTarget): readonly ResourceKey[] {
 	switch (path) {
 		case 'write-spec':
 			return specWrite(target);
+		case 'annotate':
+			return annotationWrite(target);
+		case 'promote-annotation':
+			return [...annotationWrite(target), ...specWrite(target)];
 		case 'raise-request':
 			return [scopeOf('requests', target.project), scopeOf('unread', target.project)];
 		case 'assign-request':
@@ -74,6 +91,22 @@ export function invalidatedBy(path: WritePath, target: WriteTarget): readonly Re
 		case 'dismiss-notification':
 			return [scopeOf('unread', target.project)];
 	}
+}
+
+function annotationWrite(target: WriteTarget): readonly ResourceKey[] {
+	const { project, asset } = target;
+	// `annotations/<project>/<asset>` is a prefix of every `.../rev=<revision>`
+	// key, so one entry forgets the thread list at every revision it was read at.
+	const threads = asset ? [key('annotations', project, asset)] : [scopeOf('annotations', project)];
+	const briefing = asset ? [resources.briefing(project, asset)] : [scopeOf('briefing', project)];
+	// A write that moves, re-anchors or withdraws an anchor changes which
+	// annotations resolve against the current export, so the resolution listing
+	// goes with the thread list. The preview *descriptor* stays: an annotation
+	// write changes no export, no count and no clip.
+	const resolutions = asset
+		? [resources.resolutions(project, asset)]
+		: [scopeOf('resolutions', project)];
+	return [...threads, ...briefing, ...resolutions, scopeOf('triage', project)];
 }
 
 function specWrite(target: WriteTarget): readonly ResourceKey[] {

@@ -44,8 +44,9 @@ from cybercanon.domain.concept import Concept
 from cybercanon.domain.constraints import Constraints
 from cybercanon.domain.design import Design, Socket
 from cybercanon.domain.format_matrix import facts_for
-from cybercanon.domain.identity import Actor, ActorId, Role
+from cybercanon.domain.identity import Actor, ActorId, AgentId, Role
 from cybercanon.domain.mesh_facts import MeshFacts, MeshFormat
+from cybercanon.domain.policy import REQUIRES_PERSON, Operation, Subject, decide
 from cybercanon.domain.status import Status
 
 pytestmark = pytest.mark.unit
@@ -73,6 +74,33 @@ UNKNOWN_LENS = "engineering"
 
 PROMOTION_TOOLS = ("promote_annotation", "promote", "promote_to_rule", "add_constraint")
 """Names a promotion tool would plausibly be given. None of them may exist."""
+
+DURABLE_WRITES = (
+    "promote",
+    "set_constraint",
+    "add_constraint",
+    "write_constraint",
+    "set_rule",
+    "add_rule",
+    "write_rule",
+    "set_silhouette",
+    "add_silhouette",
+    "write_spec",
+    "edit_spec",
+    "set_spec",
+    "update_spec",
+)
+"""The names an operation that writes a durable rule would plausibly be given.
+
+Task 2.11 of `add-model-sheet-2d` extends this suite rather than starting a new
+one: the exact tool-set assertion is what already keeps a tool from appearing,
+and this is the *reason* it may not — **no advertised tool writes a durable
+rule**. A name-shaped check rather than a behavioural one is deliberate: the
+advertised surface is a list of names, and a stem that appears in one is a
+conversation somebody has to have before the tool ships. The stems pair a
+writing verb with the thing written, so `get_constraints` — a read, and the one
+`spec-lenses` exists for — is not caught by a check meant for `set_constraints`.
+"""
 
 IDENTITY_PARAMETERS = ("actor", "actor_id", "role", "roles", "entitlement", "projects", "as_actor")
 """What no tool may accept: identity comes from the credential, never a parameter."""
@@ -249,6 +277,53 @@ def test_no_tool_accepts_an_identity(server: FastMCP) -> None:
 @pytest.mark.parametrize("tool", PROMOTION_TOOLS)
 def test_no_promotion_tool_exists(server: FastMCP, tool: str) -> None:
     assert tool not in advertised(server)
+
+
+def test_no_advertised_tool_writes_a_durable_rule(server: FastMCP) -> None:
+    """Task 2.11 — the agent surface is read-only about the canon, by enumeration."""
+    offending = {
+        name: stem for name in advertised(server) for stem in DURABLE_WRITES if _names(name, stem)
+    }
+
+    assert not offending, (
+        "`project.md`: promotion is never agent-callable, not even for an art "
+        f"director's agent — and an agent never authors durable content: {offending}"
+    )
+
+
+def _names(tool: str, stem: str) -> bool:
+    """Whether a tool name carries this stem at a word boundary.
+
+    Boundaries rather than a bare substring, because `get_asset_spec` contains
+    the letters of `set_spec` and is a *read* — the one `spec-lenses` exists for.
+    A check that flagged it would be switched off within a week.
+    """
+    return f"_{stem}_" in f"_{tool}_"
+
+
+def test_the_promote_use_case_refuses_an_agent_acting_for_an_art_director() -> None:
+    """The other half of 2.11: absent from the surface *and* refused by the core.
+
+    A tool list is a claim about what is advertised. This is the claim about what
+    happens if somebody reaches the use case anyway — which is the only one that
+    still holds the day a fifth surface is added.
+    """
+    director = Actor(
+        id=ActorId("auth|dana"),
+        display_name="Dana",
+        roles=(Role.ART_DIRECTOR,),
+        projects=(PROJECT,),
+    )
+
+    decision = decide(
+        director,
+        Operation.PROMOTE_TO_RULE,
+        Subject(project=PROJECT, author=ActorId("auth|rafa")),
+        via=AgentId("blender-agent"),
+    )
+
+    assert decision.refused
+    assert REQUIRES_PERSON in decision.reason
 
 
 def test_an_art_directors_agent_is_refused_promotion() -> None:

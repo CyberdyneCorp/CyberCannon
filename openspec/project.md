@@ -333,6 +333,20 @@ CyberdyneRAG, the DAO backend), following the same
   supplies configuration as environment; twelve-factor is the native shape here,
   not an aspiration. No secret is ever committed, and no configuration is baked
   into an image.
+- **The project's identifier is configuration, and it is the address.**
+  `CANON_PROJECT` names the project a deployment serves, and that one string is
+  the address in `/{version}/projects/{project}/…`, the subject the entitlement
+  decision is taken over, the key the index rows are written under and the
+  directory the working copy lives in. It is deliberately not derived from the
+  repository URL or read out of the working copy's `.canon/project.yaml`: those
+  two disagree in the ordinary case (`ronin` and `Ronin`), and an entitlement
+  that changed when somebody edited a file in the repository would be an address
+  that stopped working after a commit.
+- **The API and the web application are different origins**, so the API names
+  the origins a browser may read it from (`CANON_WEB_ORIGINS`), per environment
+  and never as a wildcard. Without it the application shows an unavailable state
+  against a service whose readiness is green — an outage with nothing in the
+  logs.
 - **Images are built once and promoted.** Nothing environment-specific at build
   time, so the same image runs in every environment.
 - **Every deployed service exposes a health endpoint** that reports ready without
@@ -528,6 +542,7 @@ the same closed loop as sockets and clips, applied to the lifecycle.
 | 2 | `add-mcp-read-server` | mcp-server, asset-lookup, spec-lenses, agent-identity | specified |
 | 3 | `add-derived-metadata` | llm-integration, derived-metadata, metadata-acceptance | specified |
 | 4 | `add-web-backend` | http-api, auth-integration, hosted-repository, blob-storage, asset-requests | specified |
+| 4b | `add-web-app-shell` | app-navigation, asset-browser, web-session | specified |
 | 5 | `add-concept-ingestion` | concept-ingestion, view-versioning | specified |
 | 6 | `add-model-sheet-2d` | annotation-authoring, annotation-triage, model-sheet-2d | specified |
 | 7 | `add-viewer-3d` | viewer-3d, anchor-resolution, animation-playback | specified |

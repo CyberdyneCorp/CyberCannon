@@ -6,11 +6,20 @@ into facts and refuses, by name, anything it cannot read honestly.
 
 **Per-format normalisation, and what the matrix row means.**
 
-| Format | Read by | Notes |
-|---|---|---|
-| `GLB`, `GLTF` | `pygltflib` | Everything: metres, `+Y` up, explicit clips, skins and sockets. |
-| `FBX` | `fbx_document` | Geometry, sockets, clips, skeleton — not scale, transforms or rate. |
-| `OBJ` | `trimesh` | Triangles, object names, materials, UV sets — all the file holds. |
+| Format | Read by | Previewed through | Read as |
+|---|---|---|---|
+| `GLB`, `GLTF` | `pygltflib` | itself | everything: metres, `+Y` up, clips, skins, sockets |
+| `FBX` | `fbx_document` | `fbx_gltf` | geometry, sockets, clips, skeleton — no scale or rate |
+| `OBJ` | `trimesh` | `trimesh`'s glTF export | triangles, names, materials, UV sets |
+
+**One decimator, so one conversion per format.** `gltf_preview` is the only
+thing in this codebase that decimates, and it decimates glTF; a format that is
+not glTF is therefore converted into one first. That conversion is part of
+reading, not of previewing, which is why it lives beside the reader — and why a
+format that cannot be converted loses its preview and nothing else (D7). The
+conversion is deferred until a preview is actually asked for on the format
+where it is expensive: an `FBX`'s handle is the parsed document, and
+`fbx_gltf` runs on it only inside `emit_preview`.
 
 `FBX` is the format the matrix earns its keep on. `trimesh` carries no FBX
 loader, so the binary container is read here directly, and the *normalisation* is
@@ -30,10 +39,15 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
+from typing import Any
 
-import trimesh
-
-from cybercanon.adapters.outbound.mesh import fbx_facts, gltf_facts, gltf_preview, obj_facts
+from cybercanon.adapters.outbound.mesh import (
+    fbx_facts,
+    fbx_gltf,
+    gltf_facts,
+    gltf_preview,
+    obj_facts,
+)
 from cybercanon.adapters.outbound.mesh.fbx_document import FbxDocument, FbxUnreadable
 from cybercanon.adapters.outbound.mesh.gltf_document import GltfDocument, GltfUnreadable
 from cybercanon.adapters.outbound.mesh.gltf_preview import PreviewSettings
@@ -43,7 +57,7 @@ from cybercanon.application.ports.mesh_inspector import (
     UnsupportedExport,
 )
 from cybercanon.application.ports.preview import PreviewMesh, PreviewUnavailable
-from cybercanon.domain.mesh_facts import MeshFacts, MeshFormat
+from cybercanon.domain.mesh_facts import MeshFormat
 
 GLTF_FORMATS = (MeshFormat.GLB, MeshFormat.GLTF)
 
@@ -78,6 +92,8 @@ class TrimeshInspector:
         never an `OperationFailed`, because a preview never moves a verdict.
         """
         document = mesh.handle
+        if isinstance(document, FbxDocument):
+            document = _converted(document)
         if not isinstance(document, GltfDocument):
             raise PreviewUnavailable("this export was not read into a previewable document")
         return gltf_preview.emit_preview(document, self._settings)
@@ -88,8 +104,8 @@ class TrimeshInspector:
         if source_format in GLTF_FORMATS:
             return self._read_gltf(export, path, source_format)
         if source_format is MeshFormat.FBX:
-            return InspectedMesh(facts=self._read_fbx(export, path))
-        return InspectedMesh(facts=self._read_obj(export, path), handle=_as_gltf(path))
+            return self._read_fbx(export, path)
+        return self._read_obj(export, path)
 
     def _read_gltf(self, export: str, path: Path, source_format: MeshFormat) -> InspectedMesh:
         try:
@@ -99,22 +115,34 @@ class TrimeshInspector:
             raise MeshUnreadable(export, str(error) or type(error).__name__) from error
         return InspectedMesh(facts=facts, handle=document)
 
-    def _read_fbx(self, export: str, path: Path) -> MeshFacts:
-        """No handle: nothing here converts an FBX into a previewable document.
+    def _read_fbx(self, export: str, path: Path) -> InspectedMesh:
+        """The parsed FBX is the handle, and `fbx_gltf` turns it into a preview.
 
-        A preview is optional by construction (D7), so the absence costs the
-        preview and never the verdict.
+        The conversion is left until a preview is actually asked for, because a
+        validation run that wants no preview should pay for no preview — and
+        the handle is still the same read the facts came from, which is what
+        D7 asks of it.
         """
         try:
-            return fbx_facts.read_facts(FbxDocument.read(path))
+            document = FbxDocument.read(path)
+            facts = fbx_facts.read_facts(document)
         except (FbxUnreadable, ValueError, KeyError, IndexError, struct.error) as error:
             raise MeshUnreadable(export, str(error) or type(error).__name__) from error
+        return InspectedMesh(facts=facts, handle=document)
 
-    def _read_obj(self, export: str, path: Path) -> MeshFacts:
+    def _read_obj(self, export: str, path: Path) -> InspectedMesh:
+        """One load answers both questions: the facts, and the preview's source.
+
+        Loading twice would let the report and the viewer disagree about what
+        the file contains — which is how a part name survives into one and not
+        the other, and how an anchor lands on the wrong geometry.
+        """
         try:
-            return obj_facts.read_facts(path)
+            scene = obj_facts.load_scene(path)
+            facts = obj_facts.facts_of(scene)
         except (obj_facts.ObjUnreadable, ValueError) as error:
             raise MeshUnreadable(export, str(error) or type(error).__name__) from error
+        return InspectedMesh(facts=facts, handle=_as_gltf(scene, path))
 
     def _absolute(self, export: str) -> Path:
         path = Path(export)
@@ -126,15 +154,31 @@ def _format_of(export: str) -> MeshFormat | None:
     return MeshFormat.from_name(Path(export).suffix)
 
 
-def _as_gltf(path: Path) -> GltfDocument | None:
-    """An OBJ converted to glTF in memory, so one decimator serves every format.
+def _converted(document: FbxDocument) -> GltfDocument:
+    """An FBX as a previewable glTF, or a refusal naming what could not be carried.
 
-    A conversion that fails costs the preview and nothing else, which is why it
-    answers ``None`` rather than raising: the facts have already been read and
-    the verdict does not depend on this.
+    Every refusal arrives as `PreviewUnavailable`, never as an
+    :class:`~cybercanon.application.errors.OperationFailed`: an FBX that cannot
+    be converted has already been validated, and a preview never moves a
+    verdict (D7).
     """
     try:
-        scene = trimesh.load(str(path), file_type="obj", process=False, force="scene")
+        return fbx_gltf.convert(document)
+    except (ValueError, KeyError, IndexError, struct.error) as error:
+        raise PreviewUnavailable(
+            f"this FBX was not read into a previewable document: {error or type(error).__name__}"
+        ) from error
+
+
+def _as_gltf(scene: Any, path: Path) -> GltfDocument | None:
+    """The scene the facts were read from, converted to glTF in memory.
+
+    One decimator then serves every format. A conversion that fails costs the
+    preview and nothing else, which is why it answers ``None`` rather than
+    raising: the facts have already been read and the verdict does not depend
+    on this.
+    """
+    try:
         return GltfDocument.from_bytes(scene.export(file_type="glb"), source=path.as_posix())
     except Exception:  # a preview is optional by construction (D7)
         return None

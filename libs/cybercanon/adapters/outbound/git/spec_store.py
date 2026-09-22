@@ -46,17 +46,19 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from cybercanon.adapters.outbound.git import discovery, revisions, schema, yaml_io
+from cybercanon.adapters.outbound.git import discovery, revisions, schema, writer, yaml_io
 from cybercanon.application.ports.spec_store import (
     HistoryUnavailable,
     LoadedMapping,
     LoadedSpec,
     ProjectConfig,
+    SpecDocument,
     SpecNotFound,
     SpecUnreadable,
 )
 from cybercanon.domain.actor_checks import mapping_unparseable
 from cybercanon.domain.actors import ACTORS_PATH
+from cybercanon.domain.asset import Asset
 from cybercanon.domain.violations import SpecViolation
 
 Parser = Callable[[Mapping[str, Any]], tuple[Any, tuple[SpecViolation, ...]]]
@@ -179,6 +181,7 @@ class GitSpecStore:
             engine_content_root=parsed.engine_content_root,
             severities=severities,
             preview=schema.to_preview(parsed.preview),
+            ingestion=schema.to_ingestion(parsed.ingestion),
             warnings=(*warnings, *severity_warnings),
         )
 
@@ -254,6 +257,63 @@ class GitSpecStore:
         except ValueError as error:
             return LoadedMapping(violations=mapping_unparseable(_first_line(error), ACTORS_PATH))
         return LoadedMapping(mapping=schema.to_actor_mapping(parsed))
+
+    # -- editing (add-model-sheet-2d, D4 and D5) --------------------------
+
+    def read_document(self, spec_path: str, revision: str | None = None) -> SpecDocument:
+        """The file verbatim, its meaning, and the revision it was read at.
+
+        The bytes come back untouched — no reformatting on the way in — because
+        the precondition an edit states is the digest of *these* bytes, and a
+        normalising read would make it the digest of something nobody has.
+        """
+        relative = discovery.relative_to(self._root, spec_path)
+        if relative is None:
+            raise SpecNotFound(str(spec_path))
+        at = revision if revision is not None else self._revision
+        text = self._verbatim(relative, at)
+        return self._document(relative, text, at or self.current_revision() or "")
+
+    def parse_document(self, spec_path: str, content: bytes) -> SpecDocument:
+        """These bytes as a specification, without going back to the repository."""
+        relative = discovery.relative_to(self._root, spec_path) or spec_path
+        return self._document(relative, _decoded(content, relative), "")
+
+    def edited(self, document: SpecDocument, asset: Asset) -> bytes:
+        """The document with this asset's edits applied, comments intact (D4)."""
+        text = _decoded(document.content, document.path)
+        return writer.render(text, asset, document.asset).encode("utf-8")
+
+    def _document(self, relative: str, text: str, revision: str) -> SpecDocument:
+        """One already-read file as an editable document."""
+        loaded = self._as_spec(self._mapping_of(text, relative), relative)
+        return SpecDocument(
+            path=relative,
+            content=text.encode("utf-8"),
+            asset=loaded.asset,
+            warnings=loaded.warnings,
+            revision=revision,
+        )
+
+    def _verbatim(self, relative: str, revision: str | None) -> str:
+        """The file's text, from a revision when one is named and from disk when not."""
+        if revision is not None:
+            return self._text_at_revision(relative, revision)
+        if not self._exists(relative):
+            raise SpecNotFound(relative)
+        try:
+            return self._absolute(relative).read_text(encoding="utf-8")
+        except OSError as error:
+            raise SpecUnreadable(relative, str(error)) from error
+
+    def _text_at_revision(self, relative: str, revision: str) -> str:
+        """That file at that revision, keeping the two ways it can be missing apart."""
+        try:
+            return revisions.file_at(self._root, revision, relative)
+        except revisions.RevisionUnreachable as error:
+            raise HistoryUnavailable(relative, revision, str(error)) from error
+        except revisions.PathAbsent as error:
+            raise SpecNotFound(relative) from error
 
     # -- internals -------------------------------------------------------
 
@@ -331,6 +391,14 @@ class GitSpecStore:
 
     def _posix_root(self) -> str:
         return self._root.as_posix()
+
+
+def _decoded(content: bytes, subject: str) -> str:
+    """The bytes as text, refusing anything that is not a readable file."""
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SpecUnreadable(subject, "the file is not UTF-8 text") from error
 
 
 def _first_line(error: Exception) -> str:

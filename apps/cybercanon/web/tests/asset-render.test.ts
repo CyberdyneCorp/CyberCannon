@@ -125,12 +125,36 @@ describe('the ways out of the asset page', () => {
 		expect(rendered).toContain(`href="/p/${PROJECT}/a/${ASSET}?surface=viewer"`);
 	});
 
-	it('states why a surface cannot be opened instead of linking to it', () => {
+	it('offers the viewer even for an asset with no validated export', () => {
+		// `add-viewer-3d` overrides the assumption the page made before it
+		// existed: the viewer opens and *states* that no preview exists and why.
+		// A surface that refused to open would replace that sentence with a
+		// silent degrade to the overview.
 		const rendered = body(built(false));
+
+		expect(rendered).toContain('data-surface="viewer" data-available="true"');
+		expect(rendered).toContain(`href="/p/${PROJECT}/a/${ASSET}?surface=viewer"`);
+	});
+
+	it('still states why a surface cannot be opened, when one cannot', () => {
+		// No surface is currently unavailable, so the rule is exercised over a
+		// page built with one — the presentation is the claim, and it has to
+		// keep holding for whichever surface acquires the condition next.
+		const page = built(true);
+		const closed: AssetPage = {
+			...page,
+			surfaces: page.surfaces.map((entry) =>
+				entry.surface === 'viewer'
+					? { ...entry, available: false, absence: 'this asset has no preview' }
+					: entry
+			)
+		};
+
+		const rendered = body(closed);
 
 		expect(rendered).toContain('data-surface="viewer" data-available="false"');
 		expect(rendered).not.toContain(`href="/p/${PROJECT}/a/${ASSET}?surface=viewer"`);
-		expect(rendered).toContain('no preview to open in 3D');
+		expect(rendered).toContain('this asset has no preview');
 	});
 });
 

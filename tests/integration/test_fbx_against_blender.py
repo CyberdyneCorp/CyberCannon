@@ -291,3 +291,144 @@ def test_a_blender_export_states_no_unit_scale_however_tempting(blender_export: 
     assert facts.unit_scale is None
     assert facts.transforms_applied is None
     assert facts.frame_rate is None
+
+
+# --------------------------------------------------------------------------
+# Their file, our preview
+# --------------------------------------------------------------------------
+
+_MEASURE_SCRIPT = """
+import json, sys
+import bpy
+
+path = sys.argv[-1]
+bpy.ops.wm.read_factory_settings(use_empty=True)
+if path.lower().endswith(".fbx"):
+    bpy.ops.import_scene.fbx(filepath=path)
+else:
+    bpy.ops.import_scene.gltf(filepath=path)
+
+# The glTF importer leaves a stray unparented mesh behind; the export under test
+# is the one named as the script authored it.
+meshes = [
+    o for o in bpy.data.objects
+    if o.type == "MESH" and o.name.split("|")[-1].startswith("SM_")
+]
+armatures = [o for o in bpy.data.objects if o.type == "ARMATURE"]
+
+
+def box():
+    evaluated = meshes[0].evaluated_get(bpy.context.evaluated_depsgraph_get())
+    mesh = evaluated.to_mesh()
+    points = [meshes[0].matrix_world @ vertex.co for vertex in mesh.vertices]
+    evaluated.to_mesh_clear()
+    return [
+        [min(p[axis] for p in points) for axis in range(3)],
+        [max(p[axis] for p in points) for axis in range(3)],
+    ]
+
+
+clips = {}
+if armatures:
+    rig = armatures[0]
+    if rig.animation_data is None:
+        rig.animation_data_create()
+    for action in bpy.data.actions:
+        rig.animation_data.action = action
+        slots = getattr(action, "slots", None)
+        if slots is not None and len(slots):
+            rig.animation_data.action_slot = slots[0]
+        first, last = action.frame_range
+        sampled = []
+        for frame in (first, last):
+            bpy.context.scene.frame_set(int(round(frame)))
+            bpy.context.view_layer.update()
+            sampled.append(box())
+        clips[action.name.split("|")[-1]] = sampled
+
+print("RESULT " + json.dumps({
+    "objects": sorted(o.name.split("|")[-1] for o in meshes),
+    "empties": sorted(o.name.split("|")[-1] for o in bpy.data.objects if o.type == "EMPTY"),
+    "bones": sorted(b.name for o in armatures for b in o.data.bones),
+    "clips": clips,
+}))
+"""
+
+
+def _measured(tmp_path: Path, export: Path) -> dict:
+    output = _run_blender(_MEASURE_SCRIPT, tmp_path, export)
+    line = next((line for line in output.splitlines() if line.startswith("RESULT ")), None)
+    assert line, output[-4000:]
+    return json.loads(line.removeprefix("RESULT "))
+
+
+def _shape(box: list[list[float]]) -> tuple[float, ...]:
+    """A box as proportions of its own longest side — the same shape at any scale.
+
+    The preview keeps the export's own coordinates and this converter states no
+    unit scale, deliberately (`fbx_gltf`), so the two files are compared on
+    shape and on motion-relative-to-size rather than on absolute millimetres.
+    """
+    extents = [box[1][axis] - box[0][axis] for axis in range(3)]
+    longest = max(extents) or 1.0
+    return tuple(round(extent / longest, 3) for extent in extents)
+
+
+def _travel(sampled: list[list[list[float]]]) -> tuple[float, ...]:
+    """How far the mesh moved over the clip, as a fraction of its own size."""
+    first, last = sampled
+    size = max(first[1][axis] - first[0][axis] for axis in range(3)) or 1.0
+    return tuple(round((last[0][axis] - first[0][axis]) / size, 3) for axis in range(3))
+
+
+@pytest.fixture(scope="module")
+def blender_preview(tmp_path_factory: pytest.TempPathFactory, blender_export: Path) -> Path:
+    """Blender's own export, converted by `fbx_gltf` and written out as a GLB.
+
+    The *converted* document rather than the decimated preview, because what is
+    compared below is the conversion — decimation is asserted against its own
+    source in `test_preview_emission.py`, and a decimated mesh has a slightly
+    smaller bounding box by construction.
+    """
+    from cybercanon.adapters.outbound.mesh import fbx_gltf
+    from cybercanon.adapters.outbound.mesh.fbx_document import FbxDocument
+
+    converted = fbx_gltf.convert(FbxDocument.read(blender_export))
+    path = tmp_path_factory.mktemp("fbx-preview") / "converted.glb"
+    path.write_bytes(b"".join(converted.gltf.save_to_bytes()))
+    return path
+
+
+@requires_blender
+def test_blender_reads_our_conversion_as_the_parts_the_script_authored(
+    tmp_path_factory: pytest.TempPathFactory, blender_preview: Path
+) -> None:
+    """An anchor's durable key is a part name, so the names are the first question."""
+    read = _measured(tmp_path_factory.mktemp("preview-read"), blender_preview)
+
+    assert read["objects"] == ["SM_quad_scout_LOD0"]
+    assert read["empties"] == ["SOCKET_muzzle_l"]
+    assert tuple(read["bones"]) == AUTHORED_BONES
+
+
+@requires_blender
+def test_our_conversion_deforms_the_way_the_source_fbx_does(
+    tmp_path_factory: pytest.TempPathFactory, blender_export: Path, blender_preview: Path
+) -> None:
+    """The assertion a part list cannot make: the geometry ends up in one place.
+
+    A bind matrix composed in the wrong order, a rotation read in the wrong
+    Euler order or a curve sampled in the wrong units all leave every name
+    intact and move the mesh somewhere else — which is visible to a person
+    looking at the viewer and to nothing else. So Blender evaluates both files
+    with their skeletons and their clips, and the two are compared on shape and
+    on how far each clip travels relative to that shape.
+    """
+    directory = tmp_path_factory.mktemp("deformation")
+    source = _measured(directory, blender_export)
+    preview = _measured(directory, blender_preview)
+
+    assert source["clips"] and set(source["clips"]) == set(preview["clips"])
+    for name, sampled in source["clips"].items():
+        assert _shape(preview["clips"][name][0]) == pytest.approx(_shape(sampled[0]), abs=0.02)
+        assert _travel(preview["clips"][name]) == pytest.approx(_travel(sampled), abs=0.02)

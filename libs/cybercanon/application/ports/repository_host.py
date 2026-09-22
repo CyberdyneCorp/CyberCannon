@@ -3,7 +3,7 @@
 `SpecStore` answers *what does this specification say*. This port answers the
 question that only arises once the reader is a container rather than a laptop:
 *where does the repository come from, and how does a change get back into it.*
-Eight operations, and every one of them is in the specification rather than in
+Ten operations, and every one of them is in the specification rather than in
 the convenience of an implementation:
 
 * **clone** — a project is unavailable until its working copy is ready, and
@@ -21,6 +21,10 @@ the convenience of an implementation:
   pushed did not happen (D2);
 * **list the paths at a revision** — the only way to enumerate content that has
   no index row, which is what an asset request is (D7);
+* **history of one path** — a concept view is a file, so its revisions are
+  git's revisions of that path (`view-versioning`), and a working copy that
+  holds only part of a history says so rather than presenting what it has as
+  all there is;
 * **recover** — a missing, corrupted or diverged working copy is restored from
   the remote, and what was only local is discarded and reported.
 
@@ -116,6 +120,52 @@ class Commit:
     message: str
     paths: tuple[str, ...] = ()
     at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class FileRevision:
+    """One commit that touched one file, and what the file was at it.
+
+    The tenth operation's answer, and the one `view-versioning` is written in
+    terms of: *"Each entry SHALL carry a stable revision identifier, the person
+    credited with it, the time it was recorded, and the content hash of the
+    image at that revision."*
+
+    `content` of ``None`` is the revision that **removed** the file, which is a
+    revision like any other — *"Removing a view SHALL likewise be recorded as a
+    revision"* — and is exactly why this is a field rather than an absence from
+    the list.
+    """
+
+    revision: Revision
+    author: GitAuthor
+    at: datetime
+    content: ContentHash | None = None
+    byte_size: int = 0
+
+    @property
+    def is_removal(self) -> bool:
+        return self.content is None
+
+
+@dataclass(frozen=True)
+class FileHistory:
+    """Every revision of one file this working copy can see, newest first.
+
+    `truncated_before` is the second half, and it is not decoration: a shallow
+    clone holds part of a history, and `view-versioning` forbids presenting a
+    truncated list as complete — *"SHALL state that revisions before a named
+    point are unavailable"*. The named point is the oldest revision this copy
+    reached, so the sentence a surface prints is derived rather than invented.
+    """
+
+    path: str
+    revisions: tuple[FileRevision, ...] = ()
+    truncated_before: str = ""
+
+    @property
+    def is_complete(self) -> bool:
+        return not self.truncated_before
 
 
 @dataclass(frozen=True)
@@ -304,6 +354,23 @@ class RepositoryHost(Protocol):
         """
         ...
 
+    def history(self, project: str, path: str, limit: int | None = None) -> FileHistory:
+        """Every revision that touched that file, newest first (`view-versioning`).
+
+        The tenth operation, and the one ingestion's other half needs: a view is
+        a file in git, so its revision history *is* git's history of one path,
+        and listing, retrieving and comparing revisions are reads over it rather
+        than over a versioning system this product invented.
+
+        A path that was never committed answers an empty history rather than
+        raising: *this file has no revisions* and *this project has no such
+        asset* are different questions, and only the first one is being asked.
+        A working copy that cannot see the whole history answers what it has and
+        says so in `truncated_before`, because a truncated list presented as
+        complete is the one thing the specification forbids outright.
+        """
+        ...
+
     def recover(self, project: str) -> Recovery:
         """Re-obtain the working copy, discarding whatever the remote does not have."""
         ...
@@ -312,6 +379,8 @@ class RepositoryHost(Protocol):
 __all__ = [
     "Commit",
     "FileChange",
+    "FileHistory",
+    "FileRevision",
     "ProjectNotReady",
     "ProjectState",
     "ProjectStatus",

@@ -12,6 +12,7 @@
 	import RouteScreen from '$lib/components/RouteScreen.svelte';
 	import AssetSurface from '$lib/components/AssetSurface.svelte';
 	import type { AssetPage } from '$lib/asset';
+	import { annotationViewModel } from '$lib/annotation';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -24,7 +25,16 @@
 		<p class="belongs-to">
 			<strong>{page.name}</strong> in project <span class="project">{page.project}</span>
 		</p>
-		<AssetSurface surface={data.address.surface} {page} />
+		<AssetSurface
+			surface={data.address.surface}
+			{page}
+			annotations={data.annotations ?? null}
+			model={annotationViewModel}
+			annotation={data.address.annotation ?? null}
+			viewer={data.viewer ?? null}
+			onReanchor={data.reanchor}
+			onRetryPreview={data.retryPreview}
+		/>
 	{/snippet}
 </RouteScreen>
 

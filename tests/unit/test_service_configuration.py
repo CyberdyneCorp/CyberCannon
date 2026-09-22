@@ -57,6 +57,7 @@ from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.service_health import LANGUAGE_MODEL
 
 COMPLETE = {
+    "CANON_PROJECT": "ironwood",
     "CANON_REPOSITORY_URL": "git@github.com:cyberdynecorp/ironwood.git",
     "CANON_REPOSITORY_BRANCH": "canon",
     "CANON_REPOSITORY_CREDENTIAL": "a-deploy-key",
@@ -95,7 +96,7 @@ def test_every_required_variable_is_namespaced() -> None:
 
 def test_the_required_set_is_the_one_the_task_enumerates() -> None:
     assert set(REQUIRED) == set(COMPLETE)
-    assert len(REQUIRED) == 14
+    assert len(REQUIRED) == 15
 
 
 # --------------------------------------------------------------------------
@@ -406,7 +407,11 @@ def test_the_service_starts_with_the_model_off_and_reports_it_unavailable() -> N
 
     assert response.status_code == 200
     assert body[STATUS_FIELD] == READY
-    assert body[DEGRADED_FIELD] == [LANGUAGE_MODEL]
+    assert LANGUAGE_MODEL in body[DEGRADED_FIELD]
+    assert {"search_index", "object_store"} <= set(body[DEGRADED_FIELD]), (
+        "the deployable now wires the index and the blob mirror, so a process "
+        "that cannot reach them has to say which one it cannot reach"
+    )
 
 
 def test_a_malformed_setting_stops_the_boot_before_an_application_exists(

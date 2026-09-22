@@ -46,6 +46,7 @@ applications:
       stop_grace_period: CANON_DRAIN_WINDOW_S
     environment:
       required:
+        - CANON_PROJECT
         - CANON_REPOSITORY_URL
         - CANON_REPOSITORY_BRANCH
         - CANON_REPOSITORY_CREDENTIAL
@@ -62,6 +63,8 @@ applications:
         - CANON_DRAIN_WINDOW_S
       optional:
         - CANON_AUTH_KEY_CACHE_TTL_S
+        - CANON_WORKING_COPIES
+        - CANON_WEB_ORIGINS
         - CANON_LLM_ENABLED
         - CANON_LLM_BASE_URL
         - CANON_LLM_API_KEY
@@ -76,6 +79,10 @@ applications:
       # deployment setting rather than a product argument."*
       values:
         CANON_LLM_BASE_URL: http://amini.backend.coolify.cyberdynecorp.ai/v1
+        # The web application is a different origin from this API, so the
+        # browser asks this service whether the page may read the answer it
+        # already received. Named per environment; never `*`.
+        CANON_WEB_ORIGINS: https://canon.backend.coolify.cyberdynecorp.ai
 
   # -- the web application -------------------------------------------------
   web:

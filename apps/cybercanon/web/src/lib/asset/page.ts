@@ -99,11 +99,17 @@ export const SURFACE_LABELS: Readonly<Record<Surface, string>> = {
 	viewer: '3D viewer'
 };
 
-export const SHEET_ABSENT =
-	'no concept view is recorded for this asset, so it has no model sheet to open';
-export const VIEWER_ABSENT =
-	'no validated export is recorded for this asset, so it has no preview to open in 3D';
-
+export const SHEET_EMPTY =
+	'This asset has no views recorded, so there is nothing to place a pin on. Its identity, ' +
+	'its status and its threads are below.';
+/**
+ * What the sheet says when the asset has no views.
+ *
+ * `model-sheet-2d`: *"WHEN its model sheet is opened THEN the sheet SHALL state
+ * that the asset has no views AND it SHALL still present the asset's identity
+ * and status."* One sentence, in one place, so the screen and the test that
+ * checks it cannot drift apart.
+ */
 export const UNREADABLE_OUTCOME =
 	'the recorded export could not be validated at this revision, so its verdict is unknown';
 
@@ -314,14 +320,38 @@ export function surfaceEntries(
 ): readonly SurfaceEntry[] {
 	const available: Readonly<Record<Surface, boolean>> = {
 		overview: true,
-		sheet: hasViews,
-		viewer: hasValidatedExport
+		// The sheet opens for an asset with no views, and that is
+		// `add-model-sheet-2d` overriding an assumption this module made before it
+		// existed: *"GIVEN an asset with no views recorded ... THEN the sheet SHALL
+		// state that the asset has no views AND it SHALL still present the asset's
+		// identity and status."* An annotation anchored to a view that has since
+		// gone is still a thread somebody owes an exit, so a sheet that refused to
+		// open would be the surface hiding the work that most needs doing.
+		sheet: true,
+		// The viewer opens for an asset with no preview, and that is
+		// `add-viewer-3d` overriding an assumption this module made before it
+		// existed — the same override `add-model-sheet-2d` applied to the sheet.
+		// *"WHEN the asset is opened in the viewer THEN the viewer SHALL state
+		// that no preview exists because no export has been validated AND the
+		// asset's specification SHALL remain readable."* A surface that refused
+		// to open would replace that sentence with a silent degrade to the
+		// overview, which is the one outcome the requirement rules out.
+		viewer: true
 	};
 	const absent: Readonly<Record<Surface, string>> = {
 		overview: '',
-		sheet: SHEET_ABSENT,
-		viewer: VIEWER_ABSENT
+		// The sheet is never unavailable, so it never has an absence to state. What
+		// it says about an asset with no views is said *on the sheet*
+		// (:data:`SHEET_EMPTY`), because that is where a person is standing when
+		// they need to hear it.
+		sheet: '',
+		// Like the sheet, the viewer is never unavailable, so it never has an
+		// absence to state here. What it says about an asset with no preview is
+		// said *in the viewer*, with the reason the descriptor carried.
+		viewer: ''
 	};
+	void hasViews;
+	void hasValidatedExport;
 	return (Object.keys(available) as Surface[]).map((surface) => ({
 		surface,
 		label: SURFACE_LABELS[surface],

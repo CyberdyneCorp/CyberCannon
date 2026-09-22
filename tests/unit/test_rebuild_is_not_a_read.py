@@ -28,6 +28,7 @@ from cybercanon.application.testing.outcomes import ran, refused
 from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases import (
+    annotations,
     blob_mirror,
     compile_spec,
     diff_spec,
@@ -36,6 +37,9 @@ from cybercanon.application.use_cases import (
     spec_lens,
     validate_export,
     validation_records,
+    view_mirror,
+    view_revisions,
+    viewer,
 )
 from cybercanon.domain.asset import Asset, AssetId
 
@@ -43,6 +47,7 @@ REBUILDS = frozenset({"rebuild_index", "rebuild_project_index"})
 """The two names that mean *rewrite the whole index*."""
 
 READ_MODULES = (
+    annotations,
     blob_mirror,
     compile_spec,
     diff_spec,
@@ -50,15 +55,30 @@ READ_MODULES = (
     spec_lens,
     validate_export,
     validation_records,
+    view_mirror,
+    view_revisions,
+    viewer,
 )
 """Every module a read goes through. A rebuild called from one is the defect.
+
+`annotations` is here for its two reads — one asset's threads and the project's
+triage queue — and the queue is the one worth guarding: D11 makes it derivable
+from the repository alone with the index as an accelerator, which is exactly the
+shape that tempts somebody to repopulate an empty index on the way past.
 
 `blob_mirror` is here because listing an asset's views and issuing a link to one
 are reads, and the mirroring pass beside them is exactly the kind of expensive
 operation a helpful read would reach for on finding an object missing.
 `validation_records` is here for the same reason: it is the reader an index
 rebuild uses to restore a validated export (G2), and a reader that rebuilt would
-be a recursion rather than a kindness.
+be a recursion rather than a kindness. `view_revisions` and `view_mirror` join
+them with concept ingestion: a view's history is a read over the repository, and
+the mirroring pass beside it is the same expensive operation a helpful read
+would reach for on finding an object missing. `viewer` is here because every
+function in it is a read — the preview descriptor, the preview's bytes and the
+anchor resolutions — and the descriptor is precisely the shape that tempts a
+rebuild: it asks which export validated most recently, and an empty index is
+the first thing a helpful implementation would offer to repopulate.
 """
 
 SPEC_PATH = "characters/mech_scout/asset.yaml"
@@ -121,6 +141,7 @@ def test_the_read_modules_are_the_ones_on_disk(repo_root: Path) -> None:
         "requests",
         "resolve_actor",
         "service_health",
+        "ingest_views",
         "sign_in",
         "validation_worker",
     }

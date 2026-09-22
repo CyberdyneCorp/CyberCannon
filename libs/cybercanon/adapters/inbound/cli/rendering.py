@@ -25,10 +25,12 @@ from cybercanon.application.ports.interactive_sign_in import DeviceGrant
 from cybercanon.application.ports.search_index import RecordedMiss
 from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.index_assets import RebuildReport
+from cybercanon.application.use_cases.ingest_views import IngestionOutcome
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
 from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
 from cybercanon.application.use_cases.sign_in import SignedIn, SignedOut, SignInStatus
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
+from cybercanon.application.use_cases.view_mirror import ViewMirrorReport
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import SpecViolation, Violation
 
@@ -136,6 +138,30 @@ def render_sign_out(signed_out: SignedOut) -> str:
 def render_sign_in_status(status: SignInStatus) -> str:
     """Whether this machine holds a credential — never what it is."""
     return f"canon: {status}"
+
+
+def render_ingestion(outcome: IngestionOutcome) -> str:
+    """What `canon add-view` tells a person: the commit, the slots, the pins."""
+    if not outcome.committed:
+        unchanged = ", ".join(outcome.unchanged)
+        return f"{outcome.asset_id}: {unchanged} unchanged — nothing committed"
+    lines = [f"{outcome.asset_id}: {len(outcome.views)} view(s) committed as {outcome.revision}"]
+    lines.extend(
+        f"  {view.slot}  {view.path}  {view.facts.content_hash.short}" for view in outcome.views
+    )
+    if outcome.awaiting_mirror:
+        lines.append(f"  awaiting mirroring: {', '.join(outcome.awaiting_mirror)}")
+    if outcome.carried or outcome.orphaned:
+        lines.append(f"  annotations: {outcome.carried} carried, {outcome.orphaned} orphaned")
+    return "\n".join(lines)
+
+
+def render_view_mirror(report: ViewMirrorReport) -> str:
+    """One line: how many views the mirror now holds, and what was derived."""
+    return (
+        f"{report.project}: {len(report.mirrored)} view(s) mirrored at "
+        f"{report.revision}, {report.thumbnails} thumbnail(s) derived"
+    )
 
 
 def render_failure(refusal: Refusal) -> str:

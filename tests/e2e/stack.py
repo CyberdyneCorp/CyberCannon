@@ -139,7 +139,9 @@ def compose_stack(repo_root: Path) -> Iterator[str]:
 
     ``--wait`` rather than a sleep: every service in the compose file declares a
     health check, so "it is up" is the stack's own answer instead of a guess
-    that is too short on a cold machine and wasted time on a warm one.
+    that is too short on a cold machine and wasted time on a warm one. And
+    ``--build``, so that what comes up is this revision rather than whatever was
+    built last — see :func:`_started`.
     """
     _started(repo_root)
     try:
@@ -149,9 +151,18 @@ def compose_stack(repo_root: Path) -> Iterator[str]:
 
 
 def _started(repo_root: Path) -> None:
-    """Bring the stack up, or fail saying what docker said and what it logged."""
+    """Bring the stack up, or fail saying what docker said and what it logged.
+
+    ``--build`` is not an optimisation in reverse: ``compose up`` builds an
+    image only when one does not exist yet, so on any machine that has run this
+    suite before, the API and the web application it starts are **the ones built
+    the last time somebody rebuilt them**. A change to either is then tested by
+    a suite that never saw it, and the run reports green about code that is not
+    running — the same failure as a suite that skips silently, wearing a passing
+    result. Rebuilding costs a cache lookup when nothing changed.
+    """
     try:
-        compose(repo_root, "up", "--detach", "--wait", "--remove-orphans")
+        compose(repo_root, "up", "--detach", "--wait", "--build", "--remove-orphans")
     except ComposeFailed as failure:
         raise _diagnosed(repo_root, DID_NOT_START, str(failure)) from failure
     if not await_reachable(DEFAULT_BASE_URL):

@@ -20,10 +20,18 @@ agreement that matters is agreement about the *verdict*, which is shared already
 
 from __future__ import annotations
 
+from base64 import b64encode
 from typing import Any
 
+from cybercanon.application.ports.preview import StoredPreview
+from cybercanon.application.use_cases.annotations import (
+    AnnotationListing,
+    RecordedAnnotation,
+    TriageQueue,
+)
 from cybercanon.application.use_cases.compile_spec import CompiledBriefing, CompiledSpec
 from cybercanon.application.use_cases.hosted_repository import WriteOutcome
+from cybercanon.application.use_cases.ingest_views import IngestedView, IngestionOutcome
 from cybercanon.application.use_cases.lookup_assets import (
     AssetRow,
     Location,
@@ -39,8 +47,22 @@ from cybercanon.application.use_cases.requests import (
 )
 from cybercanon.application.use_cases.spec_lens import LensedSpec
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
+from cybercanon.application.use_cases.view_revisions import (
+    RetrievedRevision,
+    RevisionComparison,
+    ViewToken,
+)
+from cybercanon.application.use_cases.viewer import (
+    ClipCoverage,
+    PreviewContent,
+    PreviewDescriptor,
+    ResolutionListing,
+)
+from cybercanon.domain.annotations import Annotation, Orphan, Reply, Stroke
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.requests import AssetRequest, RequestEvent
+from cybercanon.domain.triage import TriageEntry, exits_for
+from cybercanon.domain.views import ConceptView, ViewRevision
 from cybercanon.domain.violations import SpecViolation, Violation
 
 
@@ -280,11 +302,146 @@ def not_evaluated(entry: NotEvaluated) -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------
+# Concept views (add-concept-ingestion)
+# --------------------------------------------------------------------------
+
+
+def ingested_view(view: IngestedView) -> dict[str, Any]:
+    """One ingested slot, including the content hash of what was committed (D8).
+
+    The hash is always rendered, because a view reference that omitted it could
+    not be recognised as superseded — which is the whole of the freshness
+    requirement, and the reason `view_reference` exists one layer down.
+    """
+    return {
+        "asset": view.asset_id,
+        "slot": str(view.slot),
+        "path": view.path,
+        "content_hash": view.facts.content_hash.labelled,
+        "key": view.key,
+        "replaced": view.replaced,
+        "removed_path": view.removed_path or None,
+        "mirrored": view.mirrored,
+        "annotations_carried": view.carried,
+        "annotations_orphaned": view.orphaned,
+    }
+
+
+def ingested(outcome: IngestionOutcome) -> dict[str, Any]:
+    """What one upload did: the commit, the views, and every pending derived step."""
+    return {
+        "project": outcome.project,
+        "asset": outcome.asset_id,
+        "revision": outcome.revision.value,
+        "committed": outcome.committed,
+        "created_asset": outcome.created_asset,
+        "message": outcome.commit_message,
+        "views": [ingested_view(view) for view in outcome.views],
+        "unchanged": list(outcome.unchanged),
+        "awaiting_mirror": list(outcome.awaiting_mirror),
+        "mirror_reason": outcome.mirror_reason,
+        "thumbnails_pending": outcome.thumbnails_pending,
+        "annotations_carried": outcome.carried,
+        "annotations_orphaned": outcome.orphaned,
+    }
+
+
+def view_revision(entry: ViewRevision) -> dict[str, Any]:
+    """One entry of a revision listing: identifier, person, time, content hash."""
+    return {
+        "revision": entry.revision,
+        "author": entry.author,
+        "at": entry.at.isoformat(),
+        "content_hash": entry.content_hash.labelled if entry.content_hash else None,
+        "dimensions": entry.dimensions,
+        "byte_size": entry.byte_size,
+        "current": entry.is_current,
+        "removed": entry.removed,
+    }
+
+
+def view_history(view: ConceptView) -> dict[str, Any]:
+    """A view's revisions, newest first, and whether that is all of them.
+
+    `complete` and `truncated_before` travel together because
+    `view-versioning` forbids presenting a truncated list as the whole history:
+    a client that received only the list would have no way to know.
+    """
+    return {
+        "asset": view.asset_id,
+        "slot": str(view.slot),
+        "path": view.path,
+        "removed": view.is_removed,
+        "complete": view.is_complete,
+        "truncated_before": view.truncated_before or None,
+        "revisions": [view_revision(entry) for entry in view.revisions],
+    }
+
+
+def view_revision_image(retrieved: RetrievedRevision) -> dict[str, Any]:
+    """One revision's image, base64, labelled with what it is.
+
+    `historical` is carried as its own field rather than left to be derived from
+    `current`, because *"it SHALL be labelled historical together with its
+    identifier"* is a statement about the answer, not about what a reader can
+    work out.
+    """
+    return {
+        "asset": retrieved.asset_id,
+        "slot": str(retrieved.slot),
+        "revision": retrieved.revision,
+        "author": retrieved.author,
+        "content_hash": retrieved.content_hash.labelled,
+        "current": retrieved.is_current,
+        "historical": retrieved.historical,
+        "label": retrieved.label,
+        "content": b64encode(retrieved.content).decode("ascii"),
+    }
+
+
+def compared_revision(entry) -> dict[str, Any]:
+    """One side of a comparison — every field the specification enumerates."""
+    return {
+        "revision": entry.revision,
+        "author": entry.author,
+        "at": entry.at,
+        "dimensions": entry.dimensions,
+        "byte_size": entry.byte_size,
+        "content_hash": entry.content_hash,
+        "current": entry.is_current,
+    }
+
+
+def view_comparison(comparison: RevisionComparison) -> dict[str, Any]:
+    """Two revisions, older first whichever order they were asked for."""
+    return {
+        "asset": comparison.asset_id,
+        "slot": str(comparison.slot),
+        "older": compared_revision(comparison.older),
+        "newer": compared_revision(comparison.newer),
+        "identical": comparison.identical,
+    }
+
+
+def view_token(token: ViewToken) -> dict[str, Any]:
+    """What a surface polls to learn whether what it shows is still current (D8)."""
+    return {
+        "asset": token.asset_id,
+        "slot": token.slot,
+        "revision": token.revision,
+        "content_hash": token.identity or None,
+    }
+
+
 __all__ = [
     "asset_request",
     "asset_row",
+    "compared_revision",
     "compiled",
     "dismissal",
+    "ingested",
+    "ingested_view",
     "lensed",
     "location",
     "lookup",
@@ -299,6 +456,259 @@ __all__ = [
     "spec_violation",
     "unread_items",
     "validation",
+    "view_comparison",
+    "view_history",
+    "view_revision",
+    "view_revision_image",
+    "view_token",
     "violation",
     "written",
 ]
+
+
+# --------------------------------------------------------------------------
+# Annotations, threads and the triage queue (add-model-sheet-2d)
+# --------------------------------------------------------------------------
+
+
+def anchor(target: Any) -> dict[str, Any]:
+    """Both anchor forms in one shape, so a mixed list renders uniformly.
+
+    `annotation-authoring` requires *"both forms returned by the same filter
+    with the same fields present"*, so the renderer writes the members each form
+    carries and never a second document shape for the other medium.
+    """
+    return _present(
+        {
+            "view": getattr(target, "view", None),
+            "u": getattr(target, "u", None),
+            "v": getattr(target, "v", None),
+            "part": getattr(target, "part", None),
+            "bone": getattr(target, "bone", None),
+            "point": _triple(getattr(target, "point", None)),
+            "normal": _triple(getattr(target, "normal", None)),
+            "camera": _camera(getattr(target, "camera", None)),
+            "clip": getattr(target, "clip", None),
+            "t": getattr(target, "t", None),
+            "durable_key": target.durable_key,
+        }
+    )
+
+
+def _triple(value: Any) -> list[float] | None:
+    return None if value is None else [float(part) for part in value]
+
+
+def _camera(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        "position": _triple(value.position),
+        "target": _triple(value.target),
+        "fov_deg": value.fov_deg,
+    }
+
+
+def _present(fields: dict[str, Any]) -> dict[str, Any]:
+    """The members that carry something. An absent one is absent, never invented."""
+    return {name: value for name, value in fields.items() if value is not None}
+
+
+def reply(entry: Reply) -> dict[str, Any]:
+    """One contribution to a thread — no anchor, no kind, no exit of its own."""
+    return {
+        "id": entry.id,
+        "author": entry.author,
+        "via": entry.via or None,
+        "attribution": entry.attribution,
+        "text": entry.text,
+        "at": entry.at,
+        "edited_at": entry.edited_at or None,
+    }
+
+
+def stroke(mark: Stroke) -> list[list[float]]:
+    """One freehand mark as ordered normalized pairs — never pixels (D8)."""
+    return [[point[0], point[1]] for point in mark.points]
+
+
+def annotation(entry: Annotation) -> dict[str, Any]:
+    """One annotation, with the attribution rendered as the person and the agent."""
+    return {
+        "id": entry.id,
+        "kind": str(entry.kind),
+        "author": entry.author,
+        "via": entry.via or None,
+        "attribution": entry.attribution,
+        "text": entry.text,
+        "state": str(entry.state),
+        "anchor": anchor(entry.target),
+        "anchor_state": str(entry.anchor_state),
+        "authored_against": entry.authored_against or None,
+        "created_at": entry.created_at or None,
+        "edited_at": entry.edited_at or None,
+        "moved_by": entry.moved_by or None,
+        "moved_at": entry.moved_at or None,
+        "closed_by": entry.closed_by or None,
+        "closed_at": entry.closed_at or None,
+        "closing_text": entry.closing_text or None,
+        "replies": [reply(contribution) for contribution in entry.replies],
+        "strokes": [stroke(mark) for mark in entry.strokes],
+        "exits": [str(offered) for offered in exits_for(entry)],
+    }
+
+
+def orphan(entry: Orphan) -> dict[str, Any]:
+    """An orphan and the reason it cannot be placed, which a panel has to state."""
+    return {
+        "id": entry.annotation.id,
+        "subject": entry.subject,
+        "reason": entry.reason,
+        "annotation": annotation(entry.annotation),
+    }
+
+
+def annotation_listing(listing: AnnotationListing) -> dict[str, Any]:
+    """One asset's annotations as a filter asked for them, and what it hid."""
+    return {
+        "project": listing.project,
+        "asset": listing.asset_id,
+        "path": listing.path,
+        "revision": listing.revision,
+        "annotations": [annotation(entry) for entry in listing.annotations],
+        "hidden": listing.hidden,
+        "orphans": [orphan(entry) for entry in listing.orphaned],
+        "view_names": list(listing.views),
+        "actor": listing.actor,
+        "may_promote": listing.may_promote,
+    }
+
+
+def recorded_annotation(recorded: RecordedAnnotation) -> dict[str, Any]:
+    """What a write produced: the annotation, the file and the commit."""
+    return {
+        "project": recorded.project,
+        "asset": recorded.asset_id,
+        "path": recorded.path,
+        "revision": recorded.revision,
+        "committed": recorded.committed,
+        "annotation": annotation(recorded.annotation),
+    }
+
+
+def triage_entry(entry: TriageEntry) -> dict[str, Any]:
+    """One queue entry: the four signals a promotion pass reads, and no text rule."""
+    return {
+        "asset": entry.asset,
+        "kind": str(entry.kind),
+        "same_kind_on_asset": entry.same_kind_on_asset,
+        "same_kind_in_project": entry.same_kind_in_project,
+        "replies": entry.replies,
+        "age_seconds": entry.age_seconds,
+        "discipline_owner": entry.discipline_owner or None,
+        "annotation": annotation(entry.annotation),
+    }
+
+
+def triage_queue(queue: TriageQueue) -> dict[str, Any]:
+    """The project's open annotations, already ordered by the domain."""
+    return {
+        "project": queue.project,
+        "entries": [triage_entry(entry) for entry in queue.entries],
+        "unreadable": list(queue.unreadable),
+    }
+
+
+# --------------------------------------------------------------------------
+# The 3D viewer (add-viewer-3d)
+# --------------------------------------------------------------------------
+
+
+def preview_descriptor(descriptor: PreviewDescriptor) -> dict[str, Any]:
+    """What to load and what it is, with every absence stated rather than implied.
+
+    `source_export` is a **path**, carried so the viewer can say which export is
+    on screen. It is not an address: nothing in this document, and no route this
+    surface registers, resolves to a working export (D7).
+    """
+    return {
+        "project": descriptor.project,
+        "asset": descriptor.asset_id,
+        "path": descriptor.path,
+        "revision": descriptor.revision,
+        "preview": _stored_preview(descriptor.preview),
+        "source_export": descriptor.source_export or None,
+        "latest_validated_export": descriptor.latest_validated_export or None,
+        "derived_from_latest": descriptor.derived_from_latest,
+        # The figures are named by the use case (`SourceCounts.reported`), not
+        # here: a surface that spelled `triangles` would be a surface one `if`
+        # away from comparing it against a budget, and the guard in
+        # `tests/tooling/test_rule_logic_stays_in_the_domain.py` says so.
+        "counts": dict(descriptor.counts.reported),
+        "parts": list(descriptor.parts),
+        "clips": list(descriptor.clips),
+        "coverage": _coverage(descriptor.coverage),
+        "absent": descriptor.absent.name.lower() if descriptor.absent else None,
+        "reason": descriptor.reason or None,
+    }
+
+
+def _stored_preview(preview: StoredPreview | None) -> dict[str, Any] | None:
+    if preview is None:
+        return None
+    return {
+        "key": preview.key,
+        "source_export": preview.source_export,
+        "size_bytes": preview.size_bytes,
+        "content_type": preview.content_type,
+    }
+
+
+def _coverage(coverage: ClipCoverage) -> dict[str, Any]:
+    """Every declared state, and every clip no declared state claims (D8).
+
+    The states travel as one list in declaration order rather than as three,
+    because `animation-playback` requires a state with no clip to be *listed
+    rather than omitted* and a renderer that read three lists would be free to
+    render two of them.
+    """
+    return {
+        "states": [
+            {"state": entry.state, "clip": entry.clip or None, "coverage": str(entry.coverage)}
+            for entry in coverage.states
+        ],
+        "unclaimed": list(coverage.unclaimed),
+    }
+
+
+def preview_content(content: PreviewContent) -> dict[str, Any]:
+    """The preview's bytes, base64, exactly as the store holds them."""
+    return {
+        "asset": content.asset_id,
+        "preview": content.key,
+        "source_export": content.source_export or None,
+        "content_type": content.content_type,
+        "size_bytes": content.size_bytes,
+        "content": b64encode(content.content).decode("ascii"),
+    }
+
+
+def anchor_resolutions(listing: ResolutionListing) -> dict[str, Any]:
+    """Each mesh-anchored annotation's standing, and the orphan count beside it."""
+    return {
+        "project": listing.project,
+        "asset": listing.asset_id,
+        "export": listing.export or None,
+        "revision": listing.revision,
+        "orphaned": listing.orphan_count,
+        "resolutions": [
+            {
+                "id": entry.id,
+                "outcome": str(entry.resolution.outcome),
+                "part": entry.resolution.part,
+                "bone": entry.resolution.bone or None,
+                "reason": entry.resolution.reason or None,
+            }
+            for entry in listing.entries
+        ],
+    }

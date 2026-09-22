@@ -51,6 +51,15 @@ NEEDS_GIT_IDENTITY = (
 )
 """Why an unmapped person may read everything and write nothing (D8)."""
 
+OWN_CONTRIBUTION_ONLY = "its author may"
+"""What an edit, a withdrawal or a move of somebody else's text is refused with.
+
+`annotation-authoring`: *"A person SHALL NOT be able to edit another person's
+text"*, and re-anchoring is *"the author's act"*. The refusal names who could,
+because a refusal that only says no leaves the reader guessing whether they are
+short a role or short a claim.
+"""
+
 
 class Operation(Enum):
     """Every operation the matrix decides, named as G4 names it.
@@ -66,7 +75,11 @@ class Operation(Enum):
     VALIDATE_EXPORT = "validate_export"
     CREATE_ANNOTATION = "create_annotation"
     REPLY_IN_THREAD = "reply_in_thread"
+    EDIT_CONTRIBUTION = "edit_contribution"
+    WITHDRAW_CONTRIBUTION = "withdraw_contribution"
+    MOVE_ANNOTATION = "move_annotation"
     RESOLVE_ISSUE = "resolve_issue"
+    REOPEN_ISSUE = "reopen_issue"
     PROMOTE_TO_RULE = "promote_to_rule"
     ACCEPT_SUGGESTED_ALIAS = "accept_suggested_alias"
     TRANSITION_ASSET_STATUS = "transition_asset_status"
@@ -245,12 +258,35 @@ def _art_director_only(actor: Actor, subject: Subject) -> Decision:
     return _role_or_refuse(actor, subject, allowed=actor.holds(Role.ART_DIRECTOR))
 
 
-def _author_or_art_director(actor: Actor, subject: Subject) -> Decision:
-    """G4: *"Resolve an issue — its author, or ART_DIRECTOR"*."""
+def _author_only(actor: Actor, subject: Subject) -> Decision:
+    """`annotation-authoring`: a person edits, withdraws and moves *their own*.
+
+    Deliberately not widened to an art director. A director who disagrees with
+    somebody's wording replies, resolves or promotes — all three are on the
+    record — whereas editing another person's sentence changes what the history
+    says they said, which is the one thing attribution exists to prevent.
+    """
+    if actor.id == subject.author:
+        return ALLOWED
+    return _refuse(f"{actor.display} may not act on {subject.named}: {OWN_CONTRIBUTION_ONLY}")
+
+
+def _author_owner_or_art_director(actor: Actor, subject: Subject) -> Decision:
+    """`annotation-triage`: *"its author, the discipline owner, or an art director"*.
+
+    G4's row for resolution says *"its author, or ART_DIRECTOR"* and
+    `annotation-triage` adds *"to the asset's owner for the annotation's
+    discipline"*. The wider of the two readings is implemented, because the
+    narrower one refuses the person whose asset it is — and both specifications
+    agree that an *uninvolved* person may not resolve, which is what the rule
+    actually turns on.
+    """
     return _role_or_refuse(
         actor,
         subject,
-        allowed=actor.id == subject.author or actor.holds(Role.ART_DIRECTOR),
+        allowed=(
+            actor.id in (subject.author, subject.discipline_owner) or actor.holds(Role.ART_DIRECTOR)
+        ),
     )
 
 
@@ -291,7 +327,11 @@ _RULES: Mapping[Operation, Rule] = {
     Operation.CREATE_ANNOTATION: _anyone_who_may_read,
     Operation.REPLY_IN_THREAD: _anyone_who_may_read,
     Operation.RAISE_REQUEST: _anyone_who_may_read,
-    Operation.RESOLVE_ISSUE: _author_or_art_director,
+    Operation.EDIT_CONTRIBUTION: _author_only,
+    Operation.WITHDRAW_CONTRIBUTION: _author_only,
+    Operation.MOVE_ANNOTATION: _author_only,
+    Operation.RESOLVE_ISSUE: _author_owner_or_art_director,
+    Operation.REOPEN_ISSUE: _author_owner_or_art_director,
     Operation.PROMOTE_TO_RULE: _art_director_only,
     Operation.ACCEPT_SUGGESTED_ALIAS: _owner_or_art_director,
     Operation.TRANSITION_ASSET_STATUS: _owner_or_art_director,
@@ -311,6 +351,7 @@ __all__ = [
     "MUTATING",
     "NEEDS_GIT_IDENTITY",
     "NEEDS_GIT_MAPPING",
+    "OWN_CONTRIBUTION_ONLY",
     "READ_ONLY",
     "REQUIRES_PERSON",
     "Operation",

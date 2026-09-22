@@ -53,6 +53,7 @@ from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.domain.actors import ACTORS_PATH, EMPTY_MAPPING, ActorMapping
 from cybercanon.domain.asset import Asset
 from cybercanon.domain.constraints import Constraints
+from cybercanon.domain.revisions import ContentHash
 from cybercanon.domain.violations import Severity, SpecViolation
 
 EMPTY_SEVERITIES: Mapping[str, Severity] = MappingProxyType({})
@@ -69,6 +70,38 @@ class LoadedSpec:
 
 
 @dataclass(frozen=True)
+class SpecDocument:
+    """One specification file as an *editable* thing: its bytes and its meaning.
+
+    :class:`LoadedSpec` answers *what does this file say*, which is all a reader
+    ever needed. A writer needs two more facts, and they are the whole of D5:
+    the bytes it was composed against — so the precondition a commit states is
+    the content hash of what was read, per file and never the branch tip — and
+    the revision that content was read at, so a conflict can say what it raced.
+
+    `content` is the file verbatim. Nothing rewrites it on the way in: a
+    round trip that normalised the author's formatting would make *"every
+    unrelated line is byte-identical"* a property nobody could assert.
+    """
+
+    path: str
+    content: bytes
+    asset: Asset
+    warnings: tuple[SpecViolation, ...] = ()
+    revision: str = ""
+
+    @property
+    def based_on(self) -> ContentHash:
+        """The precondition an edit to this document states (D5)."""
+        return ContentHash.of(self.content)
+
+    @property
+    def loaded(self) -> LoadedSpec:
+        """The same document as a reader sees it."""
+        return LoadedSpec(asset=self.asset, path=self.path, warnings=self.warnings)
+
+
+@dataclass(frozen=True)
 class PreviewDefaults:
     """What preview emission aims for, as the project configured it (D7).
 
@@ -79,6 +112,25 @@ class PreviewDefaults:
 
     ratio: float | None = None
     ceiling: int | None = None
+
+
+@dataclass(frozen=True)
+class IngestionDefaults:
+    """`ingestion:` — what this project accepts, and how fresh a view must look.
+
+    Neutral optional values rather than a domain type, exactly as
+    :class:`PreviewDefaults` is: the port must not know which rule will read
+    them, and ``None`` means *this project declared nothing here*, which is
+    different from an empty tuple or a zero. The merge with the defaults is
+    :meth:`~cybercanon.domain.views.IngestionLimits.declared`, in the domain,
+    where the two cannot disagree about it.
+    """
+
+    accepted_formats: tuple[str, ...] | None = None
+    max_bytes: int | None = None
+    max_dimension: int | None = None
+    freshness_seconds: float | None = None
+    aspect_tolerance: float | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +150,7 @@ class ProjectConfig:
     engine_content_root: str | None = None
     severities: Mapping[str, Severity] = EMPTY_SEVERITIES
     preview: PreviewDefaults | None = None
+    ingestion: IngestionDefaults | None = None
     warnings: tuple[SpecViolation, ...] = ()
 
     def severity_for(self, rule_id: str, default: Severity) -> Severity:
@@ -259,14 +312,53 @@ class SpecStore(Protocol):
         """
         ...
 
+    # -- editing (add-model-sheet-2d, D4 and D5) --------------------------
+
+    def read_document(self, spec_path: str, revision: str | None = None) -> SpecDocument:
+        """The file, its bytes and its parsed meaning, at a revision or as it stands.
+
+        The read half of the write path. `revision` of ``None`` reads what the
+        store is already reading at — its pin, or the checkout — so a caller
+        that has not chosen a revision does not have to invent one.
+
+        Raises :class:`SpecNotFound` when there is no such file,
+        :class:`SpecUnreadable` when there is one and it cannot be parsed, and
+        :class:`HistoryUnavailable` for a revision the store cannot reach.
+        """
+        ...
+
+    def parse_document(self, spec_path: str, content: bytes) -> SpecDocument:
+        """These bytes as a specification, without going back to the repository.
+
+        What a retry needs: the same parse applied to content the caller already
+        holds, so re-applying a domain operation after a conflict re-reads the
+        file rather than the caller's memory of it.
+        """
+        ...
+
+    def edited(self, document: SpecDocument, asset: Asset) -> bytes:
+        """The same file carrying this asset's edits — comments and order kept (D4).
+
+        Only what the edit changed is written: the annotation list, the concept
+        block's durable rules and the engineering constraints. Every other line
+        of the document comes back byte-identical, which is the property the
+        artists' trust in this tool rests on, and it is asserted rather than
+        promised — `tests/integration/test_spec_round_trip.py` adds, replies to
+        and resolves an annotation in a hand-authored file and compares the rest
+        line by line.
+        """
+        ...
+
 
 __all__ = [
     "EMPTY_SEVERITIES",
     "HistoryUnavailable",
+    "IngestionDefaults",
     "LoadedMapping",
     "LoadedSpec",
     "PreviewDefaults",
     "ProjectConfig",
+    "SpecDocument",
     "SpecNotFound",
     "SpecStore",
     "SpecUnreadable",

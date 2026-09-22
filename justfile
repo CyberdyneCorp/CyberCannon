@@ -36,10 +36,16 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~180 s on a warm checkout — 2839 Python tests (2829 passed,
-# 9 skipped, 1 xfailed, 122 e2e deselected) plus 360 frontend tests, 657
-# scenarios, 0 absent — of which the frontend's own suites (`web-check`) are
-# ~9 s including the build the code-splitting assertion reads.
+# Measured runtime: ~350 s on a warm checkout — three timed runs of the same
+# tree gave 319 s, 345 s and 397 s, which is the spread a laptop gives and the
+# reason this is a record rather than a budget — 3775 Python tests (3765 passed,
+# 10 skipped, 0 xfailed, 122 e2e deselected) plus 728 frontend tests across 35
+# files, 657 scenarios (446 executing, 211 pending), 0 absent — of which the
+# frontend's own suites (`web-check`) are ~6 s including the build the
+# code-splitting assertion reads. The skips are the
+# opt-in Blender cross-check, which runs only with `CANON_BLENDER` set; the
+# xfail is gone because the defect it recorded — a multi-object OBJ losing every
+# part name but one — is fixed rather than tolerated.
 # Groups 6 and 7 of add-web-backend added a real PostgreSQL (pgserver) and a real
 # S3 API (moto) to the conformance and integration layers; that is most of the
 # increase, and it is the cost of the two hosted adapters being checked rather
@@ -73,6 +79,46 @@ setup:
 # PostgreSQL, a real S3 API and a real remote; plus the two un-hosted surfaces,
 # which spawn `canon` and the agent server with the network — and then the
 # ability to listen — denied in the child.
+# Group 3's last three tasks and the deployment blockers found in review added
+# the container suites that need a real engine: the API image built twice and
+# compared (task 3.1), the web image built and *run* with no API reachable (3.2)
+# and the rollback drill, which builds this revision and the one before it and
+# redeploys the earlier digest with both build contexts deleted (3.5). They are
+# skipped where there is no `docker`, and where there is one they are the
+# slowest thing in `check` on a cold cache — a full `uv sync` per image — and
+# seconds on a warm one. That is the cost of asserting a property of an
+# artifact rather than of a Dockerfile; a suite that skipped silently would
+# report green over nothing, which is how this project already lost one
+# afternoon.
+# add-concept-ingestion added the image half of the product: the domain's slot,
+# limit and carry-forward rules (pure, instant), two more port conformance
+# suites against Pillow, a `ViewIndex` suite against the same PostgreSQL the
+# other index suites use, and one integration suite that builds two real git
+# checkouts and drives `canon add-view` and the ingestion endpoint over them to
+# compare what landed — which is the only way to check that the two surfaces
+# write the same commit. About seventy seconds between them, nearly all of it
+# the real repositories.
+# add-model-sheet-2d added the annotation half of the product and it is the
+# largest single addition since the hosted backend: the domain's threads,
+# filters, marks and triage policy (pure, instant), the write path over a real
+# `asset.yaml` through the comment-preserving round trip, the annotation and
+# triage HTTP surface, and two integration suites over **real git** — the write
+# path, which asserts that adding, replying to and resolving an annotation
+# leaves every unrelated line of a hand-authored specification byte-identical,
+# and the acceptance run, which drives a whole triage pass and then runs
+# `canon compile` as a subprocess against it. Those two are where its ~20 s go,
+# and they are the only way to check a claim about a file and a process. On the
+# frontend it added the one shared `AnnotationViewModel` and the 2D sheet: 194
+# more vitest cases, most of them the coordinate round trip exercised across
+# every zoom, pan, display size, pixel ratio and rendition at once.
+# add-viewer-3d added the 3D half and it is cheap where it matters: the anchor
+# resolution domain, the preview descriptor, the clip coverage and the viewer's
+# HTTP surface are all pure or in-memory (instant), and the frontend's own
+# suites parse **real GLB bytes written from code** by
+# `apps/cybercanon/web/tests/support/glb.ts` — the retopology acceptance loads
+# two exports of one asset and asserts that three anchors resolve and one
+# orphans, with no GPU anywhere. That is the whole point of D6's split: the
+# expensive half is the drawing, and nothing in `check` draws.
 # Group 7 of add-web-app-shell added the per-route enumeration of the closed
 # route-state set — it drives every route's real `load` and renders what came
 # back, so it costs milliseconds — and, outside `check`, 84 e2e assertions over

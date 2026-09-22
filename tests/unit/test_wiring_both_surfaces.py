@@ -50,13 +50,26 @@ LATER_ID = "barrel"
 LATER_SPEC = "props/barrel/asset.yaml"
 
 CLI_COMMANDS = frozenset(
-    {"validate", "compile", "check", "changed", "index", "actors", "auth", "mcp"}
+    {
+        "validate",
+        "compile",
+        "check",
+        "changed",
+        "add-view",
+        "views",
+        "index",
+        "actors",
+        "auth",
+        "mcp",
+    }
 )
 """Every verb `canon` advertises once the read surface and the sign-in are wired in.
 
 `auth` arrives with the CyberdyneAuth adapter and is the only one of these that
 needs a network. Everything else in this set still completes on a machine that
-has never signed in, which is the property `canon validate` is built around."""
+has never signed in, which is the property `canon validate` is built around —
+`add-view` included: it commits into the working copy the person is standing in
+and pushes nothing, so it needs no network either."""
 
 
 def an_asset(asset_id: str = ASSET_ID, name: str = "Scout Mech") -> Asset:

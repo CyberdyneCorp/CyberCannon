@@ -23,7 +23,12 @@ export const SCOPES = [
 	'validation',
 	'requests',
 	'request',
-	'unread'
+	'unread',
+	'annotations',
+	'triage',
+	'preview',
+	'preview-content',
+	'resolutions'
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 
@@ -75,6 +80,13 @@ export interface ListingFilters {
 	readonly size?: number;
 }
 
+/** The three filters the art director's pass uses, spelled in one order. */
+export interface TriageFilters {
+	readonly kind?: string;
+	readonly asset?: string;
+	readonly owner?: string;
+}
+
 export const resources = {
 	projects(): ResourceKey {
 		return key('projects', ENTITLED);
@@ -116,5 +128,42 @@ export const resources = {
 	},
 	unread(project: string): ResourceKey {
 		return key('unread', project);
+	},
+	/**
+	 * One asset's threads, at one revision (D9).
+	 *
+	 * The revision is part of the key because it is part of the answer: the
+	 * sheet and the 3D viewer will be open on the same asset, and two entries
+	 * that differed only in when they were read would be two copies of the
+	 * truth drifting apart the moment one of them writes.
+	 */
+	annotations(project: string, asset: string, revision = ''): ResourceKey {
+		return key('annotations', project, asset, `rev=${revision}`);
+	},
+	/**
+	 * One asset's preview descriptor — what to load, and what the export measured.
+	 *
+	 * Keyed without a revision, unlike the thread list: the descriptor answers
+	 * *which export validated most recently*, which is a question about the
+	 * project's head rather than about the revision a reader arrived at, and a
+	 * per-revision key would hold one entry per visit for no benefit.
+	 */
+	preview(project: string, asset: string): ResourceKey {
+		return key('preview', project, asset);
+	},
+	previewContent(project: string, asset: string): ResourceKey {
+		return key('preview-content', project, asset);
+	},
+	resolutions(project: string, asset: string): ResourceKey {
+		return key('resolutions', project, asset);
+	},
+	triage(project: string, filters: TriageFilters = {}): ResourceKey {
+		return key(
+			'triage',
+			project,
+			`kind=${filters.kind ?? ''}`,
+			`asset=${filters.asset ?? ''}`,
+			`owner=${filters.owner ?? ''}`
+		);
 	}
 } as const;

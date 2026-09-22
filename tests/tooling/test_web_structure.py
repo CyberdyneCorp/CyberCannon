@@ -42,6 +42,15 @@ DYNAMIC_SCENE = re.compile(r"""import\(\s*['"][^'"]*viewer/scene['"]\s*\)""")
 COMPONENT_NAME = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 CLIENT_CONSTRUCTION = re.compile(r"\bnew\s+(CanonClient|CanonApi)\b")
 
+NETWORK_CALL = re.compile(r"\b(fetch|XMLHttpRequest|EventSource|WebSocket)\s*\(")
+"""What a component that reached the network for itself would have to write.
+
+`openspec/project.md`: *"Views never call the API directly."* The client-
+construction rule above catches the obvious way; this catches the other one —
+a `fetch` in a `<script>` block, which needs no client at all and is exactly
+what somebody writes when a screen wants one more field.
+"""
+
 # What a waiver must carry to be one. D4: "the test has to be explicitly waived
 # with a reference to the upstream request, which is the friction that keeps the
 # waiver honest."
@@ -72,19 +81,44 @@ def _sources(root: Path, suffix: str) -> Iterator[Path]:
 # --------------------------------------------------------------------------
 
 
+MODULE_DIRECTORY = "src/lib/annotation"
+"""Where the one ViewModel lives, relative to the application root.
+
+**DEFECT, S17: this rule was comparing a repository-relative path against the
+parents of an absolute one**, so `ANNOTATION_MODULE not in path.parents` was
+true for *every* file and the assertion passed only while no ViewModel existed.
+`add-model-sheet-2d` wrote the first one and the guard failed on the file it was
+written to allow — which is the good direction for a broken guard to fail in,
+and the reason it is being fixed rather than relaxed. Comparing the path as the
+application sees it is what makes the rule bite on a stray ViewModel and pass on
+the sanctioned one.
+"""
+
+
+def _view_models(web_root: Path) -> list[str]:
+    """Every ViewModel in the application, by its path under the application root."""
+    return [path.relative_to(web_root).as_posix() for path in _sources(web_root, ".svelte.ts")]
+
+
 def test_no_view_model_exists_outside_the_annotation_module(web_root: Path) -> None:
     """`*.svelte.ts` is the ViewModel spelling (openspec/project.md)."""
-    stray = [
-        path.relative_to(web_root).as_posix()
-        for path in _sources(web_root, ".svelte.ts")
-        if ANNOTATION_MODULE not in path.parents
-    ]
+    stray = [path for path in _view_models(web_root) if not path.startswith(f"{MODULE_DIRECTORY}/")]
 
     assert not stray, (
         "D1 reserves MVVM for the one ViewModel that serves both the 2D sheet and "
         "the 3D viewer; routes, the browser and the asset page are plain Svelte "
         f"components with runes. ViewModels found outside {ANNOTATION_MODULE}: {stray}"
     )
+
+
+def test_the_one_view_model_is_the_shared_annotation_one(web_root: Path) -> None:
+    """The other direction, which is what stopped the rule above being vacuous.
+
+    D1 is a claim about there being **one** ViewModel serving two views, so a
+    build with none of them is not a build that satisfies it — it is a build
+    where the guard has nothing to guard.
+    """
+    assert _view_models(web_root) == [f"{MODULE_DIRECTORY}/annotation-view-model.svelte.ts"]
 
 
 def test_the_annotation_module_is_where_a_view_model_would_go(web_root: Path) -> None:
@@ -227,6 +261,27 @@ def test_no_view_constructs_its_own_client_or_cache(web_root: Path) -> None:
     assert not offenders, (
         "openspec/project.md: views never call the API directly. Server state is "
         f"loaded by the route and read from the one query cache (D2): {offenders}"
+    )
+
+
+def test_no_component_reaches_the_network_for_itself(web_root: Path) -> None:
+    """Task 4.5 — a `.svelte` file with a `fetch` in it is a second client.
+
+    The route loads, the cache remembers, and the component renders what it was
+    handed. A component that fetched would hold server state of its own, which
+    is the second copy of the truth D2 exists to prevent — and it would do it
+    where no invalidation map can reach it.
+    """
+    offenders = [
+        path.relative_to(web_root).as_posix()
+        for path in _sources(web_root, ".svelte")
+        if NETWORK_CALL.search(path.read_text(encoding="utf-8"))
+    ]
+
+    assert not offenders, (
+        "openspec/project.md: views never call the API directly. A component "
+        "renders what the route handed it and asks the ViewModel for the rest: "
+        f"{offenders}"
     )
 
 

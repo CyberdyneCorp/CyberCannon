@@ -287,11 +287,35 @@ NO_ENGINE = (
     "and a digest comparison with nothing built would assert nothing"
 )
 
+REPRODUCIBLE: tuple[str, ...] = ("--provenance=false", "--sbom=false")
+"""The two flags that make one revision build to one digest, and why.
+
+BuildKit attaches a provenance attestation to every image by default. It
+records **when and where the build ran** — a timestamp, the builder's identity —
+which means two builds of one revision differ even when every layer is a cache
+hit and the image configuration and manifest are byte-identical. Two things
+follow, and they are the same thing:
+
+* `deployment-operations` requires that *"inspecting an artifact reveals nothing
+  about where it is running"*. An attestation naming the machine that built it
+  is exactly that, attached to the artifact;
+* the release ledger records `docker image inspect --format '{{.Id}}'` and
+  refuses a second, different digest for one revision
+  (`tools/canon_release`). With provenance on, *every* rebuild is a different
+  digest, so "built once per revision and promoted unchanged" could never be
+  checked — the check would fire on builds that produced identical images.
+
+So the flags are part of the build command rather than a convenience of this
+test, and `deploy/README.md` documents the pipeline's build with them.
+:func:`test_the_documented_build_command_is_the_one_this_suite_runs` keeps the
+two from drifting.
+"""
+
 
 def _build(repo_root: Path, dockerfile: Path, tag: str) -> str:
     """Build the image and answer the digest the engine recorded for it."""
     subprocess.run(
-        [ENGINE, "build", "--file", str(dockerfile), "--tag", tag, "."],
+        [ENGINE, "build", *REPRODUCIBLE, "--file", str(dockerfile), "--tag", tag, "."],
         cwd=repo_root,
         check=True,
         capture_output=True,
@@ -314,3 +338,20 @@ def test_building_one_revision_twice_produces_one_digest(repo_root: Path) -> Non
     second = _build(repo_root, repo_root / API, "cybercanon-api:reproducibility-2")
 
     assert first == second
+
+
+def test_the_documented_build_command_is_the_one_this_suite_runs(repo_root: Path) -> None:
+    """A flag this suite passes and the pipeline does not is a flag that proves nothing.
+
+    The digest the ledger records comes from the pipeline's build, so a build
+    that ran with provenance on would record a digest no promotion check could
+    ever match — and the assertion above would be true of two images nobody
+    deploys.
+    """
+    document = (repo_root / "deploy" / "README.md").read_text(encoding="utf-8")
+
+    for flag in REPRODUCIBLE:
+        assert flag in document, (
+            f"deploy/README.md does not show the pipeline building with {flag}, "
+            "so what it records is not what this suite asserts is reproducible"
+        )
