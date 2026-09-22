@@ -6,6 +6,14 @@
 # a read really is served from a git object database at a pinned revision.
 set -eu
 
+# `git daemon` is not part of Alpine's `git` package — it is the separate
+# `git-daemon` package, and `alpine/git` installs `git git-lfs tig gpg less
+# openssh patch perl` and not that one. Without this line the entry point exits
+# immediately with *"git: 'daemon' is not a git command"*, the health check
+# never passes, and `docker compose up --wait` fails before the api is ever
+# started, because the api waits on this service being healthy.
+apk add --no-cache git-daemon
+
 mkdir -p /srv/git/ronin
 cp -R /seed/ronin/. /srv/git/ronin/
 cd /srv/git/ronin
