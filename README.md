@@ -1,5 +1,23 @@
 # CyberCanon
 
+**The shared canon of a game project.** Four disciplines work on the same asset
+and disagree about it in four different places — a Discord thread, a Blender
+scene, a spreadsheet, somebody's memory. CyberCanon gives them one place: a
+single versioned contract per asset, and the surfaces to argue about it.
+
+| Who | What they do here |
+|---|---|
+| **Game designers** | Write what an asset must *do* — its role, its states, the sockets its VFX needs — in fields that constrain art and code rather than in a wiki nobody opens. |
+| **Concept artists** | Bring views in, versioned by git; see everyone's feedback pinned where it belongs; replace an image without losing the thread on it. |
+| **3D artists** | Know the triangle budget, the naming convention and the required clips *before* modelling — and get a yes or no from a validator instead of from a reviewer three days later. |
+| **Developers** | Find any asset and what it must satisfy, ask for the ones that do not exist yet, and stop fixing other people's scale and pivot errors. |
+| **AI agents** | Read all of it over MCP, in the shape a context window wants. They read constraints; they never write them. |
+
+Concretely, that is: a CLI validator that runs as a pre-commit hook, a local MCP
+server, a web application with a 2D model sheet and a 3D viewer, annotation
+threads with art-director triage, git-backed versioning of everything authored,
+and long-form design documents linked from CyberArche rather than rebuilt.
+
 **One verifiable contract per asset.** What an asset *looks like* (art), what it
 *does* (design) and what it *must respect technically* (engineering) are written
 down once, in `asset.yaml`, next to the asset in the game repository — and a
@@ -29,13 +47,15 @@ Three properties hold everywhere, and everything else follows from them:
   agent calls and the web "Validate" button run the *same* use case, so
   "it passed on my machine but the site says it failed" cannot happen.
 
+## Where to read more
+
 | | |
 |---|---|
-| **Roadmap and milestones** | [`ROADMAP.md`](ROADMAP.md) |
-| **Architecture decisions and conventions** | [`openspec/project.md`](openspec/project.md) |
-| **The specifications themselves** | [`openspec/changes/`](openspec/changes) |
-| **A complete worked game repository** | [`examples/ronin/`](examples/ronin) |
-| **Deployment** | [`deploy/README.md`](deploy/README.md) |
+| [`ROADMAP.md`](ROADMAP.md) | Milestones, sprint slicing, the gate decisions, and what is deliberately deferred with the trigger that would revive each. |
+| [`openspec/project.md`](openspec/project.md) | The binding architecture, the golden rule for the `design` block, the testing strategy, and the gate decisions G1 to G4. |
+| [`openspec/changes/`](openspec/changes) | Twelve specified changes — proposal, spec deltas, design decisions and tasks for each. |
+| [`examples/ronin/`](examples/ronin) | A complete, validating game repository. |
+| [`deploy/README.md`](deploy/README.md) | What deploys, what deliberately does not, and the recovery procedures. |
 
 ---
 
@@ -165,7 +185,23 @@ graph TD
 ```
 
 OBJ carries no unit scale, so an OBJ export may well be correctly scaled and
-`canon` will not claim otherwise. Every suppressed rule is printed **by name**,
+`canon` will not claim otherwise:
+
+```
+$ canon validate props/crate/exports/SM_crate_LOD0.obj
+props/crate/exports/SM_crate_LOD0.obj
+  asset crate | spec props/crate/asset.yaml | OBJ
+  no violations
+  not evaluated (11) — the export's format does not record the fact each rule reads
+    unit_scale.mismatch  needs unit scale  — OBJ carries no unit scale
+    up_axis.mismatch  needs up axis  — OBJ carries no up axis
+    socket.missing  needs attachment points  — OBJ carries no attachment points
+    ...
+  4 rules passed
+```
+
+
+Every suppressed rule is printed **by name**,
 never as a count — that listing is the only place a wrong capability row is ever
 visible. A format that *cannot contain* what the spec requires is different: an
 animated asset exported as OBJ is an ordinary error, and the fix is a re-export.
@@ -356,32 +392,6 @@ nothing else; prose, diagnostics and failures go to standard error. Violations,
 not-evaluated rules and the export format are distinct fields, because a script
 that confuses *failed* with *never ran* is worse than one that has neither.
 
-## Three outcomes, not two
-
-A rule **passed**, was **violated**, or **could not be evaluated** because the
-export's format does not record the fact it reads. OBJ carries no unit scale, so
-an OBJ export may well be correctly scaled and `canon` will not claim otherwise:
-
-```
-$ canon validate props/crate/exports/SM_crate_LOD0.obj
-props/crate/exports/SM_crate_LOD0.obj
-  asset crate | spec props/crate/asset.yaml | OBJ
-  no violations
-  not evaluated (11) — the export's format does not record the fact each rule reads
-    unit_scale.mismatch  needs unit scale  — OBJ carries no unit scale
-    up_axis.mismatch  needs up axis  — OBJ carries no up axis
-    socket.missing  needs attachment points  — OBJ carries no attachment points
-    ...
-  4 rules passed
-```
-
-Every suppressed rule is printed **by name**, never as a count — that listing is
-the only place a wrong capability row is ever visible.
-
-A format that *cannot contain* what the specification requires is a different
-thing entirely: an animated asset exported as OBJ is an ordinary `error`
-(`format.unsuitable_for_asset`), and the fix is a re-export.
-
 ## Use it as a pre-commit hook
 
 ```yaml
@@ -570,16 +580,6 @@ project-wide defaults in `.canon/project.yaml`. Read it before changing,
 exporting or describing an asset. Agents read constraints; agents never write
 constraints.
 ```
-
-## Where to read more
-
-| | |
-|---|---|
-| [`ROADMAP.md`](ROADMAP.md) | Milestones, sprint slicing, the gate decisions, and what is deliberately deferred with the trigger that would revive each. |
-| [`openspec/project.md`](openspec/project.md) | The binding architecture, the golden rule for the `design` block, the testing strategy, and the gate decisions G1 to G4. |
-| [`openspec/changes/`](openspec/changes) | Twelve specified changes — proposal, spec deltas, design decisions and tasks for each. |
-| [`examples/ronin/`](examples/ronin) | A complete, validating game repository. |
-| [`deploy/README.md`](deploy/README.md) | What deploys, what deliberately does not, and the recovery procedures. |
 
 ## Testing
 
