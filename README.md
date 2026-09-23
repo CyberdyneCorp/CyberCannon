@@ -29,7 +29,238 @@ Three properties hold everywhere, and everything else follows from them:
   agent calls and the web "Validate" button run the *same* use case, so
   "it passed on my machine but the site says it failed" cannot happen.
 
+| | |
+|---|---|
+| **Roadmap and milestones** | [`ROADMAP.md`](ROADMAP.md) |
+| **Architecture decisions and conventions** | [`openspec/project.md`](openspec/project.md) |
+| **The specifications themselves** | [`openspec/changes/`](openspec/changes) |
+| **A complete worked game repository** | [`examples/ronin/`](examples/ronin) |
+| **Deployment** | [`deploy/README.md`](deploy/README.md) |
+
 ---
+
+## The problem this solves
+
+Three complaints, in the order they cost money:
+
+1. *"The 3D devs are not aligned with the concept."* Nothing said what the
+   concept **meant** in verifiable terms, and nothing checked it before three
+   days of modelling were spent. This is the expensive one.
+2. *"I do not know where to get the concept or the model."* A lookup problem.
+3. Developers fix mechanical defects — scale, rotation, pivot, naming, triangle
+   counts — that should never have reached them.
+
+The first is caused by a **missing design contract**. When an artist and a
+programmer argue about a silhouette, the tie-breaker is usually a design fact
+nobody wrote down: *"it has to read as hostile at 40 metres during combat."*
+That fact explains the art rule **and** the triangle budget. Without it, the two
+are arguing about taste.
+
+## The closed loop
+
+```mermaid
+graph LR
+    D["Design declares SOCKET_muzzle_l"] --> A["Art places an empty of that name"]
+    A --> V["Validator reads the export"]
+    V --> R["socket.missing rejects it"]
+    R --> A
+    V --> C["Code binds VFX with confidence"]
+
+    style D fill:#E8EAF6,stroke:#3949AB
+    style V fill:#FFF8E1,stroke:#F9A825
+    style R fill:#FFEBEE,stroke:#C62828
+    style C fill:#E8F5E9,stroke:#2E7D32
+```
+
+A designer's requirement becomes a **mechanically enforced gate**. Code never
+discovers at integration time that the muzzle VFX has nothing to attach to.
+
+The same loop runs for animation: a declared state `fire` resolves to a required
+clip `A_mech_scout_fire`, and an export without it is rejected by name.
+
+And it depersonalises feedback — the linter rejects the file, not the programmer
+rejecting the artist.
+
+## Architecture
+
+Hexagonal, with **three inbound adapters over one core**. The pre-commit
+validator, the MCP tool an agent calls and the web Validate button are the same
+use case; anything else produces the trust-destroying bug this product exists to
+prevent.
+
+```mermaid
+graph TB
+    CLI["CLI - canon"] --> UC["Use cases"]
+    MCP["MCP server - stdio"] --> UC
+    HTTP["HTTP API - FastAPI"] --> UC
+    WEB["Web app - SvelteKit"] --> HTTP
+
+    UC --> DOM["Domain - pure, stdlib only"]
+    UC --> P["Ports"]
+
+    P --> GIT["Git - the source of truth"]
+    P --> MESH["Mesh reading - trimesh"]
+    P --> PG["PostgreSQL - rebuildable index"]
+    P --> S3["MinIO - blob mirror"]
+    P --> AUTH["CyberdyneAuth"]
+    P --> ARCHE["CyberArche - documents"]
+    P --> LLM["OpenAI-compatible model"]
+
+    style DOM fill:#E8F5E9,stroke:#2E7D32
+    style GIT fill:#FFF8E1,stroke:#F9A825
+    style UC fill:#E3F2FD,stroke:#1565C0
+    style PG fill:#F3E5F5,stroke:#6A1B9A
+    style S3 fill:#F3E5F5,stroke:#6A1B9A
+```
+
+**The dependency rule** is `domain <- application <- adapters`, enforced by
+import-linter rather than by convention. Inbound adapters never import outbound
+ones, and the domain imports **no third-party package at all** — a custom
+`stdlib_only` contract enforces that, because an enumerated deny-list passes
+silently the day someone adds a dependency nobody remembered to list.
+
+**Git is authoritative; PostgreSQL and MinIO are not.** Dropping the index and
+rebuilding it from the repository is always a valid recovery, and no write may
+reach only the index.
+
+### The boundary most implementations get wrong
+
+```mermaid
+graph LR
+    EXPORT["Export file - GLB, FBX, OBJ"] --> INSPECT["MeshInspector - a port"]
+    INSPECT --> FACTS["MeshFacts - a dumb value object"]
+    FACTS --> RULES["Rules - pure domain functions"]
+    SPEC["Effective spec"] --> RULES
+    RULES --> REPORT["Report - passed, violated, not evaluated"]
+
+    style INSPECT fill:#FFF3E0,stroke:#EF6C00
+    style FACTS fill:#E3F2FD,stroke:#1565C0
+    style RULES fill:#E8F5E9,stroke:#2E7D32
+```
+
+**Mesh rules are domain. Mesh reading is a port.** The inspector returns facts;
+the domain decides pass or fail. The entire rule suite therefore runs over
+hand-built `MeshFacts` with **zero files on disk** — no binary fixtures in git,
+no dependency on the extraction library — and swapping `trimesh` for `bpy` later
+touches one adapter.
+
+### Three outcomes, not two
+
+A rule **passed**, was **violated**, or **could not be evaluated** because the
+export format does not record the fact it reads.
+
+```mermaid
+graph TD
+    START["A rule and an export"] --> Q{"Does the format record the fact?"}
+    Q -->|"No"| NE["NOT EVALUATED - named, with the reason"]
+    Q -->|"Yes"| Q2{"Does the value satisfy the spec?"}
+    Q2 -->|"Yes"| PASS["Passed"]
+    Q2 -->|"No"| FAIL["Violation - observed vs expected"]
+
+    style Q fill:#FFF9C4,stroke:#F9A825
+    style Q2 fill:#FFF9C4,stroke:#F9A825
+    style NE fill:#ECEFF1,stroke:#546E7A
+    style PASS fill:#E8F5E9,stroke:#2E7D32
+    style FAIL fill:#FFEBEE,stroke:#C62828
+```
+
+OBJ carries no unit scale, so an OBJ export may well be correctly scaled and
+`canon` will not claim otherwise. Every suppressed rule is printed **by name**,
+never as a count — that listing is the only place a wrong capability row is ever
+visible. A format that *cannot contain* what the spec requires is different: an
+animated asset exported as OBJ is an ordinary error, and the fix is a re-export.
+
+### Annotations have exactly two exits
+
+The guarantee that keeps the system from degrading as it is used:
+
+```mermaid
+graph TD
+    ANN["An annotation on a pin"] --> Q{"General and permanent?"}
+    Q -->|"Yes"| PROM["PROMOTED into constraints"]
+    Q -->|"No"| RESOLVED["RESOLVED as an issue"]
+    PROM --> BRIEF["art-spec.md carries the rule"]
+    RESOLVED --> HIST["Git history keeps the thread"]
+
+    style Q fill:#FFF9C4,stroke:#F9A825
+    style PROM fill:#E8F5E9,stroke:#2E7D32
+    style RESOLVED fill:#ECEFF1,stroke:#546E7A
+    style BRIEF fill:#E3F2FD,stroke:#1565C0
+```
+
+The compiled briefing carries **rules plus open issues, never the dead archive**.
+Measured over a cycle of five annotations all taken to the resolved exit, the
+briefing went 714 bytes, then 1194 with five open, then **714 bytes again —
+byte-identical**. "Does not degrade with use" is a measurement here, not a claim.
+
+### Anchoring survives a remesh
+
+A pin stored as a triangle index is precise and worthless the moment the mesh is
+re-exported — which is exactly when the feedback needs to survive.
+
+```mermaid
+graph LR
+    PIN["A pin in the 3D viewer"] --> PART["Durable key - the named part"]
+    PIN --> HINT["Hints - point, normal, camera"]
+    PART --> FOUND{"Part still present?"}
+    FOUND -->|"Yes"| REPROJ["Re-project the hint onto that part"]
+    FOUND -->|"No"| ORPHAN["Reported ORPHANED - never relocated"]
+
+    style PART fill:#E8F5E9,stroke:#2E7D32
+    style HINT fill:#ECEFF1,stroke:#546E7A
+    style FOUND fill:#FFF9C4,stroke:#F9A825
+    style ORPHAN fill:#FFEBEE,stroke:#C62828
+```
+
+The named part is the identity; the point and normal are positioning hints. A
+renamed or deleted part yields an explicitly orphaned annotation, never a
+silently mis-placed one. No anchor stores a triangle index or barycentric
+coordinate, and a test asserts no anchor type can.
+
+## Features
+
+| Area | What it does |
+|---|---|
+| **Specification** | `asset.yaml` with three authored blocks — concept, design, constraints — a status lifecycle, dual-anchor annotations, and `schema_version` so version skew never blocks a commit. |
+| **Validation** | Triangle and LOD budgets, unit scale, up axis, applied transforms, naming templates, required sockets and required animation clips, across GLB, glTF, FBX and OBJ with a per-format capability matrix. |
+| **Compilation** | `art-spec.md` — the briefing a contractor, a new hire or a language model is handed. Rules and open issues only, effective values already merged. |
+| **Preview** | A decimated, Draco-compressed preview emitted as a by-product of the validation run that already loaded the mesh. The working export is never served to a browser. |
+| **Lookup** | `where_is`, listing, and alias-aware ranked search — exact id, name prefix, alias, tag, description — with zero-result queries logged so the misses tell you which aliases to add. |
+| **Agent access (MCP)** | Eight read tools over stdio, four discipline lenses, identity from the credential and never from an argument. No write tool, no promotion tool. |
+| **Concepts** | Upload views, committed and attributed; git-backed revision history; compare revisions; annotations carried or explicitly orphaned across a replacement. |
+| **Collaboration** | Annotation authoring and threads, the 2D model sheet with pins and stylus support, art-director triage, and the 3D viewer with orbit, polygon counts, animation playback and anchor re-projection. |
+| **Documents** | Long-form design documents live in **CyberArche** and are linked, never mirrored — including its own revision history, surfaced rather than copied. |
+| **Search** | Exact lookup stays local and deterministic; prose queries are delegated, and results are presented in two labelled groups so approximate is never mistaken for exact. |
+| **Derived metadata** | OpenAI-compatible vision proposes aliases for a person to accept. Generated content lives only in the rebuildable index and never reaches `asset.yaml` or the briefing. |
+| **Hosting** | FastAPI over a persistent working copy per project, PostgreSQL index, MinIO mirror, CyberdyneAuth, deployed to Coolify. |
+
+**Every optional integration degrades to absent.** With `CANON_LLM_ENABLED` or
+`CANON_ARCHE_ENABLED` unset — the defaults — every other capability answers
+byte-identically and the optional features report themselves unavailable, naming
+the reason.
+
+## How a write reaches the repository
+
+```mermaid
+sequenceDiagram
+    participant P as Person
+    participant W as Web app
+    participant A as API
+    participant G as Working copy
+    participant R as Remote
+    P->>W: Promote an annotation
+    W->>A: Request with their own token
+    A->>A: Authorize in the domain
+    A->>G: Resolve, edit, commit as that person
+    G->>R: Push to the configured branch
+    R-->>P: A reviewable diff in their name
+```
+
+Write-back is a **direct commit** authored as the acting person through
+`.canon/actors.yaml`, not a service account. A person with no mapped git
+identity is refused, naming the missing entry — because git is the source of
+truth, every person has two identities, and leaving them unlinked breaks
+attribution silently six months into the history.
 
 ## Install
 
@@ -339,6 +570,46 @@ project-wide defaults in `.canon/project.yaml`. Read it before changing,
 exporting or describing an asset. Agents read constraints; agents never write
 constraints.
 ```
+
+## Where to read more
+
+| | |
+|---|---|
+| [`ROADMAP.md`](ROADMAP.md) | Milestones, sprint slicing, the gate decisions, and what is deliberately deferred with the trigger that would revive each. |
+| [`openspec/project.md`](openspec/project.md) | The binding architecture, the golden rule for the `design` block, the testing strategy, and the gate decisions G1 to G4. |
+| [`openspec/changes/`](openspec/changes) | Twelve specified changes — proposal, spec deltas, design decisions and tasks for each. |
+| [`examples/ronin/`](examples/ronin) | A complete, validating game repository. |
+| [`deploy/README.md`](deploy/README.md) | What deploys, what deliberately does not, and the recovery procedures. |
+
+## Testing
+
+Four layers, and the specifications are the source of two of them:
+
+```mermaid
+graph LR
+    SPECS["Spec deltas - 657 scenarios"] --> GEN["Generator"]
+    GEN --> FEAT["Generated .feature files"]
+    FEAT --> BDD["pytest-bdd"]
+    UNIT["Unit - domain and application"] --> CHECK["just check"]
+    CONF["Port conformance - fake and real adapter"] --> CHECK
+    BDD --> CHECK
+    E2E["Playwright and canon subprocess"] --> SEP["just test-e2e"]
+
+    style SPECS fill:#FFF8E1,stroke:#F9A825
+    style GEN fill:#E3F2FD,stroke:#1565C0
+    style CHECK fill:#E8F5E9,stroke:#2E7D32
+```
+
+**Nobody hand-writes a `.feature`.** They are generated from the spec deltas and
+regenerated in CI, so a hand edit cannot survive. Two gates fail in opposite
+directions: a requirement with no executing scenario fails, and a generated
+scenario with no step definition fails, naming the spec file and line. One gate
+alone is satisfiable by cheating; together they pin the spec and the code to each
+other.
+
+*Known limitation:* the gate counts only Python step definitions, so a frontend
+scenario implemented and tested in TypeScript still reads as pending. Read
+"0 absent" as "nothing is hidden", not as "everything is verified".
 
 ## Developing CyberCanon
 
