@@ -22,8 +22,9 @@ const ASSET = '/p/ironwood/a/mech_scout';
 
 const CONFIG = vi.hoisted<SignInConfig>(() => ({
 	endpoints: {
-		authorization: 'https://auth.cyberdynecorp.ai/authorize',
-		token: 'https://auth.cyberdynecorp.ai/oauth/token'
+		authorization: 'https://canon.cyberdynecorp.ai/auth/authorize',
+		token: 'https://canon.cyberdynecorp.ai/auth/token',
+		endSession: 'https://canon.cyberdynecorp.ai/auth/end-session'
 	},
 	clientId: 'cybercanon-web',
 	redirectUri: 'https://canon.cyberdynecorp.ai/signed-in',
@@ -41,7 +42,7 @@ const { beginSignIn } = await import('../src/lib/session/oidc');
 const { browserStorage } = await import('../src/lib/session/storage');
 const { sessionStore } = await import('../src/lib/session/session');
 const { REFUSED } = await import('../src/lib/session/messages');
-const { mappedPerson } = await import('./support/credentials');
+const { cyberdyneAccessToken, cyberdyneIdToken, mappedPerson } = await import('./support/credentials');
 
 /**
  * What a load returned, or where it sent the person.
@@ -121,7 +122,52 @@ describe('a deep link through sign-in', () => {
 	});
 });
 
+describe('a sign-in against CyberdyneAuth’s real token response', () => {
+	it('names the person by the identity token and keeps the refresh token', async () => {
+		const url = await returning(ASSET);
+		const answer = {
+			access_token: cyberdyneAccessToken(),
+			id_token: cyberdyneIdToken(),
+			refresh_token: 'the-refresh-token',
+			token_type: 'Bearer',
+			expires_in: 900
+		};
+
+		await redirected(load({ url, fetch: issuing(answer) } as never));
+
+		expect(sessionStore.identity()?.display).toBe('leo@cyberdynecorp.ai');
+		expect(sessionStore.token()).toBe(answer.access_token);
+		expect(sessionStore.refreshToken()).toBe('the-refresh-token');
+	});
+
+	it('posts the exchange to this application’s own relay, not across origins (W2 regression)', async () => {
+		const url = await returning(ASSET);
+		const posted: string[] = [];
+		const relay = (async (address: string) => {
+			posted.push(String(address));
+			return Response.json({ access_token: mappedPerson() });
+		}) as unknown as typeof fetch;
+
+		await redirected(load({ url, fetch: relay } as never));
+
+		expect(posted).toEqual([CONFIG.endpoints.token]);
+		expect(new URL(posted[0]).origin).toBe(ORIGIN);
+	});
+});
+
 describe('a sign-in that did not work', () => {
+	it('degrades rather than failing when the identity service could not be configured', async () => {
+		const url = await returning(ASSET);
+		url.searchParams.delete('code');
+		url.searchParams.set('error', 'temporarily_unavailable');
+		url.searchParams.set('error_description', 'the discovery document answered 503');
+
+		const loaded = await screen(load({ url, fetch: issuing({}) } as never));
+
+		expect(loaded.state.kind).toBe('degraded');
+		expect(sessionStore.isAuthenticated()).toBe(false);
+	});
+
 	it('says what the issuer said, and signs nobody in', async () => {
 		const url = await returning(ASSET);
 

@@ -85,11 +85,24 @@ viewer-3d :: Isolation leaves no trace in the specification
 viewer-3d :: No rendering support
 viewer-3d :: Rendering context lost mid-session
 viewer-3d :: Selecting names the part
+web-session :: A discovery document for another issuer is refused
+web-session :: A duplicated tab does not spend a rotated refresh token
+web-session :: A hung identity service is an outage, not a hang
+web-session :: A person is named, not shown as a subject identifier
+web-session :: A refused renewal falls back to in-place re-authentication
+web-session :: A renewal the identity service did not answer is retried
+web-session :: A session outlives its first access token
 web-session :: Acting identity shown
+web-session :: An access token refused before its renewal fired is renewed silently
+web-session :: An identity token is never the surface credential
 web-session :: Arriving signed out
 web-session :: Deep link through sign-in
+web-session :: Endpoints come from discovery, not from fixed paths
 web-session :: No content survives sign-out
 web-session :: Re-authentication is declined
 web-session :: Reads continue during an outage
 web-session :: Session expires while writing an annotation
+web-session :: The next person on a shared browser is asked to sign in
+web-session :: Token exchange goes through the application's own origin
 web-session :: Unmapped person is warned early
+web-session :: Unreadable discovery reports sign-in unavailable

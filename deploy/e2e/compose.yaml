@@ -99,8 +99,9 @@ services:
       ISSUER_PROJECTS: ronin
       ISSUER_GIT_EMAILS: rafa@cyberdynecorp.ai
     ports:
-      # Published because the browser is redirected here from the host and
-      # posts the code exchange here from the application's origin.
+      # Published because the browser is redirected here from the host. The
+      # code exchange is not posted from the browser: the web application's
+      # server relays it, over the compose network (`CANON_AUTH_INTERNAL_URL`).
       - "9000:9000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/healthz')"]
@@ -185,6 +186,17 @@ services:
       PUBLIC_CANON_AUTH_ISSUER: http://localhost:9000
       PUBLIC_CANON_AUTH_CLIENT_ID: cybercanon-web
       PUBLIC_CANON_AUTH_AUDIENCE: cybercanon-e2e
+      # The web server reads the discovery document and relays the token
+      # exchange itself (CyberdyneAuth answers no cross-origin request from a
+      # browser), and inside this network the issuer is `issuer:9000`, not the
+      # `localhost:9000` the browser and the `iss` claim use. The web
+      # application's counterpart of the api's `CANON_AUTH_KEY_SET_URL`.
+      CANON_AUTH_INTERNAL_URL: http://issuer:9000
+      # adapter-node assumes https when nothing says otherwise, and SvelteKit
+      # refuses a form POST whose Origin is not the one it computes. The token
+      # relay is a form POST from `http://localhost:5173`, so the origin is
+      # stated. Coolify serves https and needs nothing here.
+      ORIGIN: http://localhost:5173
       PORT: "5173"
       HOST: "0.0.0.0"
     ports:

@@ -51,7 +51,7 @@
 			failure = signedIn.message;
 			return;
 		}
-		sessionStore.signIn(signedIn.token);
+		sessionStore.signIn(signedIn.credential);
 		// The screens around this prompt resolved against a session that had
 		// expired; with a credential again they are re-read in place, which is the
 		// same "in place" the held write is replayed under.

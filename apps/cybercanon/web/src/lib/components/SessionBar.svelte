@@ -9,12 +9,19 @@
 	 * disclosures a session also owes a person — no git identity, and an
 	 * identity provider outage — are `SessionNotices`, which is a sibling
 	 * because a paragraph does not belong inside a row of controls.
+	 *
+	 * Signing out ends the identity service's session as well as this tab's:
+	 * after the local state is gone the browser is sent to the end-session
+	 * relay, because a shared machine whose identity service still remembered
+	 * the last person would sign the next one straight back in as them.
 	 */
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { actingIdentity, sessionStore, type Session } from '$lib/session/session';
 	import { currentAddress, HOME, signInAddress } from '$lib/session/intent';
+	import { endSessionForm, type PostedForm } from '$lib/session/oidc';
 	import { writeGate } from '$lib/session';
+	import { signInConfiguration } from '$lib/config';
 
 	let session = $state<Session>(sessionStore.current());
 
@@ -24,9 +31,28 @@
 	const signIn = $derived(signInAddress(currentAddress(page.url)));
 
 	function signOut(): void {
+		const idToken = sessionStore.idToken();
 		writeGate.discard();
 		sessionStore.signOut();
-		goto(HOME, { invalidateAll: true });
+		const configuration = signInConfiguration(page.url.origin);
+		if (configuration) post(endSessionForm(configuration, idToken));
+		else goto(HOME, { invalidateAll: true });
+	}
+
+	/** A top-level form post: the identity token travels in the body, not the address. */
+	function post({ action, fields }: PostedForm): void {
+		const form = document.createElement('form');
+		form.method = 'POST';
+		form.action = action;
+		for (const [name, value] of Object.entries(fields)) {
+			const input = document.createElement('input');
+			input.type = 'hidden';
+			input.name = name;
+			input.value = value;
+			form.append(input);
+		}
+		document.body.append(form);
+		form.submit();
 	}
 </script>
 

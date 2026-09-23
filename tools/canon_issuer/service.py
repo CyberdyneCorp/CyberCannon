@@ -17,9 +17,15 @@ complete an authorization-code exchange against it.
 Nothing here is a second implementation of anything. The keys, the minting, the
 authorization codes and the PKCE binding are the same objects the in-process
 suites use, and :func:`~cybercanon.adapters.outbound.auth.pkce.verify` is the
-check the adapter's own tests run. What is added is a socket, four addresses and
-the cross-origin permission a browser needs to POST to a token endpoint on
-another port.
+check the adapter's own tests run. What is added is a socket and four addresses.
+
+**No cross-origin permission, on purpose.** CyberdyneAuth sends no
+``Access-Control-Allow-Origin`` for the application's origin, and this service
+used to send ``*`` — which is how a browser-side token exchange passed every
+end-to-end run and then failed in production with *"Failed to fetch"*. The web
+application now reads the discovery document and relays the token exchange from
+its own server, so this service answers exactly as strictly as the real one and
+the stack would catch a browser that went back to calling it directly.
 
 **It is test support and it is never deployed.** `deploy/coolify.yaml` declares
 the four hosted applications and `just deploy-check` refuses a fifth; this runs
@@ -235,19 +241,6 @@ class Endpoints(BaseHTTPRequestHandler):
         status, body = self.authority.exchange(self._form())
         self._json(status, body)
 
-    def do_OPTIONS(self) -> None:
-        """The preflight the browser sends before it posts to another origin.
-
-        The application is served from one port and this service from another,
-        which is the same split `deploy/coolify.yaml` has between `canon.backend`
-        and `auth.backend`. Without this the browser refuses the token response
-        it already received and the sign-in fails for a reason nothing logs.
-        """
-        self.send_response(204)
-        self._cross_origin()
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-
     def log_message(self, format: str, *args: Any) -> None:
         """One line per request on stdout, so `docker compose logs issuer` says something."""
         print(f"issuer {format % args}", flush=True)
@@ -264,7 +257,6 @@ class Endpoints(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
-        self._cross_origin()
         self.end_headers()
         self.wfile.write(encoded)
 
@@ -272,13 +264,7 @@ class Endpoints(BaseHTTPRequestHandler):
         self.send_response(302)
         self.send_header("Location", location)
         self.send_header("Content-Length", "0")
-        self._cross_origin()
         self.end_headers()
-
-    def _cross_origin(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept")
 
 
 def serve(profile: Profile | None = None) -> None:

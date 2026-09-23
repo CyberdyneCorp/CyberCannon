@@ -16,13 +16,17 @@ import { describe, expect, it } from 'vitest';
 import {
 	AUTHORIZATION_CODE_GRANT,
 	CHALLENGE_METHOD,
+	DEFAULT_SCOPE,
 	NOTHING_PENDING,
 	NO_TOKEN,
 	PENDING_KEY,
+	REFRESH_TOKEN_GRANT,
 	WRONG_STATE,
 	beginSignIn,
 	completeSignIn,
+	endSessionForm,
 	fetchTransport,
+	refreshSession,
 	takePending,
 	type SignInConfig,
 	type Transport
@@ -39,14 +43,15 @@ import {
 	type SignInMessage
 } from '../src/lib/session/reauthentication';
 import { memoryStorage } from '../src/lib/session/storage';
-import { mappedPerson } from './support/credentials';
+import { cyberdyneAccessToken, cyberdyneIdToken, mappedPerson } from './support/credentials';
 
 const ORIGIN = 'https://canon.cyberdynecorp.ai';
 
 const CONFIG: SignInConfig = {
 	endpoints: {
-		authorization: 'https://auth.cyberdynecorp.ai/authorize',
-		token: 'https://auth.cyberdynecorp.ai/oauth/token'
+		authorization: 'https://canon.cyberdynecorp.ai/auth/authorize',
+		token: 'https://canon.cyberdynecorp.ai/auth/token',
+		endSession: 'https://canon.cyberdynecorp.ai/auth/end-session'
 	},
 	clientId: 'cybercanon-web',
 	redirectUri: `${ORIGIN}/signed-in`,
@@ -86,6 +91,13 @@ describe('starting a sign-in', () => {
 		expect(url.searchParams.get('audience')).toBe('cybercanon');
 		expect(url.searchParams.get('state')).toBe(request.state);
 		expect(url.searchParams.get('code_challenge_method')).toBe(CHALLENGE_METHOD);
+	});
+
+	it('asks for a refresh token and the roles claim by default (regression)', async () => {
+		const request = await beginSignIn(CONFIG, { storage: memoryStorage() });
+
+		expect(DEFAULT_SCOPE).toBe('openid profile email offline_access roles');
+		expect(new URL(request.url).searchParams.get('scope')).toBe(DEFAULT_SCOPE);
 	});
 
 	it('sends the challenge and keeps the verifier, which is the whole point', async () => {
@@ -145,7 +157,11 @@ describe('coming back from the issuer', () => {
 
 		const outcome = await completeSignIn(CONFIG, returned(request.state), { storage, transport });
 
-		expect(outcome).toEqual({ kind: 'signed-in', token, next: '/p/ironwood/a/mech_scout' });
+		expect(outcome).toEqual({
+			kind: 'signed-in',
+			credential: { accessToken: token, refreshToken: null, idToken: null },
+			next: '/p/ironwood/a/mech_scout'
+		});
 		expect(forms).toEqual([
 			{
 				grant_type: AUTHORIZATION_CODE_GRANT,
@@ -194,6 +210,53 @@ describe('coming back from the issuer', () => {
 		expect(outcome.kind === 'refused' && outcome.message).toContain('the person cancelled');
 	});
 
+	it('keeps the refresh and identity tokens the issuer answered with (regression)', async () => {
+		const { storage, request } = await started();
+		const answer = {
+			access_token: cyberdyneAccessToken(),
+			id_token: cyberdyneIdToken(),
+			refresh_token: 'the-refresh-token',
+			token_type: 'Bearer',
+			expires_in: 900
+		};
+
+		const outcome = await completeSignIn(CONFIG, returned(request.state), {
+			storage,
+			transport: issuer(answer).transport
+		});
+
+		expect(outcome).toMatchObject({
+			kind: 'signed-in',
+			credential: {
+				accessToken: answer.access_token,
+				idToken: answer.id_token,
+				refreshToken: 'the-refresh-token'
+			}
+		});
+	});
+
+	it('never presents an identity token as the API credential (regression)', async () => {
+		const { storage, request } = await started();
+		const { transport } = issuer({ id_token: cyberdyneIdToken(), token_type: 'Bearer' });
+
+		const outcome = await completeSignIn(CONFIG, returned(request.state), { storage, transport });
+
+		expect(outcome).toEqual({ kind: 'refused', message: NO_TOKEN });
+	});
+
+	it('reports an identity service it could not configure as an outage, not a refusal', async () => {
+		const { storage, request } = await started();
+		const unavailable = returned(request.state, {
+			error: 'temporarily_unavailable',
+			error_description: 'the discovery document answered 503'
+		});
+
+		const outcome = await completeSignIn(CONFIG, unavailable, { storage, transport: issuer({}).transport });
+
+		expect(outcome).toMatchObject({ kind: 'unavailable' });
+		expect(outcome.kind === 'unavailable' && outcome.message).toContain('answered 503');
+	});
+
 	it('refuses an exchange that produced no credential', async () => {
 		const { storage, request } = await started();
 		const { transport } = issuer({ token_type: 'Bearer' });
@@ -229,6 +292,22 @@ describe('coming back from the issuer', () => {
 		expect(calls[0].url).toBe(CONFIG.endpoints.token);
 		expect(calls[0].init.method).toBe('POST');
 		expect(calls[0].init.body).toBe('code=c');
+	});
+
+	it('reads a relay that could not reach the issuer as an outage (5xx), not a refusal', async () => {
+		const fetcher = (async () =>
+			new Response(
+				JSON.stringify({ error: 'temporarily_unavailable', error_description: 'issuer down' }),
+				{ status: 502 }
+			)) as unknown as typeof fetch;
+		const { storage, request } = await started();
+
+		const outcome = await completeSignIn(CONFIG, returned(request.state), {
+			storage,
+			transport: fetchTransport(fetcher)
+		});
+
+		expect(outcome).toMatchObject({ kind: 'unavailable' });
 	});
 
 	it('turns a refusing token endpoint into a described failure', async () => {
@@ -308,7 +387,7 @@ describe('re-authenticating without leaving the page', () => {
 
 		const outcome = await waiting(fakeBrowser({ answers: 'echo' }), transport);
 
-		expect(outcome).toEqual({ kind: 'signed-in', token, next: '/' });
+		expect(outcome).toMatchObject({ kind: 'signed-in', credential: { accessToken: token }, next: '/' });
 		expect(forms).toHaveLength(1);
 		expect((forms[0] as Record<string, string>).code).toBe('the-code');
 		expect((forms[0] as Record<string, string>).code_verifier).toBeTruthy();
@@ -359,6 +438,69 @@ describe('re-authenticating without leaving the page', () => {
 		const outcome = await waiting(fakeBrowser(), issuer({}).transport, { timeoutMs: 10 });
 
 		expect(outcome).toEqual({ kind: 'unavailable', message: TIMED_OUT });
+	});
+});
+
+describe('renewing a session with its refresh token', () => {
+	it('posts the refresh grant, with the client id, to the token relay', async () => {
+		const { transport, forms } = issuer({ access_token: cyberdyneAccessToken(), refresh_token: 'rt-2' });
+
+		await refreshSession(CONFIG, 'rt-1', transport);
+
+		expect(forms).toEqual([
+			{ grant_type: REFRESH_TOKEN_GRANT, refresh_token: 'rt-1', client_id: CONFIG.clientId }
+		]);
+	});
+
+	it('hands back the rotated refresh token with the new access token', async () => {
+		const accessToken = cyberdyneAccessToken();
+		const { transport } = issuer({ access_token: accessToken, refresh_token: 'rt-2', id_token: 'id-2' });
+
+		const outcome = await refreshSession(CONFIG, 'rt-1', transport);
+
+		expect(outcome).toEqual({
+			kind: 'renewed',
+			credential: { accessToken, refreshToken: 'rt-2', idToken: 'id-2' }
+		});
+	});
+
+	it('is refused when the refresh token was already spent', async () => {
+		const fetcher = (async () =>
+			new Response(
+				JSON.stringify({
+					error: 'invalid_grant',
+					error_description: 'refresh token already used or unknown'
+				}),
+				{ status: 400 }
+			)) as unknown as typeof fetch;
+
+		const outcome = await refreshSession(CONFIG, 'rt-spent', fetchTransport(fetcher));
+
+		expect(outcome).toEqual({ kind: 'refused', message: 'refresh token already used or unknown' });
+	});
+
+	it('is an outage, not a refusal, when nothing answered', async () => {
+		const outcome = await refreshSession(CONFIG, 'rt-1', {
+			async post() {
+				throw new TypeError('Failed to fetch');
+			}
+		});
+
+		expect(outcome).toMatchObject({ kind: 'unavailable' });
+	});
+});
+
+describe('signing out of the identity service', () => {
+	it('posts to the end-session relay, with the identity token in the body rather than the address', () => {
+		const form = endSessionForm(CONFIG, 'the-id-token');
+
+		expect(form.action).toBe(CONFIG.endpoints.endSession);
+		expect(form.action).not.toContain('the-id-token');
+		expect(form.fields).toEqual({ id_token_hint: 'the-id-token' });
+	});
+
+	it('still goes there when there is no identity token to hint with', () => {
+		expect(endSessionForm(CONFIG, null)).toEqual({ action: CONFIG.endpoints.endSession, fields: {} });
 	});
 });
 

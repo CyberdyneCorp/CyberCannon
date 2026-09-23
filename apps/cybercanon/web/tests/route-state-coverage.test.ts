@@ -51,8 +51,9 @@ const ASSET_ADDRESS = `/p/${PROJECT}/a/${ASSET}`;
  */
 const CONFIGURED = vi.hoisted<SignInConfig>(() => ({
 	endpoints: {
-		authorization: 'https://auth.cyberdynecorp.ai/authorize',
-		token: 'https://auth.cyberdynecorp.ai/oauth/token'
+		authorization: 'https://canon.cyberdynecorp.ai/auth/authorize',
+		token: 'https://canon.cyberdynecorp.ai/auth/token',
+		endSession: 'https://canon.cyberdynecorp.ai/auth/end-session'
 	},
 	clientId: 'cybercanon-web',
 	redirectUri: `https://canon.cyberdynecorp.ai/signed-in`,

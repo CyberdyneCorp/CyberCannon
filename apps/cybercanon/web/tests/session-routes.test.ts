@@ -187,18 +187,30 @@ describe('how a deployment says who signs people in', () => {
 		PUBLIC_CANON_AUTH_AUDIENCE: 'cybercanon'
 	};
 
-	it('is the issuer, the client and the origin the person is actually on', () => {
+	it('is the client, and addresses on the origin the person is actually on', () => {
 		const config = signInConfiguration('https://canon.cyberdynecorp.ai', configured);
 
 		expect(config).toEqual({
 			endpoints: {
-				authorization: 'https://auth.cyberdynecorp.ai/authorize',
-				token: 'https://auth.cyberdynecorp.ai/oauth/token'
+				authorization: 'https://canon.cyberdynecorp.ai/auth/authorize',
+				token: 'https://canon.cyberdynecorp.ai/auth/token',
+				endSession: 'https://canon.cyberdynecorp.ai/auth/end-session'
 			},
 			clientId: 'cybercanon-web',
 			redirectUri: `https://canon.cyberdynecorp.ai${SIGNED_IN_PATH}`,
 			audience: 'cybercanon'
 		});
+	});
+
+	it('guesses no path on the issuer, and asks the browser for no cross-origin read (regression)', () => {
+		// The issuer's endpoints come from its discovery document on the server
+		// (`src/routes/auth/`). Fixed paths on the issuer answered 404 in
+		// production, and a token endpoint on another origin was refused by CORS.
+		const config = signInConfiguration('https://canon.cyberdynecorp.ai', configured);
+
+		for (const address of Object.values(config?.endpoints ?? {})) {
+			expect(new URL(address).origin).toBe('https://canon.cyberdynecorp.ai');
+		}
 	});
 
 	it('is nothing at all when half of it is missing, rather than a broken address', () => {

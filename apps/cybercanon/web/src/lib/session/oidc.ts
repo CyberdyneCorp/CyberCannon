@@ -18,19 +18,37 @@
  * **The verifier never leaves this tab.** It is written to the tab's own
  * storage under a key of its own and removed the moment it is redeemed — a
  * single-use proof that outlives exactly one redirect.
+ *
+ * **Every address here is this application's own** (`$lib/config`). The
+ * identity service publishes its endpoints in its discovery document and
+ * answers no cross-origin request from a browser, so this application's server
+ * reads the one and relays the other (`src/routes/auth/`). What goes over that
+ * relay is exactly what would have gone to the issuer: a public client's form,
+ * with no secret added.
  */
 
 import type { SessionStorage } from './storage';
 import { HOME, localAddress } from './intent';
 
 export const PENDING_KEY = 'cybercanon.sign-in';
-export const DEFAULT_SCOPE = 'openid profile email';
+/**
+ * `offline_access` is what makes the issuer hand back a refresh token, and
+ * `roles` is the documented way to ask for the role claim the API maps. Without
+ * the first a session dies with its fifteen-minute access token.
+ */
+export const DEFAULT_SCOPE = 'openid profile email offline_access roles';
 export const CHALLENGE_METHOD = 'S256';
 export const AUTHORIZATION_CODE_GRANT = 'authorization_code';
+export const REFRESH_TOKEN_GRANT = 'refresh_token';
+
+/** What the issuer answered with, error code for "try again later" (RFC 6749 §4.1.2.1). */
+export const TEMPORARILY_UNAVAILABLE = 'temporarily_unavailable';
 
 export interface AuthEndpoints {
 	readonly authorization: string;
 	readonly token: string;
+	/** Where signing out ends the identity service's own session too. */
+	readonly endSession: string;
 }
 
 export interface SignInConfig {
@@ -58,8 +76,19 @@ export interface Transport {
 	post(url: string, form: Record<string, string>): Promise<Record<string, unknown>>;
 }
 
+/**
+ * What a sign-in or a renewal yields. Only the access token is ever presented to
+ * the API; the identity token names the person and is the hint sign-out hands
+ * back, and the refresh token renews the session without a redirect.
+ */
+export interface Credential {
+	readonly accessToken: string;
+	readonly refreshToken: string | null;
+	readonly idToken: string | null;
+}
+
 export type SignInOutcome =
-	| { readonly kind: 'signed-in'; readonly token: string; readonly next: string }
+	| { readonly kind: 'signed-in'; readonly credential: Credential; readonly next: string }
 	/** The issuer answered, and said no. A person can read this and act on it. */
 	| { readonly kind: 'refused'; readonly message: string }
 	/** Nothing answered, or nothing was in flight. Reads are unaffected. */
@@ -126,7 +155,7 @@ export async function completeSignIn(
 ): Promise<SignInOutcome> {
 	const pending = takePending(options.storage);
 	const refusal = url.searchParams.get('error');
-	if (refusal) return { kind: 'refused', message: describeRefusal(url, refusal) };
+	if (refusal) return refused(url, refusal);
 	const code = url.searchParams.get('code');
 	if (!pending || !code) return { kind: 'unavailable', message: NOTHING_PENDING };
 	if (url.searchParams.get('state') !== pending.state) {
@@ -149,16 +178,66 @@ async function exchange(
 			redirect_uri: config.redirectUri,
 			code_verifier: pending.verifier
 		});
-		const token = credentialIn(answer);
-		if (!token) return { kind: 'refused', message: NO_TOKEN };
-		return { kind: 'signed-in', token, next: pending.next };
+		const credential = credentialIn(answer);
+		if (!credential) return { kind: 'refused', message: NO_TOKEN };
+		return { kind: 'signed-in', credential, next: pending.next };
 	} catch (failure) {
-		// An issuer that answered and said no is a refusal a person can act on;
-		// only something that never answered is an outage. Collapsing the two
-		// would tell somebody to try again later when the answer will not change.
-		if (failure instanceof SignInRefused) return { kind: 'refused', message: failure.message };
-		return { kind: 'unavailable', message: unreachable(failure) };
+		return failed(failure);
 	}
+}
+
+export type RenewalOutcome =
+	| { readonly kind: 'renewed'; readonly credential: Credential }
+	| { readonly kind: 'refused'; readonly message: string }
+	| { readonly kind: 'unavailable'; readonly message: string };
+
+/**
+ * A new credential for a refresh token, with no redirect and nobody asked.
+ *
+ * The issuer rotates refresh tokens — the one sent here is spent whatever
+ * happens — so the caller replaces the whole credential with what comes back.
+ */
+export async function refreshSession(
+	config: SignInConfig,
+	refreshToken: string,
+	transport: Transport
+): Promise<RenewalOutcome> {
+	try {
+		const answer = await transport.post(config.endpoints.token, {
+			grant_type: REFRESH_TOKEN_GRANT,
+			refresh_token: refreshToken,
+			client_id: config.clientId
+		});
+		const credential = credentialIn(answer);
+		return credential ? { kind: 'renewed', credential } : { kind: 'refused', message: NO_TOKEN };
+	} catch (failure) {
+		return failed(failure);
+	}
+}
+
+/** A form the browser posts: where to, and the fields it carries. */
+export interface PostedForm {
+	readonly action: string;
+	readonly fields: Readonly<Record<string, string>>;
+}
+
+/**
+ * How signing out reaches the end-session relay: a posted form carrying the
+ * identity token as the hint. Posted rather than put in a query string, so the
+ * token stays out of access logs and browser history.
+ */
+export function endSessionForm(config: SignInConfig, idToken: string | null): PostedForm {
+	return { action: config.endpoints.endSession, fields: idToken ? { id_token_hint: idToken } : {} };
+}
+
+/**
+ * An issuer that answered and said no is a refusal a person can act on; only
+ * something that never answered is an outage. Collapsing the two would tell
+ * somebody to try again later when the answer will not change.
+ */
+function failed(failure: unknown): { kind: 'refused' | 'unavailable'; message: string } {
+	if (failure instanceof SignInRefused) return { kind: 'refused', message: failure.message };
+	return { kind: 'unavailable', message: unreachable(failure) };
 }
 
 /** The pending record, consumed. A proof is single-use by construction. */
@@ -185,6 +264,8 @@ export function fetchTransport(fetcher: typeof globalThis.fetch): Transport {
 				body: new URLSearchParams(form).toString()
 			});
 			const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+			// A 5xx is the relay saying the issuer never answered: an outage, not a no.
+			if (response.status >= 500) throw new Error(describe(body, response.status));
 			if (!response.ok) throw new SignInRefused(describe(body, response.status));
 			return body;
 		}
@@ -193,9 +274,21 @@ export function fetchTransport(fetcher: typeof globalThis.fetch): Transport {
 
 export class SignInRefused extends Error {}
 
-function credentialIn(answer: Record<string, unknown>): string | null {
-	const token = answer.access_token ?? answer.id_token;
-	return typeof token === 'string' && token ? token : null;
+/**
+ * The credential in a token response, or `null` when it carries no access token.
+ *
+ * An identity token is never a stand-in for the access token: its audience is
+ * this client rather than the API, so presenting it would look signed in while
+ * every read was refused.
+ */
+function credentialIn(answer: Record<string, unknown>): Credential | null {
+	const accessToken = text(answer.access_token);
+	if (!accessToken) return null;
+	return { accessToken, refreshToken: text(answer.refresh_token), idToken: text(answer.id_token) };
+}
+
+function text(value: unknown): string | null {
+	return typeof value === 'string' && value ? value : null;
 }
 
 function describe(body: Record<string, unknown>, status: number): string {
@@ -203,9 +296,13 @@ function describe(body: Record<string, unknown>, status: number): string {
 	return typeof described === 'string' && described ? described : `the issuer answered ${status}`;
 }
 
-function describeRefusal(url: URL, code: string): string {
-	const described = url.searchParams.get('error_description');
-	return `Sign-in was refused: ${described || code}.`;
+/** What came back on the address. `temporarily_unavailable` is an outage, not a no. */
+function refused(url: URL, code: string): SignInOutcome {
+	const described = url.searchParams.get('error_description') || code;
+	if (code === TEMPORARILY_UNAVAILABLE) {
+		return { kind: 'unavailable', message: unreachable(new Error(described)) };
+	}
+	return { kind: 'refused', message: `Sign-in was refused: ${described}.` };
 }
 
 function unreachable(failure: unknown): string {

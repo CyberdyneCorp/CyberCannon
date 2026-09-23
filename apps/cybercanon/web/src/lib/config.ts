@@ -12,6 +12,16 @@
  * variable here for a client secret because `auth-integration` forbids a
  * browser build from having one.
  *
+ * **The identity service's addresses are not configured here.** They are read
+ * from its discovery document (`<issuer>/.well-known/openid-configuration`), and
+ * that happens on this application's own server (`src/routes/auth/`), because
+ * CyberdyneAuth answers no cross-origin request from a browser — neither the
+ * discovery document nor the token endpoint. So the browser is handed three
+ * addresses on its own origin: one that redirects to the discovered
+ * authorization endpoint, one that relays the token exchange, and one that
+ * redirects to the discovered end-session endpoint. Fixed paths are how
+ * sign-in used to reach a 404 in production.
+ *
  * **Absent configuration is a state, not a crash.** A deployment with no issuer
  * configured still serves every screen; sign-in states that it is unavailable,
  * which is what keeps a misconfigured environment debuggable instead of blank.
@@ -24,9 +34,10 @@ export function apiBaseUrl(): string {
 	return env.PUBLIC_CANON_API_URL ?? '';
 }
 
-/** CyberdyneAuth's endpoint paths, as `tools/canon_issuer` and the adapter use them. */
-export const AUTHORIZE_PATH = '/authorize';
-export const TOKEN_PATH = '/oauth/token';
+/** This application's own relays to the identity service (`src/routes/auth/`). */
+export const AUTHORIZE_ROUTE = '/auth/authorize';
+export const TOKEN_ROUTE = '/auth/token';
+export const END_SESSION_ROUTE = '/auth/end-session';
 
 /** The shape configuration arrives in: names to values, and nothing else. */
 export type Environment = Record<string, string | undefined>;
@@ -47,11 +58,15 @@ export function signInConfiguration(origin: string, values: Environment = env): 
 	const issuer = trimmed(values.PUBLIC_CANON_AUTH_ISSUER);
 	const clientId = trimmed(values.PUBLIC_CANON_AUTH_CLIENT_ID);
 	if (!issuer || !clientId) return null;
-	const base = issuer.replace(/\/+$/, '');
+	const base = origin.replace(/\/+$/, '');
 	return {
-		endpoints: { authorization: `${base}${AUTHORIZE_PATH}`, token: `${base}${TOKEN_PATH}` },
+		endpoints: {
+			authorization: `${base}${AUTHORIZE_ROUTE}`,
+			token: `${base}${TOKEN_ROUTE}`,
+			endSession: `${base}${END_SESSION_ROUTE}`
+		},
 		clientId,
-		redirectUri: `${origin.replace(/\/+$/, '')}${SIGNED_IN_PATH}`,
+		redirectUri: `${base}${SIGNED_IN_PATH}`,
 		audience: trimmed(values.PUBLIC_CANON_AUTH_AUDIENCE) ?? undefined
 	};
 }

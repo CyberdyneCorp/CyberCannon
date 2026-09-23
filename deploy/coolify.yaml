@@ -107,7 +107,14 @@ applications:
         - PUBLIC_CANON_AUTH_ISSUER
         - PUBLIC_CANON_AUTH_CLIENT_ID
         - PUBLIC_CANON_AUTH_AUDIENCE
-      optional: []
+      # Server-only. `CANON_AUTH_INTERNAL_URL` is where the web server reaches
+      # the issuer when that differs from the issuer identifier (unset here:
+      # it is the public address). `CANON_AUTH_POST_LOGOUT_REDIRECT=true` once
+      # CyberdyneAuth has this host's `/` registered as a post-logout redirect
+      # URI for the client; until then sign-out ends on its "signed out" page.
+      optional:
+        - CANON_AUTH_INTERNAL_URL
+        - CANON_AUTH_POST_LOGOUT_REDIRECT
       values: {}
 
   # -- the index database --------------------------------------------------
