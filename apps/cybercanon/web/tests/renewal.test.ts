@@ -14,10 +14,18 @@
  *   keeps true now that they are held at all.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SESSION_KEY, SessionStore, actingIdentity } from '../src/lib/session/session';
 import { memoryStorage, type SessionStorage } from '../src/lib/session/storage';
-import { RENEWAL_LEAD_MS, SessionRenewal, type Refresher } from '../src/lib/session/renewal';
+import {
+	RENEWAL_LEAD_MS,
+	RENEWAL_RETRY_MS,
+	SessionRenewal,
+	type Refresher,
+	type RenewalChannel
+} from '../src/lib/session/renewal';
+import { WriteGate, heldWrite } from '../src/lib/session/writes';
+import type { ApiResult } from '../src/lib/api/types';
 import type { Credential, RenewalOutcome } from '../src/lib/session/oidc';
 import {
 	CYBERDYNE_SUBJECT,
@@ -240,5 +248,163 @@ describe('renewing before the access token lapses', () => {
 		}).watch(refresher({ kind: 'unavailable', message: '' }).refresh);
 
 		expect(planned).toEqual([]);
+	});
+});
+
+/** A scheduler that records what was planned and runs it on demand. */
+function plannedRuns() {
+	const planned: { run: () => void; delay: number; cancelled: boolean }[] = [];
+	return {
+		planned,
+		schedule: (run: () => void, delay: number) => {
+			const entry = { run, delay, cancelled: false };
+			planned.push(entry);
+			return () => void (entry.cancelled = true);
+		},
+		live: () => planned.filter((entry) => !entry.cancelled)
+	};
+}
+
+describe('an access token the API refused before its renewal fired', () => {
+	it('keeps the refresh token when the session expires, so it can still be renewed (regression)', () => {
+		const store = signedIn();
+
+		store.expire();
+
+		expect(store.current().kind).toBe('expired');
+		expect(store.refreshToken()).toBe('rt-1');
+		expect(store.renewalDue(RENEWAL_LEAD_MS)).toBe(true);
+	});
+
+	it('is renewed and the write re-sent under its key, with no prompt (regression)', async () => {
+		const store = signedIn();
+		const next = renewed();
+		const { refresh, asked } = refresher({ kind: 'renewed', credential: next });
+		const renewal = new SessionRenewal(store, { now: () => NOW, schedule: plannedRuns().schedule });
+		renewal.watch(refresh);
+		const gate = new WriteGate(store, () => renewal.renewNow());
+		const refusedOnce: ApiResult<{ revision: string }>[] = [
+			{ ok: false, failure: { kind: 'unauthenticated', identifier: 'auth.expired', message: '', subject: null, correlationId: null } },
+			{ ok: true, data: { revision: 'r1' }, freshness: null }
+		];
+		const keys: string[] = [];
+		const write = heldWrite({
+			describe: 'Your annotation',
+			payload: 'text',
+			send: async (key) => {
+				keys.push(key);
+				return refusedOnce[keys.length - 1];
+			}
+		});
+
+		const submitted = await gate.submit(write);
+
+		expect(asked).toEqual(['rt-1']);
+		expect(submitted.kind).toBe('completed');
+		expect(gate.held()).toBeNull();
+		expect(keys).toEqual([write.key, write.key]);
+		expect(store.token()).toBe(next.accessToken);
+	});
+
+	it('still holds the write when the refresh token is refused too', async () => {
+		const store = signedIn();
+		const { refresh } = refresher({ kind: 'refused', message: 'revoked' });
+		const renewal = new SessionRenewal(store, { now: () => NOW, schedule: plannedRuns().schedule });
+		renewal.watch(refresh);
+		const gate = new WriteGate(store, () => renewal.renewNow());
+		const write = heldWrite({
+			describe: 'Your annotation',
+			payload: 'text',
+			send: async () =>
+				({ ok: false, failure: { kind: 'unauthenticated', identifier: 'auth.expired', message: '', subject: null, correlationId: null } }) as ApiResult<never>
+		});
+
+		const submitted = await gate.submit(write);
+
+		expect(submitted.kind).toBe('held');
+		expect(store.current().kind).toBe('expired');
+		expect(store.refreshToken()).toBeNull();
+	});
+});
+
+describe('a renewal the identity service did not answer', () => {
+	it('is tried again later rather than left to lapse (regression)', async () => {
+		const nearlyLapsed = () => NOW + 14.5 * 60 * 1000;
+		const store = signedIn(memoryStorage(), nearlyLapsed);
+		const scheduler = plannedRuns();
+		const answers: RenewalOutcome[] = [
+			{ kind: 'unavailable', message: 'down' },
+			{ kind: 'renewed', credential: renewed() }
+		];
+		const asked: string[] = [];
+		const refresh: Refresher = async (token) => answers[asked.push(token) - 1];
+		const renewal = new SessionRenewal(store, { now: nearlyLapsed, schedule: scheduler.schedule });
+		renewal.watch(refresh);
+
+		await renewal.ensureFresh(refresh);
+		const retry = scheduler.live().at(-1)!;
+		expect(retry.delay).toBe(RENEWAL_RETRY_MS);
+
+		retry.run();
+		await vi.waitFor(() => expect(store.refreshToken()).toBe('rt-2'));
+		expect(asked).toEqual(['rt-1', 'rt-1']);
+	});
+
+	it('plans a renewal for an expired session that can still be renewed', () => {
+		const store = signedIn();
+		const scheduler = plannedRuns();
+		new SessionRenewal(store, { now: () => NOW, schedule: scheduler.schedule }).watch(
+			refresher({ kind: 'renewed', credential: renewed() }).refresh
+		);
+
+		store.expire();
+
+		expect(scheduler.live().map((entry) => entry.delay)).toEqual([RENEWAL_RETRY_MS]);
+	});
+});
+
+describe('two tabs holding one rotating refresh token', () => {
+	/** Two tabs' channels: one lock between them, and each hears what the other announces. */
+	function sharedChannels(): [RenewalChannel, RenewalChannel] {
+		let queue: Promise<void> = Promise.resolve();
+		const listeners: ((spent: string, credential: Credential) => void)[][] = [[], []];
+		const channel = (self: number): RenewalChannel => ({
+			exclusive(task) {
+				const turn = queue.then(task);
+				queue = turn.catch(() => {});
+				return turn;
+			},
+			announce(spent, credential) {
+				for (const heard of listeners[1 - self]) heard(spent, credential);
+			},
+			listen(heard) {
+				listeners[self].push(heard);
+				return () => {};
+			}
+		});
+		return [channel(0), channel(1)];
+	}
+
+	it('spends it once: the second tab adopts what the first was given (regression)', async () => {
+		const nearlyLapsed = () => NOW + 14.5 * 60 * 1000;
+		const storageA = memoryStorage();
+		signedIn(storageA, nearlyLapsed);
+		const storageB = memoryStorage();
+		storageB.write(SESSION_KEY, storageA.read(SESSION_KEY)!); // a duplicated tab
+		const first = new SessionStore({ storage: storageA, now: nearlyLapsed });
+		const second = new SessionStore({ storage: storageB, now: nearlyLapsed });
+		const [channelA, channelB] = sharedChannels();
+		const next = renewed();
+		const { refresh, asked } = refresher({ kind: 'renewed', credential: next });
+		const renewalA = new SessionRenewal(first, { now: nearlyLapsed, channel: channelA, schedule: plannedRuns().schedule });
+		const renewalB = new SessionRenewal(second, { now: nearlyLapsed, channel: channelB, schedule: plannedRuns().schedule });
+		renewalA.watch(refresh);
+		renewalB.watch(refresh);
+
+		await Promise.all([renewalA.ensureFresh(refresh), renewalB.ensureFresh(refresh)]);
+
+		expect(asked).toEqual(['rt-1']);
+		expect(second.refreshToken()).toBe('rt-2');
+		expect(second.token()).toBe(next.accessToken);
 	});
 });

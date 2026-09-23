@@ -14,6 +14,9 @@
 - [x] 2.3 Renew with the refresh token shortly before the access token lapses, once at a time, replacing the rotated token; verify rotation, the single in-flight renewal, the `expired` fallback on refusal and no change on an outage
 - [x] 2.4 Sign out of the identity service after the local sign-out, with `client_id` and `id_token_hint`, and a post-logout redirect only when configured
 - [x] 2.5 Name the acting identity from the id token; verify with a CyberdyneAuth-shaped access token that carries no name or email
+- [x] 2.6 Bound every request to the issuer with a timeout, fall back to the last good discovery document for up to a day, share one discovery read between concurrent callers, and compare the issuer exactly; verify a hung issuer answers `502`/outage and a trailing-slash issuer is refused
+- [x] 2.7 On a refused access token, renew silently and re-send the write once before holding it; keep the refresh token on `expire()`, retry a renewal the issuer did not answer, and serialise renewals across tabs (Web Lock + `BroadcastChannel`); verify each
+- [x] 2.8 Post the identity-token hint to `/auth/end-session` in the body, not the query string
 
 ## 3. Stack and documents
 

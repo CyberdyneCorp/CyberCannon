@@ -10,7 +10,9 @@
  * idempotency key it will be sent under, and it can be sent more than once:
  *
  * 1. the write is submitted and the surface answers `unauthenticated`;
- * 2. the session moves to `expired` — keeping *who*, so the prompt can name
+ *    if the session can be renewed silently (a refresh token), it is, and the
+ *    write is sent once more under the same key — no prompt at all;
+ * 2. otherwise the session moves to `expired` — keeping *who*, so the prompt can name
  *    them — and the write is **held**, payload intact;
  * 3. re-authentication is offered *in place*: no navigation, no unmount, the
  *    input still on screen;
@@ -84,13 +86,18 @@ export type HeldListener = (held: HeldWrite<unknown> | null) => void;
  * simplification: the person is looking at one screen, typing one thing, and a
  * queue of held writes would be a queue of prompts nobody can reason about.
  */
+/** Renews the session without asking anyone; resolves to whether it worked. */
+export type SilentRenewal = () => Promise<boolean>;
+
 export class WriteGate {
 	#held: HeldWrite<unknown> | null = null;
 	readonly #listeners = new Set<HeldListener>();
 	readonly #session: SessionStore;
+	readonly #renew: SilentRenewal;
 
-	constructor(session: SessionStore) {
+	constructor(session: SessionStore, renew: SilentRenewal = async () => false) {
 		this.#session = session;
+		this.#renew = renew;
 	}
 
 	/** The write waiting for a credential, or `null` when nothing is waiting. */
@@ -111,10 +118,18 @@ export class WriteGate {
 	 * A refusal for any other reason is an answer the screen has to show —
 	 * holding a `forbidden` would offer re-authentication to a person whose
 	 * credential is perfectly valid and whose role simply does not allow it.
+	 *
+	 * An `unauthenticated` answer is first met with a silent renewal: an access
+	 * token that lapsed while its renewal timer slept is not a reason to
+	 * interrupt anybody. The write is re-sent once, under its key, so a first
+	 * attempt that did land is answered rather than duplicated.
 	 */
 	async submit<T>(write: HeldWrite<T>): Promise<Submission<T>> {
-		const result = await write.send(write.key);
-		if (!result.ok && result.failure.kind === 'unauthenticated') {
+		let result = await write.send(write.key);
+		if (unauthenticated(result) && (await this.#renew().catch(() => false))) {
+			result = await write.send(write.key);
+		}
+		if (unauthenticated(result)) {
 			this.#session.expire();
 			this.#hold(write as HeldWrite<unknown>);
 			return { kind: 'held', write, message: EXPIRED_MESSAGE };
@@ -161,6 +176,10 @@ export class WriteGate {
 		this.#held = write;
 		for (const listener of this.#listeners) listener(write);
 	}
+}
+
+function unauthenticated(result: ApiResult<unknown>): boolean {
+	return !result.ok && result.failure.kind === 'unauthenticated';
 }
 
 /**

@@ -19,7 +19,7 @@
 	import { goto } from '$app/navigation';
 	import { actingIdentity, sessionStore, type Session } from '$lib/session/session';
 	import { currentAddress, HOME, signInAddress } from '$lib/session/intent';
-	import { endSessionAddress } from '$lib/session/oidc';
+	import { endSessionForm, type PostedForm } from '$lib/session/oidc';
 	import { writeGate } from '$lib/session';
 	import { signInConfiguration } from '$lib/config';
 
@@ -35,8 +35,24 @@
 		writeGate.discard();
 		sessionStore.signOut();
 		const configuration = signInConfiguration(page.url.origin);
-		if (configuration) globalThis.location.assign(endSessionAddress(configuration, idToken));
+		if (configuration) post(endSessionForm(configuration, idToken));
 		else goto(HOME, { invalidateAll: true });
+	}
+
+	/** A top-level form post: the identity token travels in the body, not the address. */
+	function post({ action, fields }: PostedForm): void {
+		const form = document.createElement('form');
+		form.method = 'POST';
+		form.action = action;
+		for (const [name, value] of Object.entries(fields)) {
+			const input = document.createElement('input');
+			input.type = 'hidden';
+			input.name = name;
+			input.value = value;
+			form.append(input);
+		}
+		document.body.append(form);
+		form.submit();
 	}
 </script>
 

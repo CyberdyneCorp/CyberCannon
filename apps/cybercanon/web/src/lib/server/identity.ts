@@ -10,12 +10,18 @@
  *
  * * the discovery document is read from `<issuer>/.well-known/openid-configuration`,
  *   its `issuer` checked against the configured one, and the result cached;
+ *   when a later read fails, the last good endpoints are used for up to a day
+ *   rather than breaking sign-in over one transient failure;
  * * the token exchange is relayed: the browser posts its form to this
  *   application's origin and the form is forwarded to the discovered token
  *   endpoint. It stays a **public** client's exchange — the proof key is the
  *   browser's, no secret is added, and nothing is kept. The relay forwards the
  *   two grants a browser uses and the fields they need, and sets the client id
  *   itself, so it is not a general-purpose proxy to the issuer.
+ *
+ * Every request to the issuer is bounded by {@link ISSUER_TIMEOUT_MS}: an issuer
+ * that accepts the connection and never answers is an outage, reported as one
+ * within seconds, not a request that hangs until the runtime gives up.
  *
  * `CANON_AUTH_INTERNAL_URL` is for a server that reaches the issuer at another
  * address than the browser does — the end-to-end stack, where the browser sees
@@ -31,6 +37,12 @@ export const DISCOVERY_PATH = '/.well-known/openid-configuration';
 
 /** How long a discovery document is trusted before it is read again. */
 export const DISCOVERY_TTL_MS = 10 * 60 * 1000;
+
+/** How long the last good document is still used when reading it again fails. */
+export const DISCOVERY_MAX_STALE_MS = 24 * 60 * 60 * 1000;
+
+/** How long any one request to the issuer may take before it counts as unanswered. */
+export const ISSUER_TIMEOUT_MS = 5_000;
 
 const RELAYED_GRANTS: ReadonlySet<string> = new Set(['authorization_code', 'refresh_token']);
 const RELAYED_FIELDS = ['grant_type', 'code', 'redirect_uri', 'code_verifier', 'refresh_token'];
@@ -74,10 +86,13 @@ export function identityService(values: Environment = environment()): IdentitySe
  *
  * The issuer check is OpenID Connect Discovery §4.3: a document that describes
  * some other issuer is not a description of this one, whatever address served it.
+ * The comparison is exact — only the configured value is trimmed — because the
+ * document's issuer is what every token's `iss` will say, and the API compares
+ * that exactly: `https://x/` and `https://x` are two issuers.
  */
 export function endpointsFrom(document: unknown, issuer: string): IssuerEndpoints {
 	const described = (document ?? {}) as Record<string, unknown>;
-	const named = typeof described.issuer === 'string' ? withoutSlash(described.issuer) : '';
+	const named = typeof described.issuer === 'string' ? described.issuer : '';
 	if (named !== issuer) {
 		throw new DiscoveryFailed(`the discovery document names issuer "${named}", not "${issuer}"`);
 	}
@@ -92,10 +107,12 @@ export function endpointsFrom(document: unknown, issuer: string): IssuerEndpoint
 /** Read and check the discovery document. Throws {@link DiscoveryFailed}, and nothing else. */
 export async function discover(
 	service: IdentityService,
-	fetcher: typeof globalThis.fetch
+	fetcher: typeof globalThis.fetch,
+	timeoutMs: number = ISSUER_TIMEOUT_MS
 ): Promise<IssuerEndpoints> {
 	const response = await fetcher(`${service.reachedAt}${DISCOVERY_PATH}`, {
-		headers: { Accept: 'application/json' }
+		headers: { Accept: 'application/json' },
+		signal: AbortSignal.timeout(timeoutMs)
 	}).catch((failure: unknown) => {
 		throw new DiscoveryFailed(`the identity service could not be reached (${reason(failure)})`);
 	});
@@ -105,21 +122,54 @@ export async function discover(
 	return endpointsFrom(await response.json().catch(() => null), service.issuer);
 }
 
-/** Discovery, remembered for a while. Only a document that checked out is remembered. */
+/**
+ * Discovery, remembered for a while. Only a document that checked out is remembered.
+ *
+ * Concurrent callers share one read. A read that fails after the document went
+ * stale falls back to the last good endpoints for up to
+ * {@link DISCOVERY_MAX_STALE_MS}: an issuer's endpoints almost never move, and
+ * one failed read should not take sign-in, renewal and sign-out down with it.
+ */
 export class Discovery {
-	#held: { issuer: string; endpoints: IssuerEndpoints; until: number } | null = null;
+	#held: { issuer: string; endpoints: IssuerEndpoints; readAt: number } | null = null;
+	#reading: { issuer: string; promise: Promise<IssuerEndpoints> } | null = null;
 	readonly #now: () => number;
 
 	constructor(now: () => number = () => Date.now()) {
 		this.#now = now;
 	}
 
-	async endpoints(service: IdentityService, fetcher: typeof globalThis.fetch): Promise<IssuerEndpoints> {
-		const held = this.#held;
-		if (held && held.issuer === service.issuer && held.until > this.#now()) return held.endpoints;
-		const endpoints = await discover(service, fetcher);
-		this.#held = { issuer: service.issuer, endpoints, until: this.#now() + DISCOVERY_TTL_MS };
-		return endpoints;
+	endpoints(service: IdentityService, fetcher: typeof globalThis.fetch): Promise<IssuerEndpoints> {
+		const held = this.#heldFor(service.issuer);
+		if (held && this.#age(held) < DISCOVERY_TTL_MS) return Promise.resolve(held.endpoints);
+		if (this.#reading?.issuer !== service.issuer) {
+			const promise = this.#read(service, fetcher).finally(() => {
+				if (this.#reading?.promise === promise) this.#reading = null;
+			});
+			this.#reading = { issuer: service.issuer, promise };
+		}
+		return this.#reading.promise;
+	}
+
+	async #read(service: IdentityService, fetcher: typeof globalThis.fetch): Promise<IssuerEndpoints> {
+		try {
+			const endpoints = await discover(service, fetcher);
+			this.#held = { issuer: service.issuer, endpoints, readAt: this.#now() };
+			return endpoints;
+		} catch (failure) {
+			const held = this.#heldFor(service.issuer);
+			if (!held || this.#age(held) >= DISCOVERY_MAX_STALE_MS) throw failure;
+			console.warn(`identity: using the last good discovery document (${reason(failure)})`);
+			return held.endpoints;
+		}
+	}
+
+	#heldFor(issuer: string) {
+		return this.#held?.issuer === issuer ? this.#held : null;
+	}
+
+	#age(held: { readAt: number }): number {
+		return this.#now() - held.readAt;
 	}
 }
 

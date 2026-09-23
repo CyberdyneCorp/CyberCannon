@@ -147,17 +147,26 @@ export class SessionStore {
 	}
 
 	/**
-	 * The credential is no longer accepted — keep who, drop what.
+	 * The access token is no longer accepted — keep who, and what can renew it.
 	 *
 	 * Called when the surface answers `unauthenticated`, which is the only
 	 * authority on the question: a clock skew between a browser and an issuer is
 	 * not a reason to throw a person out of a session the API still honours.
+	 *
+	 * The refresh token survives it. An access token can lapse before its renewal
+	 * fires — a laptop that slept, a throttled background tab — and that is a
+	 * renewal to make, not a person to interrupt; `renewal.ts` spends it, and
+	 * only a refusal of it ({@link revoke}) leaves nothing to renew with.
 	 */
 	expire(): Session {
-		const identity = this.identity();
-		this.#credential = null;
-		this.#storage.remove(SESSION_KEY);
-		return this.#moveTo(identity ? { kind: 'expired', identity } : ANONYMOUS);
+		if (!this.refreshToken()) this.#forgetCredential();
+		return this.#moveTo(this.#expiredOrAnonymous());
+	}
+
+	/** The refresh token was refused: expire, with nothing left to renew with. */
+	revoke(): Session {
+		this.#forgetCredential();
+		return this.#moveTo(this.#expiredOrAnonymous());
 	}
 
 	/**
@@ -168,8 +177,7 @@ export class SessionStore {
 	 * is the scenario in so many words.
 	 */
 	signOut(): Session {
-		this.#credential = null;
-		this.#storage.remove(SESSION_KEY);
+		this.#forgetCredential();
 		this.#forget();
 		return this.#moveTo(ANONYMOUS);
 	}
@@ -194,6 +202,16 @@ export class SessionStore {
 		const session = this.#session;
 		if (session.kind !== 'active' || session.expiresAt === null) return false;
 		return session.expiresAt <= this.#now();
+	}
+
+	#expiredOrAnonymous(): Session {
+		const identity = this.identity();
+		return identity ? { kind: 'expired', identity } : ANONYMOUS;
+	}
+
+	#forgetCredential(): void {
+		this.#credential = null;
+		this.#storage.remove(SESSION_KEY);
 	}
 
 	#store(credential: Credential): void {

@@ -215,13 +215,19 @@ export async function refreshSession(
 	}
 }
 
+/** A form the browser posts: where to, and the fields it carries. */
+export interface PostedForm {
+	readonly action: string;
+	readonly fields: Readonly<Record<string, string>>;
+}
+
 /**
- * Where signing out sends the browser: this application's end-session relay,
- * carrying the identity token as the hint the identity service asks for.
+ * How signing out reaches the end-session relay: a posted form carrying the
+ * identity token as the hint. Posted rather than put in a query string, so the
+ * token stays out of access logs and browser history.
  */
-export function endSessionAddress(config: SignInConfig, idToken: string | null): string {
-	if (!idToken) return config.endpoints.endSession;
-	return `${config.endpoints.endSession}?${new URLSearchParams({ id_token_hint: idToken })}`;
+export function endSessionForm(config: SignInConfig, idToken: string | null): PostedForm {
+	return { action: config.endpoints.endSession, fields: idToken ? { id_token_hint: idToken } : {} };
 }
 
 /**

@@ -45,24 +45,25 @@ CyberCanon (§1), nothing can sign in, and the values of
 
 ### B2 — resolved: the web application asked CyberdyneAuth at paths it does not serve
 
-`apps/cybercanon/web/src/lib/config.ts` builds both endpoints from the issuer
-with **fixed paths**:
+Before the fix, `apps/cybercanon/web/src/lib/config.ts` built both endpoints
+from the issuer with **fixed paths** (since removed):
 
 ```ts
+// before the fix
 export const AUTHORIZE_PATH = '/authorize';
 export const TOKEN_PATH = '/oauth/token';
 ```
 
-Those are `tools/canon_issuer`'s paths. CyberdyneAuth publishes:
+Those were `tools/canon_issuer`'s paths. CyberdyneAuth publishes:
 
-| | Published | What the application asks for |
+| | Published | What the application asked for |
 |---|---|---|
 | authorization | `/api/v1/auth/oauth2/authorize` | `/authorize` → **404** |
 | token | `/api/v1/auth/oauth2/token` | `/oauth/token` → **404** |
 
-Both 404s were observed directly. **There is no value of
-`PUBLIC_CANON_AUTH_ISSUER` that fixes this**: any prefix that makes `/authorize`
-resolve leaves the token address wrong, because the two paths do not share a
+Both 404s were observed directly. **There was no value of
+`PUBLIC_CANON_AUTH_ISSUER` that fixed this**: any prefix that made `/authorize`
+resolve left the token address wrong, because the two paths do not share a
 suffix shape.
 
 **Resolved** (`openspec/changes/fix-web-oidc-discovery`). Fixing the paths
@@ -188,8 +189,9 @@ http://localhost:5173/signed-in                                   a developer ma
 ```
 
 Sign-out ends the CyberdyneAuth session too: after discarding the credential
-and the query cache, the browser goes to `end_session_endpoint` with `client_id`
-and `id_token_hint`. Without that, the next person on a shared machine was signed
+and the query cache, the browser posts the identity token to the application's
+`/auth/end-session`, which sends it on to `end_session_endpoint` with `client_id`
+and `id_token_hint` (posted, so the token stays out of access logs and history). Without that, the next person on a shared machine was signed
 straight back in as the previous one. **Still to register (human step):** the
 post-logout redirect URIs, one per origin plus `/`:
 

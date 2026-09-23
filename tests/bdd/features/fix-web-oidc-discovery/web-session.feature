@@ -16,6 +16,11 @@ Feature: web-session
       When it is read
       Then none of its endpoints SHALL be used
 
+    Scenario: A hung identity service is an outage, not a hang
+      Given an identity service that accepts connections and never answers
+      When a person starts signing in, or the session is renewed
+      Then sign-in or renewal SHALL be reported unavailable within the timeout
+
     Scenario: Unreadable discovery reports sign-in unavailable
       Given an issuer whose discovery document cannot be read
       When a person starts signing in
@@ -37,6 +42,23 @@ Feature: web-session
       When the session is renewed
       Then a new access token SHALL be in use without the person being asked anything
       And the rotated refresh token SHALL replace the spent one
+
+    Scenario: An access token refused before its renewal fired is renewed silently
+      Given a signed-in person with a refresh token whose access token the surface refuses
+      When they submit a write
+      Then the session SHALL be renewed and the write re-sent under its key
+      And no re-authentication SHALL be offered
+
+    Scenario: A renewal the identity service did not answer is retried
+      Given a renewal that the identity service did not answer
+      When the retry delay passes
+      Then the renewal SHALL be attempted again with the same refresh token
+
+    Scenario: A duplicated tab does not spend a rotated refresh token
+      Given two tabs of the application holding the same refresh token
+      When both are due to renew
+      Then the refresh token SHALL be spent once
+      And both tabs SHALL hold the renewed credential
 
     Scenario: A refused renewal falls back to in-place re-authentication
       Given a signed-in person whose refresh token is refused

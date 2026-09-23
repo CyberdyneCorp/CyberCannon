@@ -8,6 +8,12 @@
  * from here to the end-session endpoint the discovery document names, with the
  * client id and the identity token as the hint.
  *
+ * The browser **posts** the identity token here, in the body. A query string
+ * would put it — a signed token carrying the person's email — into the proxy's
+ * and this server's access logs and into browser history, on the way to an
+ * identity service that is the only party that needs it. A plain `GET` still
+ * signs out, with the client id alone, which CyberdyneAuth accepts.
+ *
  * `post_logout_redirect_uri` is added only when `CANON_AUTH_POST_LOGOUT_REDIRECT`
  * says the identity service has this origin registered for it; CyberdyneAuth
  * refuses an unregistered one outright, which would leave the person on an
@@ -25,15 +31,17 @@ import { discovery, endSessionUrl, identityService } from '$lib/server/identity'
 
 export const prerender = false;
 
-export const GET: RequestHandler = async ({ url, fetch }) => {
+export const POST: RequestHandler = async ({ request, url, fetch }) => {
+	const form = await request.formData().catch(() => null);
+	const hint = form?.get('id_token_hint');
+	return endSession(url, fetch, typeof hint === 'string' && hint ? hint : null);
+};
+
+export const GET: RequestHandler = ({ url, fetch }) => endSession(url, fetch, null);
+
+async function endSession(url: URL, fetch: typeof globalThis.fetch, idTokenHint: string | null): Promise<never> {
 	const service = identityService();
 	const endpoints = service ? await discovery.endpoints(service, fetch).catch(() => null) : null;
 	if (!service || !endpoints?.endSession) redirect(303, HOME);
-	redirect(
-		303,
-		endSessionUrl(service, endpoints.endSession, {
-			idTokenHint: url.searchParams.get('id_token_hint'),
-			origin: url.origin
-		})
-	);
-};
+	redirect(303, endSessionUrl(service, endpoints.endSession, { idTokenHint, origin: url.origin }));
+}

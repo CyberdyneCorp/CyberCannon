@@ -24,7 +24,7 @@ import {
 	WRONG_STATE,
 	beginSignIn,
 	completeSignIn,
-	endSessionAddress,
+	endSessionForm,
 	fetchTransport,
 	refreshSession,
 	takePending,
@@ -491,15 +491,16 @@ describe('renewing a session with its refresh token', () => {
 });
 
 describe('signing out of the identity service', () => {
-	it('goes to the end-session relay with the identity token as the hint', () => {
-		const address = new URL(endSessionAddress(CONFIG, 'the-id-token'));
+	it('posts to the end-session relay, with the identity token in the body rather than the address', () => {
+		const form = endSessionForm(CONFIG, 'the-id-token');
 
-		expect(address.origin + address.pathname).toBe(CONFIG.endpoints.endSession);
-		expect(address.searchParams.get('id_token_hint')).toBe('the-id-token');
+		expect(form.action).toBe(CONFIG.endpoints.endSession);
+		expect(form.action).not.toContain('the-id-token');
+		expect(form.fields).toEqual({ id_token_hint: 'the-id-token' });
 	});
 
 	it('still goes there when there is no identity token to hint with', () => {
-		expect(endSessionAddress(CONFIG, null)).toBe(CONFIG.endpoints.endSession);
+		expect(endSessionForm(CONFIG, null)).toEqual({ action: CONFIG.endpoints.endSession, fields: {} });
 	});
 });
 

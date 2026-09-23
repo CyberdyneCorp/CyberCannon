@@ -29,6 +29,7 @@ vi.mock('$env/dynamic/public', () => ({
 vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
 const {
+	DISCOVERY_MAX_STALE_MS,
 	DISCOVERY_PATH,
 	DISCOVERY_TTL_MS,
 	Discovery,
@@ -42,7 +43,7 @@ const {
 } = await import('../src/lib/server/identity');
 const { GET: authorize } = await import('../src/routes/auth/authorize/+server');
 const { POST: token } = await import('../src/routes/auth/token/+server');
-const { GET: endSession } = await import('../src/routes/auth/end-session/+server');
+const { GET: endSession, POST: endSessionPosted } = await import('../src/routes/auth/end-session/+server');
 
 const ORIGIN = 'https://canon.backend.coolify.cyberdynecorp.ai';
 const CLIENT = 'cyb_5UIdba7PWtBo1MmH';
@@ -88,11 +89,33 @@ const unreachable = (async () => {
 	throw new TypeError('fetch failed: ECONNREFUSED');
 }) as unknown as typeof fetch;
 
+/**
+ * An issuer that accepts the connection and never answers: the request only
+ * ends when its abort signal fires.
+ */
+function hangingAt(issuer: string, options: { discovers?: boolean } = {}): typeof fetch {
+	return (async (input: string, init?: RequestInit) => {
+		if (options.discovers && String(input).endsWith(DISCOVERY_PATH)) return Response.json(document(issuer));
+		return new Promise((_resolve, reject) => {
+			const signal = init?.signal;
+			if (!signal) return; // no timeout at all: hangs for ever, and the test times out
+			signal.addEventListener('abort', () => reject(signal.reason));
+		});
+	}) as unknown as typeof fetch;
+}
+
+/** Every issuer timeout, shortened so a test of a hung issuer takes milliseconds. */
+function shortTimeouts(): void {
+	const original = AbortSignal.timeout.bind(AbortSignal);
+	vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => original(20));
+}
+
 /** Each test gets its own issuer, so the process-wide discovery cache cannot carry answers between them. */
 let issuer = '';
 let counter = 0;
 
 beforeEach(() => {
+	vi.restoreAllMocks();
 	counter += 1;
 	issuer = `https://auth-${counter}.cyberdynecorp.ai`;
 	environment.values = { PUBLIC_CANON_AUTH_ISSUER: issuer, PUBLIC_CANON_AUTH_CLIENT_ID: CLIENT };
@@ -125,6 +148,12 @@ describe('reading the identity service’s discovery document', () => {
 		);
 	});
 
+	it('compares the issuer exactly: a trailing slash in the document is another issuer', () => {
+		expect(() => endpointsFrom(document('https://auth.example/'), 'https://auth.example')).toThrow(
+			DiscoveryFailed
+		);
+	});
+
 	it('refuses a document with no token endpoint', () => {
 		expect(() =>
 			endpointsFrom(document('https://auth.example', { token_endpoint: undefined }), 'https://auth.example')
@@ -150,6 +179,41 @@ describe('reading the identity service’s discovery document', () => {
 
 	it('fails as DiscoveryFailed, and only as that, when nothing answers', async () => {
 		await expect(discover(identityService()!, unreachable)).rejects.toThrow(DiscoveryFailed);
+	});
+
+	it('gives up on an issuer that never answers, as DiscoveryFailed (hung issuer regression)', async () => {
+		await expect(discover(identityService()!, hangingAt(issuer), 20)).rejects.toThrow(DiscoveryFailed);
+	});
+
+	it('bounds every discovery read with a timeout', async () => {
+		const { fetch, calls } = issuerAt(issuer);
+
+		await discover(identityService()!, fetch);
+
+		expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it('shares one read between callers that ask at the same time', async () => {
+		const cache = new Discovery(() => 0);
+		const { fetch, calls } = issuerAt(issuer);
+
+		await Promise.all([cache.endpoints(identityService()!, fetch), cache.endpoints(identityService()!, fetch)]);
+
+		expect(calls).toHaveLength(1);
+	});
+
+	it('keeps using the last good endpoints when reading them again fails, for up to a day', async () => {
+		let now = 0;
+		const cache = new Discovery(() => now);
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const first = await cache.endpoints(identityService()!, issuerAt(issuer).fetch);
+
+		now += DISCOVERY_TTL_MS + 1;
+		expect(await cache.endpoints(identityService()!, unreachable)).toEqual(first);
+		expect(warn).toHaveBeenCalled();
+
+		now = DISCOVERY_MAX_STALE_MS;
+		await expect(cache.endpoints(identityService()!, unreachable)).rejects.toThrow(DiscoveryFailed);
 	});
 
 	it('remembers a document for a while, and reads it again after', async () => {
@@ -244,6 +308,15 @@ describe('GET /auth/authorize', () => {
 		expect(back.searchParams.get('state')).toBe('the-state');
 	});
 
+	it('reports an outage within seconds when the issuer hangs, rather than hanging with it', async () => {
+		shortTimeouts();
+		const url = new URL(`${ORIGIN}/auth/authorize?${query}`);
+
+		const sent = await location(authorize({ url, fetch: hangingAt(issuer) } as never) as Promise<unknown>);
+
+		expect(new URL(sent.location ?? '', ORIGIN).searchParams.get('error')).toBe('temporarily_unavailable');
+	});
+
 	it('refuses to redirect anywhere when no identity service is configured', async () => {
 		environment.values = {};
 
@@ -303,6 +376,19 @@ describe('POST /auth/token (W2 regression)', () => {
 		expect(await response.json()).toMatchObject({ error: 'temporarily_unavailable' });
 	});
 
+	it('answers 502 temporarily_unavailable when the token endpoint hangs (hung issuer regression)', async () => {
+		shortTimeouts();
+
+		const response = await token({
+			request: posted(exchange),
+			url: new URL(`${ORIGIN}/auth/token`),
+			fetch: hangingAt(issuer, { discovers: true })
+		} as never);
+
+		expect(response.status).toBe(502);
+		expect(await response.json()).toMatchObject({ error: 'temporarily_unavailable' });
+	});
+
 	it('refuses a request from another origin', async () => {
 		const { fetch, calls } = issuerAt(issuer);
 
@@ -330,11 +416,22 @@ describe('POST /auth/token (W2 regression)', () => {
 	});
 });
 
-describe('GET /auth/end-session', () => {
-	it('sends the browser to the discovered end-session endpoint with the client and the hint', async () => {
-		const url = new URL(`${ORIGIN}/auth/end-session?id_token_hint=the-id-token`);
+describe('/auth/end-session', () => {
+	function signOutPosted(fields: Record<string, string>) {
+		return new Request(`${ORIGIN}/auth/end-session`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN },
+			body: new URLSearchParams(fields).toString()
+		});
+	}
 
-		const sent = await location(endSession({ url, fetch: issuerAt(issuer).fetch } as never) as Promise<unknown>);
+	it('sends the browser to the discovered end-session endpoint with the client and the posted hint', async () => {
+		const url = new URL(`${ORIGIN}/auth/end-session`);
+		const request = signOutPosted({ id_token_hint: 'the-id-token' });
+
+		const sent = await location(
+			endSessionPosted({ request, url, fetch: issuerAt(issuer).fetch } as never) as Promise<unknown>
+		);
 		const target = new URL(sent.location ?? '');
 
 		expect(target.origin + target.pathname).toBe(`${issuer}/api/v1/auth/oauth2/logout`);
@@ -342,6 +439,16 @@ describe('GET /auth/end-session', () => {
 		expect(target.searchParams.get('id_token_hint')).toBe('the-id-token');
 		// CyberdyneAuth refuses an unregistered post-logout address outright.
 		expect(target.searchParams.has('post_logout_redirect_uri')).toBe(false);
+	});
+
+	it('takes no identity token from the address, which access logs keep (regression)', async () => {
+		const url = new URL(`${ORIGIN}/auth/end-session?id_token_hint=the-id-token`);
+
+		const sent = await location(endSession({ url, fetch: issuerAt(issuer).fetch } as never) as Promise<unknown>);
+		const target = new URL(sent.location ?? '');
+
+		expect(target.searchParams.get('client_id')).toBe(CLIENT);
+		expect(target.searchParams.has('id_token_hint')).toBe(false);
 	});
 
 	it('asks to come back only when the deployment says the address is registered', () => {

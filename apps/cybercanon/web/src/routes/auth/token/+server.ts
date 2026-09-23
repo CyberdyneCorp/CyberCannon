@@ -12,12 +12,14 @@
  * uncached; this process keeps nothing. A request from another origin is
  * refused, and only the two grants a browser uses are forwarded.
  *
- * An issuer that cannot be reached is a 502 with an OAuth-shaped body, which the
+ * An issuer that cannot be reached, or does not answer within
+ * `ISSUER_TIMEOUT_MS`, is a 502 with an OAuth-shaped body, which the
  * browser reports as an outage rather than as a refusal.
  */
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
+	ISSUER_TIMEOUT_MS,
 	discovery,
 	identityService,
 	reachable,
@@ -54,7 +56,8 @@ async function relay(
 	const answered = await fetcher(reachable(service, token), {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-		body: new URLSearchParams(form).toString()
+		body: new URLSearchParams(form).toString(),
+		signal: AbortSignal.timeout(ISSUER_TIMEOUT_MS)
 	});
 	const body = await answered.json().catch(() => ({
 		error: 'invalid_response',

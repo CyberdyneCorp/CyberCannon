@@ -23,15 +23,17 @@ import { sessionStore } from './session';
 import { WriteGate } from './writes';
 import { SessionRenewal } from './renewal';
 
+/** The one renewal, for the one session: two would spend one rotating refresh token twice. */
+export const sessionRenewal = new SessionRenewal(sessionStore);
+
 /**
  * The one gate every write goes through.
  *
  * It is paired with the one session, because holding a write is only meaningful
  * against the session that expired underneath it — two gates would be two
  * answers to *"is there something waiting to be re-sent"*, which is the
- * question the prompt on screen is asking.
+ * question the prompt on screen is asking. It renews through the one renewal
+ * before it holds anything, so a lapsed access token with a live refresh token
+ * never reaches the prompt.
  */
-export const writeGate = new WriteGate(sessionStore);
-
-/** The one renewal, for the one session: two would spend one rotating refresh token twice. */
-export const sessionRenewal = new SessionRenewal(sessionStore);
+export const writeGate = new WriteGate(sessionStore, () => sessionRenewal.renewNow());

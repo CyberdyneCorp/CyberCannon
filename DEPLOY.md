@@ -162,8 +162,9 @@ https://canon-pre.backend.coolify.cyberdynecorp.ai/signed-in      pre-production
 http://localhost:5173/signed-in                                   a developer machine
 ```
 
-Sign-out also ends the CyberdyneAuth session: the browser goes to
-`end_session_endpoint` with `client_id` and `id_token_hint`, so the next person on
+Sign-out also ends the CyberdyneAuth session: the browser posts the identity
+token to `/auth/end-session`, which sends it on to `end_session_endpoint` with
+`client_id` and `id_token_hint`, so the next person on
 a shared machine is not signed straight back in. **Still to register:** one
 post-logout redirect URI per origin plus `/` (`https://canon.backend.coolify.cyberdynecorp.ai/`
 and the others). CyberdyneAuth refuses an unregistered one outright, so the
@@ -499,18 +500,19 @@ with `aud=cybercanon`.
 
 ### B2 — resolved: the web application asked CyberdyneAuth at paths it does not serve
 
-`apps/cybercanon/web/src/lib/config.ts` builds both endpoints from the issuer
-with **fixed paths**:
+Before the fix, `apps/cybercanon/web/src/lib/config.ts` built both endpoints
+from the issuer with **fixed paths** (since removed):
 
 ```ts
+// before the fix
 export const AUTHORIZE_PATH = '/authorize';
 export const TOKEN_PATH = '/oauth/token';
 ```
 
-Those are `tools/canon_issuer`'s paths. CyberdyneAuth publishes
+Those were `tools/canon_issuer`'s paths. CyberdyneAuth publishes
 `/api/v1/auth/oauth2/authorize` and `/api/v1/auth/oauth2/token`; both fixed
-paths were observed to 404. **There is no value of `PUBLIC_CANON_AUTH_ISSUER`
-that fixes this** — any prefix that makes `/authorize` resolve leaves the token
+paths were observed to 404. **There was no value of `PUBLIC_CANON_AUTH_ISSUER`
+that fixed this** — any prefix that made `/authorize` resolve left the token
 address wrong, because the two published paths do not share a suffix shape.
 
 **Resolved** (`openspec/changes/fix-web-oidc-discovery`). The fixed paths are
