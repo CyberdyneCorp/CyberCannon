@@ -533,6 +533,40 @@ the contract, and a text box invites a file that parses and means nothing.
 status then *means* an export passed, rather than meaning someone clicked. It is
 the same closed loop as sockets and clips, applied to the lifecycle.
 
+## Visual language — neo-brutalism
+
+> **Decision, recorded 2026-09-23.** This supersedes the earlier assumption that
+> the web application would be built on `@cyberdynecorp/svelte-ui-core`.
+
+CyberCanon's visual language is **neo-brutalism**: heavy borders, hard offset
+shadows, flat saturated colour, no gradients, no soft radii. The tokens come
+from the project's own design source and live in one place.
+
+**Why this and not the Cyberdyne design system.** The shared system is
+dark-first and cyberpunk, and the packages were never installed here — task 1.2
+has been open since the shell was built, waiting on private-registry
+credentials, which means the `D4` test that was meant to stop a local component
+reimplementing a design-system primitive has been guarding nothing. Rather than
+leave the specification asserting one thing while the repository does another,
+the divergence is recorded as a decision.
+
+**Consequences:**
+
+- `add-web-app-shell` task 1.2 and design decision D4 are superseded by this
+  section. The D4 test becomes a check that components consume the **project's
+  own tokens** rather than hard-coding a colour, a font or a shadow.
+- **Tokens live in exactly one file.** A component that writes a hex value, a
+  font stack, a border width or a shadow offset inline is a bug, and the check
+  is mechanical rather than a review habit.
+- **Neo-brutalism is a style, not an excuse.** Every requirement the shell
+  already carries still holds: the closed route-state set, a partial result
+  never presented as complete, attribution visible on every screen, and an
+  expiring session never destroying unsaved work. A restyle that loses a
+  disclosure has broken the product, not improved it.
+- **The contrast obligation is higher, not lower.** Flat saturated colour on
+  flat saturated colour fails legibility easily, and this interface is read on
+  an iPad in a studio. Every text-on-background pair meets WCAG AA.
+
 ## Planned Changes
 
 | # | Change | Capabilities | Status |
