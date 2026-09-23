@@ -135,6 +135,13 @@ def identity_provider(
     that already decides it (`CANON_PROJECT`). A verifier told no project
     entitles nobody to anything, which is the fail-closed direction.
 
+    The trust carries one more list than it used to: the service clients whose
+    background work this deployment admits. Nothing in a service credential says
+    whose machine it is — `type: service` says only that it is a machine — so a
+    deployment that lists none admits none, and its own worker is refused until
+    `CANON_AUTH_SERVICE_CLIENTS` names it. That is the fail-closed direction and
+    it is the same one `project` and `organisation` fail in.
+
     `source`, `policy` and `clock` are parameters so that a suite can drive an
     issuer that stops answering, and a window that expires, without a socket and
     without waiting; a deployment passes none of them and gets the published key
@@ -156,6 +163,7 @@ def identity_provider(
             audience=identity.audience,
             client_id=identity.client_id,
             organisation=identity.organisation,
+            service_clients=tuple(identity.service_clients),
         ),
         keys=keys,
         project=project,
@@ -193,6 +201,13 @@ def worker_credentials(
     product has already posted one grant into a 404 by appending a path it
     believed in. Nothing is retrieved at construction — :class:`IssuerEndpoints`
     reads the document the first time a credential is actually asked for.
+
+    Obtaining a credential and being admitted with it are two settings, and a
+    deployment can set one without the other. `CANON_AUTH_SERVICE_CLIENTS` has
+    to list this same client id, or the credential this exchange obtains is
+    refused by the verifier and :func:`background_identity` falls back to plain
+    `automation` — a quiet degradation rather than an outage, and the reason the
+    verifier's refusal names the variable.
 
     The secret reaches the exchange and nothing else. It is a
     :class:`~cybercanon.adapters.wiring.configuration.Secret` everywhere it is

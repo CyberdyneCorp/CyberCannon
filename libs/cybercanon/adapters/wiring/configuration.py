@@ -232,6 +232,21 @@ def origins(raw: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(listed))
 
 
+def client_ids(raw: str) -> tuple[str, ...]:
+    """A comma-separated list of client identifiers, deduplicated, order kept.
+
+    Used by `CANON_AUTH_SERVICE_CLIENTS`, whose contents decide which background
+    work this deployment trusts, so it reads strictly: a value that separates
+    nothing — `,` or `, ,` — is a configuration error rather than an empty list,
+    because somebody who wrote it meant to list something. *Unset* is the empty
+    list and is a different statement: this deployment admits no automation.
+    """
+    listed = [entry.strip() for entry in raw.split(GROUP_SEPARATOR) if entry.strip()]
+    if not listed:
+        raise ValueError("expected at least one client id")
+    return tuple(dict.fromkeys(listed))
+
+
 def group_roles(declared: str) -> Mapping[str, str]:
     """`group=ROLE,group=ROLE` as a mapping, with no opinion about either side.
 
@@ -289,6 +304,7 @@ AUTH_ISSUER = "CANON_AUTH_ISSUER"
 AUTH_AUDIENCE = "CANON_AUTH_AUDIENCE"
 AUTH_CLIENT_ID = "CANON_AUTH_CLIENT_ID"
 AUTH_ORG_ID = "CANON_AUTH_ORG_ID"
+AUTH_SERVICE_CLIENTS = "CANON_AUTH_SERVICE_CLIENTS"
 AUTH_KEY_SET_URL = "CANON_AUTH_KEY_SET_URL"
 AUTH_KEY_CACHE_TTL = "CANON_AUTH_KEY_CACHE_TTL_S"
 GROUP_ROLES = "CANON_AUTH_GROUP_ROLES"
@@ -330,6 +346,13 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(AUTH_KEY_SET_URL, "a URL of the form scheme://host/path", read=url),
     Setting(GROUP_ROLES, "a list of `role=ROLE` pairs", read=_pairs),
     Setting(AUTH_KEY_CACHE_TTL, "a whole number of seconds", read=seconds, required=False),
+    Setting(
+        AUTH_SERVICE_CLIENTS,
+        "a comma-separated list of service client ids",
+        read=client_ids,
+        required=False,
+        default=(),
+    ),
     Setting(WORKER_CLIENT_ID, "the client background work signs in as", required=False, default=""),
     Setting(
         WORKER_CLIENT_SECRET,
@@ -493,6 +516,16 @@ class IdentityConfig:
     their `orgs` claim carries `organisation`, which is an identifier in the
     identity service's database: writing one into this repository would tie the
     product to one studio and would have to be edited by the second.
+
+    `service_clients` is the same kind of fact for the callers that are not
+    people. A `type: service` token asserts only that there is no person behind
+    it, and the issuer mints those for every client it knows — one registered
+    with no audience restriction may request this deployment's audience and be
+    given it. So this list, and not the token, is what says whose background
+    work runs here. **Empty admits nothing**: a deployment that has not named
+    its automation has none, and the refusal names the variable rather than
+    reading as a broken credential. The other reading — empty admitting anything
+    — is the defect this setting exists to close.
     """
 
     issuer: str
@@ -501,6 +534,7 @@ class IdentityConfig:
     group_roles: Mapping[str, str]
     client_id: str = ""
     organisation: str = ""
+    service_clients: tuple[str, ...] = ()
     key_cache_ttl: timedelta = DEFAULT_KEY_CACHE_TTL
 
 
@@ -708,6 +742,7 @@ def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
             group_roles=values[GROUP_ROLES],
             client_id=values[AUTH_CLIENT_ID],
             organisation=values[AUTH_ORG_ID],
+            service_clients=tuple(values[AUTH_SERVICE_CLIENTS] or ()),
             key_cache_ttl=values[AUTH_KEY_CACHE_TTL] or DEFAULT_KEY_CACHE_TTL,
         ),
         worker=WorkerConfig(
@@ -804,6 +839,7 @@ __all__ = [
     "Setting",
     "StorageConfig",
     "WorkerConfig",
+    "client_ids",
     "group_roles",
     "load",
     "missing_from",

@@ -314,7 +314,7 @@ makes a write-back either commit and push inside the drain window or time out
 and reset the working copy — never leave a half-applied edit on the volume.
 Coolify's **stop grace period must be `CANON_DRAIN_WINDOW_S`**, the same number.
 
-### `api` — the seventeen whose absence is a feature being off
+### `api` — the eighteen whose absence is a feature being off
 
 Absent means the feature is off, or that the default applies — not that the
 deployment is broken. The service starts and reports the feature **unavailable**
@@ -323,6 +323,7 @@ on `/status`.
 | Variable | | Default | Note |
 |---|:--:|---|---|
 | `CANON_AUTH_KEY_CACHE_TTL_S` | | 900 | how long cached signing keys keep verifying while CyberdyneAuth is unreachable (D8). An outage then costs new sign-ins and nothing else |
+| `CANON_AUTH_SERVICE_CLIENTS` | | — | the service clients whose background work this deployment admits, comma-separated. A `type: service` credential is accepted **only** when the client named by its `sub` (`client:<id>`) is on this list, matched exactly; a `client_id` claim that disagrees with `sub` refuses the credential rather than overriding it. **Unset admits nothing**, which is the fail-closed reading on purpose: unset meaning *anything* would let any client-credentials client on the shared issuer authenticate here as trusted automation. Set it together with the worker pair below — that pair says which client our worker signs in as, this says which clients are trusted, and setting only the pair means the worker's own credential is refused and the pass is recorded as plain `automation` |
 | `CANON_WORKER_CLIENT_ID` | | — | the client-credentials client background work signs in as. With it, the scheduled pass obtains a service credential of its own; without it the pass runs and is recorded as `automation`. A **pair** with the row below |
 | `CANON_WORKER_CLIENT_SECRET` | 🔒 | — | that client's secret, held as a secret everywhere — it reaches the token exchange and never a log line, a refusal or a traceback |
 | `CANON_WORKING_COPIES` | | `/data/worktrees` | leave unset; the manifest mounts the volume there |

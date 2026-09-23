@@ -72,6 +72,23 @@ applications:
         - CANON_DRAIN_WINDOW_S
       optional:
         - CANON_AUTH_KEY_CACHE_TTL_S
+        # Whose background work this deployment admits: a comma-separated list
+        # of service client ids. A `type: service` token says only that there is
+        # no person behind it, and CyberdyneAuth mints one for every client it
+        # knows — a client registered with no allowed_audiences may ask for this
+        # deployment's audience and be given it. So this list, and nothing in
+        # the token, is what says whose automation runs here.
+        #
+        # UNSET ADMITS NOTHING, on purpose. A deployment that has not named its
+        # automation has none, and the refusal names this variable. The other
+        # reading — unset admitting anything — is the defect this closes.
+        #
+        # It is a *separate* decision from the pair below: CANON_WORKER_CLIENT_ID
+        # says which client this deployment's own worker signs in as, and this
+        # says which clients are trusted when they do. Set the pair without
+        # listing that client here and the worker's own credential is refused,
+        # so the scheduled pass is recorded as plain `automation` instead.
+        - CANON_AUTH_SERVICE_CLIENTS
         # Background work's own client-credentials client. A pair: set both, and
         # scheduled work obtains a service credential of its own; set neither,
         # and it runs as it does today. The secret is a secret — Coolify holds

@@ -52,6 +52,7 @@ from cybercanon.adapters.outbound.auth.claims import (
     ClaimNames,
     ClaimsIncomplete,
     Deployment,
+    ServiceClientUnlisted,
     actor_from,
 )
 from cybercanon.adapters.outbound.auth.keys import CachedKeySet
@@ -84,6 +85,46 @@ holding nothing. They fail closed, and the discriminating detail rides on
 `reason` for the log, exactly as every other refusal here does.
 """
 
+SERVICE_CLIENTS_SETTING = "CANON_AUTH_SERVICE_CLIENTS"
+"""The variable an operator sets to say whose background work a deployment trusts.
+
+Named inside the refusal below, because a refusal that does not name the setting
+it is about is a refusal somebody has to come and ask us about. It is the same
+spelling the hosted service and the command line both read it under, so the
+sentence sends a person to the variable they actually have to set.
+"""
+
+UNTRUSTED_CLIENT = (
+    "the service client this credential names is not one this deployment admits as automation"
+)
+"""A verified service credential from a client that is not on the allowlist.
+
+Its own reason rather than :data:`NO_ACTOR`, because it is a different condition
+and it sends a person somewhere different. Nothing about the credential is
+wrong: the signature verified, the issuer matched, the audience matched, and the
+client it names is simply not one this deployment trusts. An operator who read
+*"does not describe an actor"* would go looking for a malformed token and find a
+perfectly good one; what they need to be told is that a list does not have this
+client on it.
+"""
+
+NO_SERVICE_CLIENTS = (
+    "this deployment lists no service client, so it admits no automation at all: "
+    f"set {SERVICE_CLIENTS_SETTING} to the clients whose background work it trusts"
+)
+"""The same refusal, for the deployment that has configured no allowlist at all.
+
+An empty allowlist admits **nothing**, and this sentence is the other half of
+that decision. The alternative reading — empty meaning *admit anything* — is the
+hole this check closes with a configuration file placed in front of it, so the
+list starts empty and a deployment that has not thought about automation has
+none.
+
+That is a cost, and it is paid deliberately: background work stops until
+somebody writes the list down. It stops **saying why**, which is the difference
+between a variable nobody set and a credential nobody can read.
+"""
+
 PRESENTED = PRESENTED_CREDENTIAL
 """What a refusal is *about*. Never the credential itself, which never prints."""
 
@@ -96,7 +137,7 @@ def system_now() -> datetime:
 
 @dataclass(frozen=True)
 class Trust:
-    """What the service will accept, and what it is: issuer, audience, client, org.
+    """What the service accepts and what it is: issuer, audience, client, org, machines.
 
     The issuer and the audience are required rather than optional. An audience
     nobody checks is how a token minted for another service becomes a session
@@ -111,12 +152,25 @@ class Trust:
     told which client it is recognises no role, and one that has not been told
     its organisation admits nobody — because the alternative is a default that
     was a guess.
+
+    `service_clients` goes back on the other side of that line — it is what
+    this deployment *accepts*, like the issuer and the audience — and it is the
+    one with teeth: the client ids whose **machines** may act here. A `type: service` token says
+    only that there is no person behind it, and the issuer will mint one for any
+    client it knows — a client registered with no audience restriction can ask
+    for this deployment's audience and be given it. So the audience check, which
+    stops a token minted for *another service*, cannot stop a token minted for
+    *this* service by another client, and only a list can. It defaults to empty
+    and empty admits **nothing**, which is the same direction the two above fail
+    in and the only safe reading: a deployment that has not said which
+    background work it trusts has none.
     """
 
     issuer: str
     audience: str
     client_id: str = ""
     organisation: str = ""
+    service_clients: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.issuer.strip():
@@ -148,11 +202,12 @@ class CyberdyneAuth:
 
     @property
     def deployment(self) -> Deployment:
-        """Which client, which organisation and which project this instance is."""
+        """Which client, which organisation, which project and whose automation."""
         return Deployment(
             client_id=self.trust.client_id,
             organisation=self.trust.organisation,
             project=self.project,
+            service_clients=tuple(self.trust.service_clients),
         )
 
     def resolve(self, credential: Credential) -> ResolvedIdentity:
@@ -221,6 +276,10 @@ class CyberdyneAuth:
             )
         except ClaimsIncomplete as failure:
             raise CredentialRejected(NO_ACTOR) from failure
+        except ServiceClientUnlisted as failure:
+            raise CredentialRejected(
+                UNTRUSTED_CLIENT if failure.configured else NO_SERVICE_CLIENTS
+            ) from failure
         except ValueError as failure:
             raise CredentialRejected(NO_SUBJECT) from failure
         return ResolvedIdentity(actor=actor)
@@ -231,9 +290,12 @@ __all__ = [
     "BAD_CLAIMS",
     "BAD_SIGNATURE",
     "NO_ACTOR",
+    "NO_SERVICE_CLIENTS",
     "NO_SUBJECT",
     "PRESENTED",
+    "SERVICE_CLIENTS_SETTING",
     "UNREADABLE",
+    "UNTRUSTED_CLIENT",
     "CyberdyneAuth",
     "Now",
     "Trust",

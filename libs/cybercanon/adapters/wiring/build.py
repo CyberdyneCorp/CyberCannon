@@ -55,7 +55,7 @@ from cybercanon.adapters.outbound.openai_compatible.config import (
 )
 from cybercanon.adapters.outbound.openai_compatible.models import OpenAICompatibleModels
 from cybercanon.adapters.outbound.sqlite.search_index import SqliteSearchIndex
-from cybercanon.adapters.wiring.configuration import group_roles
+from cybercanon.adapters.wiring.configuration import client_ids, group_roles
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.credential_store import CredentialStore
 from cybercanon.application.ports.document_platform import (
@@ -79,6 +79,7 @@ CANON_DIR = ".canon"
 ISSUER = "CANON_AUTH_ISSUER"
 CLIENT_ID = "CANON_AUTH_CLIENT_ID"
 ORGANISATION = "CANON_AUTH_ORG_ID"
+SERVICE_CLIENTS = "CANON_AUTH_SERVICE_CLIENTS"
 AUDIENCE = "CANON_AUTH_AUDIENCE"
 DEVICE_CODE_URL = "CANON_AUTH_DEVICE_CODE_URL"
 TOKEN_URL = "CANON_AUTH_TOKEN_URL"
@@ -233,6 +234,13 @@ def identity_provider(source: Mapping[str, str], project: str = "") -> IdentityP
     credentials and entitles nobody, which is the fail-closed direction and is
     visible as a refusal naming what is missing rather than as a silent grant.
 
+    `CANON_AUTH_SERVICE_CLIENTS` is read here for the same reason the hosted
+    service reads it: a `type: service` credential says there is no person
+    behind it and never says whose machine it is, so the clients whose
+    background work this deployment admits are a list somebody wrote down.
+    Unset means the empty list, which admits none — the same fail-closed
+    direction as the two above, and the refusal names the variable.
+
     The import is deferred for the reason the keychain's is: verification pulls
     in a JOSE implementation, and a pre-commit `canon validate` should not pay
     for a library it will never call.
@@ -251,11 +259,18 @@ def identity_provider(source: Mapping[str, str], project: str = "") -> IdentityP
             audience=audience,
             client_id=source.get(CLIENT_ID, "").strip(),
             organisation=source.get(ORGANISATION, "").strip(),
+            service_clients=_service_clients(source.get(SERVICE_CLIENTS, "")),
         ),
         keys=CachedKeySet(JwksKeySource(key_set_url)),
         project=project,
         group_roles=dict(group_roles(source.get(GROUP_ROLES, ""))),
     )
+
+
+def _service_clients(declared: str) -> tuple[str, ...]:
+    """Whose background work this machine admits. Nothing, unless it was told."""
+    listed = declared.strip()
+    return client_ids(listed) if listed else ()
 
 
 def arche_settings(environment: Mapping[str, str] | None = None) -> ArcheSettings:

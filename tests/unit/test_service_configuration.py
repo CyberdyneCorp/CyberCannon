@@ -46,6 +46,7 @@ from cybercanon.adapters.wiring.configuration import (
     ConfigurationIncomplete,
     ConfigurationInvalid,
     Secret,
+    client_ids,
     group_roles,
     load,
     missing_from,
@@ -231,6 +232,71 @@ def test_a_pair_that_cannot_be_read_is_refused_rather_than_dropped(declared: str
     """Dropping it would grant nothing while looking like it granted something."""
     with pytest.raises(ConfigurationInvalid, match="CANON_AUTH_GROUP_ROLES"):
         group_roles(declared)
+
+
+# --------------------------------------------------------------------------
+# Whose automation this deployment admits (CANON_AUTH_SERVICE_CLIENTS)
+# --------------------------------------------------------------------------
+
+
+def test_the_service_client_list_is_read_as_a_list() -> None:
+    assert client_ids("cyb_One,cyb_Two") == ("cyb_One", "cyb_Two")
+
+
+def test_surrounding_space_and_repetition_in_the_list_are_forgiven() -> None:
+    """A list an operator typed, read the way they meant it."""
+    assert client_ids(" cyb_One , cyb_Two , cyb_One ") == ("cyb_One", "cyb_Two")
+
+
+@pytest.mark.parametrize("declared", [",", " , , "])
+def test_a_list_that_separates_nothing_is_refused_rather_than_read_as_empty(
+    declared: str,
+) -> None:
+    """Somebody who typed separators meant to list something.
+
+    The empty list is a real answer here — *this deployment admits no
+    automation* — and it is spelled by leaving the variable unset. A value that
+    parses to nothing is a typo, and reading a typo as "admit nothing" would be
+    the same silence as reading it as "admit anything": neither tells the person
+    who wrote it that what they wrote does not say what they meant.
+    """
+    with pytest.raises(ValueError, match="at least one"):
+        client_ids(declared)
+
+
+def test_an_unset_list_admits_no_automation_at_all() -> None:
+    """The decision, in the one place a deployment can observe it.
+
+    `CANON_AUTH_SERVICE_CLIENTS` is not in :data:`COMPLETE`, so this is the
+    deployment that has said nothing about automation: it starts, it serves
+    people, and it admits no service credential. The refusal that follows names
+    the variable — see
+    :data:`~cybercanon.adapters.outbound.auth.cyberdyne.NO_SERVICE_CLIENTS` —
+    because a deployment that never configured automation and one holding a
+    broken token are two different problems with two different answers.
+    """
+    loaded = load(COMPLETE)
+
+    assert loaded.identity.service_clients == ()
+
+
+def test_the_listed_clients_reach_the_identity_configuration() -> None:
+    loaded = load(COMPLETE | {"CANON_AUTH_SERVICE_CLIENTS": "cyb_Worker0One,cyb_Worker0Two"})
+
+    assert loaded.identity.service_clients == ("cyb_Worker0One", "cyb_Worker0Two")
+
+
+def test_the_case_of_a_client_id_is_preserved_rather_than_folded() -> None:
+    """A client id is opaque, so the reader keeps it exactly as it was written.
+
+    Surrounding space is an operator's typo and is forgiven; case is not a typo,
+    it is part of the identifier. Folding it here would quietly widen the list
+    to every client whose id differs only in case, and the adapter — which
+    compares exactly — would then admit one this deployment never listed.
+    """
+    loaded = load(COMPLETE | {"CANON_AUTH_SERVICE_CLIENTS": " cyb_MixedCase01 "})
+
+    assert loaded.identity.service_clients == ("cyb_MixedCase01",)
 
 
 def test_no_group_name_appears_in_the_code() -> None:
