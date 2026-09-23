@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/broadsheet-eb081d3e-b24c-4948-9157-0fe9469d46e7/styles.css">
+<script src="_ds/broadsheet-eb081d3e-b24c-4948-9157-0fe9469d46e7/_ds_bundle.js"></script>
+<script src="./image-slot.js"></script>
+<style>
+body{margin:0;background:var(--color-bg)}
+a{color:var(--color-accent-700);text-decoration:none}
+a:hover{color:var(--color-accent-600)}
+button{font-family:inherit}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height:100vh;min-width:1920px;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);font-size:15px;line-height:1.5">
+
+<sc-if value="{{ showIndex }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:10px 64px;background:var(--color-surface);font-size:13px">
+  <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">Prototype index</span>
+  <div style="display:flex;flex-wrap:wrap;gap:2px">
+    <sc-for list="{{ indexScreens }}" as="it" hint-placeholder-count="7">
+      <button onClick="{{ it.onClick }}" style="border:0;cursor:pointer;padding:4px 9px;border-radius:2px;font-size:13px;background:{{ it.bg }};color:{{ it.fg }}" style-hover="text-decoration:underline">{{ it.label }}</button>
+    </sc-for>
+  </div>
+  <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">Route states</span>
+  <div style="display:flex;flex-wrap:wrap;gap:2px">
+    <sc-for list="{{ indexStates }}" as="it" hint-placeholder-count="7">
+      <button onClick="{{ it.onClick }}" style="border:0;cursor:pointer;padding:4px 9px;border-radius:2px;font-size:13px;background:{{ it.bg }};color:{{ it.fg }}" style-hover="text-decoration:underline">{{ it.label }}</button>
+    </sc-for>
+  </div>
+  <button onClick="{{ toggleExpiry }}" style="margin-left:auto;border:1px solid var(--color-divider);background:transparent;cursor:pointer;padding:4px 10px;border-radius:2px;font-size:13px;color:var(--color-text)">{{ expiryLabel }}</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSignin }}" hint-placeholder-val="{{ false }}">
+<main style="padding:120px 64px 80px;max-width:1100px">
+  <div style="border-top:4px solid var(--color-text);padding-top:3px"><div style="border-top:1px solid var(--color-text)"></div></div>
+  <div style="display:flex;gap:24px;align-items:baseline;padding:10px 0;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700)"><span>CyberdyneCorp</span><span>One versioned contract per asset</span></div>
+  <div style="border-top:1px solid var(--color-text)"></div>
+  <h1 style="font-size:112px;line-height:1;margin:56px 0 0;letter-spacing:-.02em">CyberCanon</h1>
+  <p style="font-size:28px;line-height:1.3;max-width:760px;margin:28px 0 0;text-wrap:pretty">What an asset looks like, what it does, and what it must respect technically, written down once. A validator checks the technical half before anyone models it.</p>
+  <div style="display:flex;gap:16px;align-items:center;margin-top:56px">
+    <button class="btn btn-primary" onClick="{{ signIn }}" style="font-size:16px;padding:12px 22px">Sign in with CyberdyneAuth</button>
+  </div>
+  <p style="margin:20px 0 0;font-size:14px;color:var(--color-neutral-700);max-width:560px">Nothing from any project is shown until you sign in. Your session is tied to your git identity, so everything you write is attributed to you.</p>
+</main>
+</sc-if>
+
+<sc-if value="{{ hasChrome }}" hint-placeholder-val="{{ true }}">
+<header style="padding:26px 64px 0">
+  <div style="display:flex;align-items:baseline;gap:44px">
+    <button onClick="{{ goProjects }}" style="border:0;background:none;padding:0;cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:30px;letter-spacing:-.01em;color:var(--color-text)">CyberCanon</button>
+    <sc-if value="{{ inProject }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span style="font-size:20px;font-style:italic">Ronin</span>
+        <button onClick="{{ goProjects }}" class="btn btn-ghost" style="font-size:13px">switch</button>
+      </div>
+      <nav style="display:flex;gap:28px;font-size:16px">
+        <button onClick="{{ goAssets }}" style="border:0;background:none;padding:0 0 2px;cursor:pointer;font-size:16px;color:{{ navAssetsColor }};border-bottom:2px solid {{ navAssetsLine }}">Assets</button>
+        <button onClick="{{ goTriage }}" style="border:0;background:none;padding:0 0 2px;cursor:pointer;font-size:16px;color:{{ navTriageColor }};border-bottom:2px solid {{ navTriageLine }}">Triage <span style="font-size:13px;color:var(--color-neutral-700)">{{ openTotal }} open</span></button>
+      </nav>
+    </sc-if>
+    <div style="margin-left:auto;display:flex;align-items:baseline;gap:14px;font-size:14px;white-space:nowrap">
+      <span style="font-weight:600;font-size:16px">{{ me.name }}</span>
+      <span style="color:var(--color-neutral-700)">{{ me.role }}</span>
+      <sc-if value="{{ me.hasGit }}" hint-placeholder-val="{{ true }}"><span style="color:var(--color-neutral-700)">git {{ me.git }}</span></sc-if>
+      <sc-if value="{{ me.noGit }}" hint-placeholder-val="{{ false }}"><span style="color:var(--color-accent-2-700);font-weight:600">no git identity mapped</span></sc-if>
+      <sc-if value="{{ expired }}" hint-placeholder-val="{{ false }}"><span class="tag tag-neutral">session expired</span></sc-if>
+      <button class="btn btn-ghost" onClick="{{ signOut }}" style="font-size:13px">Sign out</button>
+    </div>
+  </div>
+  <div style="margin-top:18px;border-top:4px solid var(--color-text)"></div>
+  <div style="display:flex;align-items:baseline;gap:14px;padding:8px 0;font-size:13px">
+    <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">Address</span>
+    <span style="font-variant-numeric:tabular-nums;letter-spacing:.01em">{{ address }}</span>
+    <button class="btn btn-ghost" onClick="{{ copyLink }}" style="font-size:12px">{{ copyLabel }}</button>
+    <span style="margin-left:auto;color:var(--color-neutral-700)">canon at a41c9e2 on main · read 2 min ago</span>
+  </div>
+  <div style="border-top:1px solid var(--color-text)"></div>
+  <sc-if value="{{ me.noGit }}" hint-placeholder-val="{{ false }}">
+    <p style="margin:14px 0 0;padding:10px 14px;background:var(--color-accent-2-100);color:var(--color-accent-2-800);font-size:14px;border-radius:2px">{{ me.name }} has no git identity mapped in Ronin. You can read everything; anything you write would be refused at commit. Ask a Ronin admin to map {{ me.name }} before you annotate, reply or promote.</p>
+  </sc-if>
+  <sc-if value="{{ hasNotice }}" hint-placeholder-val="{{ false }}">
+    <div style="margin:14px 0 0;padding:10px 14px;background:var(--color-accent-100);color:var(--color-accent-800);font-size:14px;border-radius:2px;display:flex;gap:16px;align-items:baseline">
+      <span style="flex:1">{{ notice }}</span>
+      <button class="btn btn-ghost" onClick="{{ dismissNotice }}" style="font-size:13px">Dismiss</button>
+    </div>
+  </sc-if>
+</header>
+</sc-if>
+
+<sc-if value="{{ isProjects }}" hint-placeholder-val="{{ false }}">
+<main style="padding:56px 64px 96px;max-width:1200px">
+  <h1 style="font-size:56px;line-height:1.05;margin:0">Projects</h1>
+  <p style="margin:12px 0 0;font-size:17px;color:var(--color-neutral-700)">The projects {{ me.name }} is a member of. Each is one game repository.</p>
+  <div style="display:flex;flex-direction:column;gap:40px;margin-top:56px">
+    <sc-for list="{{ projects }}" as="p" hint-placeholder-count="3">
+      <div style="display:grid;grid-template-columns:420px 1fr auto;gap:40px;align-items:baseline">
+        <button onClick="{{ p.onClick }}" style="border:0;background:none;padding:0;text-align:left;cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:36px;color:{{ p.color }}" style-hover="text-decoration:underline">{{ p.name }}</button>
+        <div style="font-size:15px;color:var(--color-neutral-800)">{{ p.meta }}<div style="color:var(--color-neutral-700);font-size:14px">{{ p.repo }}</div></div>
+        <span style="font-size:14px;color:var(--color-neutral-700)">{{ p.role }}</span>
+      </div>
+    </sc-for>
+  </div>
+</main>
+</sc-if>
+
+<sc-if value="{{ isAssets }}" hint-placeholder-val="{{ false }}">
+<main style="padding:48px 64px 96px">
+  <div style="display:flex;align-items:baseline;gap:24px">
+    <h1 style="font-size:56px;line-height:1.05;margin:0">Assets</h1>
+    <span style="font-size:17px;color:var(--color-neutral-700)">{{ assetCountLabel }}</span>
+    <button class="btn btn-secondary" style="margin-left:auto">Request an asset that does not exist</button>
+  </div>
+  <div style="display:grid;grid-template-columns:minmax(360px,560px) auto auto auto;gap:28px;align-items:end;margin-top:36px">
+    <label class="field" style="display:flex;flex-direction:column;gap:6px"><span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700)">Search names, aliases, tags, descriptions</span>
+      <input class="input" value="{{ q }}" onChange="{{ onQuery }}" placeholder="e.g. walker, hostile, recon" style="font-size:17px;min-height:44px"></label>
+    <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700)">Status</span>
+      <div style="display:flex;border:1px solid var(--color-divider);border-radius:2px;overflow:hidden">
+        <sc-for list="{{ statusSeg }}" as="o" hint-placeholder-count="6"><button onClick="{{ o.onClick }}" style="border:0;cursor:pointer;padding:10px 13px;font-size:14px;background:{{ o.bg }};color:{{ o.fg }}">{{ o.label }}</button></sc-for>
+      </div></div>
+    <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700)">Owner</span>
+      <select class="input" value="{{ fOwner }}" onChange="{{ onOwner }}" style="min-height:44px;font-size:15px"><sc-for list="{{ ownerOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></label>
+    <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700)">Tag</span>
+      <select class="input" value="{{ fTag }}" onChange="{{ onTag }}" style="min-height:44px;font-size:15px"><sc-for list="{{ tagOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></label>
+  </div>
+  <sc-if value="{{ hasActive }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:18px;font-size:14px">
+      <span style="color:var(--color-neutral-700)">Active</span>
+      <sc-for list="{{ activeFilters }}" as="f" hint-placeholder-count="2"><button onClick="{{ f.onClick }}" class="tag tag-accent" style="border:0;cursor:pointer;font-size:13px">{{ f.label }} ×</button></sc-for>
+      <button class="btn btn-ghost" onClick="{{ clearFilters }}" style="font-size:13px">Clear the filters</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showStateScreen }}" hint-placeholder-val="{{ false }}">
+    <section style="margin-top:72px;max-width:880px">
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:{{ stateScreen.kickerColor }}">{{ stateScreen.kicker }}</div>
+      <h2 style="font-size:44px;line-height:1.1;margin:10px 0 0">{{ stateScreen.heading }}</h2>
+      <p style="font-size:19px;line-height:1.5;margin:16px 0 0;text-wrap:pretty">{{ stateScreen.detail }}</p>
+      <sc-if value="{{ stateScreen.hasSearched }}" hint-placeholder-val="{{ false }}">
+        <dl style="display:grid;grid-template-columns:160px 1fr;gap:6px 20px;margin:28px 0 0;font-size:15px">
+          <sc-for list="{{ stateScreen.searched }}" as="r" hint-placeholder-count="3"><dt style="color:var(--color-neutral-700)">{{ r.k }}</dt><dd style="margin:0">{{ r.v }}</dd></sc-for>
+        </dl>
+      </sc-if>
+      <div style="display:flex;gap:12px;margin-top:32px">
+        <sc-for list="{{ stateScreen.actions }}" as="a" hint-placeholder-count="1"><button class="{{ a.cls }}" onClick="{{ a.onClick }}" style="font-size:15px;padding:10px 18px">{{ a.label }}</button></sc-for>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ isDegraded }}" hint-placeholder-val="{{ false }}">
+    <section style="margin-top:36px;max-width:980px">
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-2-700)">Degraded · partial result</div>
+      <h2 style="font-size:28px;margin:6px 0 0">Some of this is unavailable</h2>
+      <p style="margin:8px 0 0;font-size:16px">The listing below is real, but it is not complete. What could not be read:</p>
+      <ul style="margin:10px 0 0;padding-left:20px;font-size:15px;display:flex;flex-direction:column;gap:4px">
+        <li>Tags for <b>gate_dock</b> and <b>pilot_kaede</b>: their asset.yaml files failed to parse at a41c9e2, so a tag filter cannot see them.</li>
+        <li>Approximate results from linked documents: the document platform did not answer within 5 s.</li>
+      </ul>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ showRows }}" hint-placeholder-val="{{ true }}">
+    <table class="table" style="margin-top:40px;font-size:15px">
+      <thead><tr><th style="width:26%">Asset</th><th>Status</th><th>Art</th><th>Design</th><th>Code</th><th>Tags</th><th style="width:26%">How it matched</th></tr></thead>
+      <tbody>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+          <tr onClick="{{ r.onClick }}" style="cursor:{{ r.cursor }}">
+            <td style="padding:14px 10px"><div style="font-size:18px;font-weight:600;color:{{ r.nameColor }}">{{ r.name }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ r.id }}</div></td>
+            <td><span class="tag tag-neutral">{{ r.status }}</span></td>
+            <td style="color:{{ r.art.color }}">{{ r.art.label }}</td>
+            <td style="color:{{ r.design.color }}">{{ r.design.label }}</td>
+            <td style="color:{{ r.code.color }}">{{ r.code.label }}</td>
+            <td style="color:var(--color-neutral-800)">{{ r.tags }}</td>
+            <td style="font-size:14px;color:{{ r.matchColor }}">{{ r.match }}</td>
+          </tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </sc-if>
+
+  <sc-if value="{{ showSemantic }}" hint-placeholder-val="{{ false }}">
+    <section style="margin-top:64px;max-width:980px">
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">Approximate · from linked documents</div>
+      <p style="margin:6px 0 0;font-size:14px;color:var(--color-neutral-700)">Passages that mention “{{ q }}”. These are sentences in documents, not asset records, and are never ranked against the rows above.</p>
+      <div style="display:flex;flex-direction:column;gap:22px;margin-top:22px">
+        <sc-for list="{{ passages }}" as="p" hint-placeholder-count="1">
+          <div><div style="display:flex;gap:12px;align-items:baseline"><a href="#" style="font-size:17px;font-weight:600">{{ p.doc }}</a><span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">{{ p.prov }}</span></div>
+          <p style="margin:4px 0 0;font-size:16px;font-style:italic">{{ p.text }}</p></div>
+        </sc-for>
+        <sc-if value="{{ noPassages }}" hint-placeholder-val="{{ false }}"><p style="margin:0;font-size:15px;color:var(--color-neutral-700)">Nothing in the linked documents matched “{{ q }}” closely enough to show.</p></sc-if>
+      </div>
+    </section>
+  </sc-if>
+</main>
+</sc-if>
+
+<sc-if value="{{ isAsset }}" hint-placeholder-val="{{ false }}">
+<main style="padding:40px 64px 96px">
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:40px;align-items:end">
+    <div>
+      <div style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700)"><button onClick="{{ goAssets }}" class="btn btn-ghost" style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;padding:0">Assets</button> / characters / mech_scout</div>
+      <h1 style="font-size:72px;line-height:1;margin:10px 0 0;letter-spacing:-.015em">Scout Mech</h1>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:16px;font-size:15px;align-items:baseline">
+        <span style="color:var(--color-neutral-700)">also <i>scout walker</i>, <i>mech scout</i></span>
+        <div style="display:flex;gap:6px;align-items:baseline">
+          <sc-for list="{{ lifecycle }}" as="l" hint-placeholder-count="5"><span style="white-space:nowrap;font-size:14px;font-weight:{{ l.weight }};color:{{ l.color }}">{{ l.label }}{{ l.sep }}</span></sc-for>
+        </div>
+      </div>
+      <div style="display:flex;gap:36px;margin-top:14px;font-size:15px">
+        <span><span style="color:var(--color-neutral-700)">Art</span> <b>rafa</b></span>
+        <span><span style="color:var(--color-neutral-700)">Design</span> <b>dani</b></span>
+        <span><span style="color:var(--color-neutral-700)">Code</span> <b>leo</b></span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:14px">
+      <div style="display:flex;border:1px solid var(--color-divider);border-radius:2px;overflow:hidden">
+        <sc-for list="{{ surfaceSeg }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.onClick }}" style="border:0;cursor:pointer;padding:11px 20px;font-size:15px;background:{{ o.bg }};color:{{ o.fg }}">{{ o.label }}</button></sc-for>
+      </div>
+      <div style="font-size:14px;color:var(--color-neutral-700);text-align:right">Briefing <b style="color:var(--color-text);font-variant-numeric:tabular-nums">{{ bytesLabel }}</b> · {{ openHere }} open · rules plus open issues, never the archive</div>
+    </div>
+  </div>
+  <sc-if value="{{ backToTriage }}" hint-placeholder-val="{{ false }}">
+    <div style="margin-top:20px"><button class="btn btn-ghost" onClick="{{ goTriage }}" style="font-size:14px">← Back to the triage pass · {{ openTotal }} still open</button></div>
+  </sc-if>
+
+  <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:80px;margin-top:56px">
+    <div>
+      <section>
+        <div style="display:flex;align-items:baseline;gap:20px">
+          <h2 style="font-size:30px;margin:0">Validation</h2>
+          <div style="display:flex;border:1px solid var(--color-divider);border-radius:2px;overflow:hidden">
+            <sc-for list="{{ exportSeg }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.onClick }}" style="border:0;cursor:pointer;padding:7px 14px;font-size:14px;background:{{ o.bg }};color:{{ o.fg }}">{{ o.label }}</button></sc-for>
+          </div>
+          <span style="font-size:14px;color:var(--color-neutral-700)">{{ exp.meta }}</span>
+        </div>
+        <p style="margin:8px 0 0;font-size:15px;color:var(--color-neutral-800);max-width:820px">{{ exp.note }}</p>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:40px;margin-top:28px">
+          <sc-for list="{{ vcols }}" as="c" hint-placeholder-count="3">
+            <div>
+              <div style="display:flex;align-items:baseline;gap:10px"><span class="{{ c.tagClass }}" style="font-size:13px">{{ c.title }}</span><span style="font-size:28px;font-weight:600;font-variant-numeric:tabular-nums">{{ c.count }}</span></div>
+              <p style="margin:6px 0 0;font-size:13px;color:var(--color-neutral-700)">{{ c.sub }}</p>
+              <div style="display:flex;flex-direction:column;gap:16px;margin-top:16px">
+                <sc-for list="{{ c.items }}" as="i" hint-placeholder-count="2">
+                  <div><div style="font-weight:600;font-size:15px">{{ i.rule }} <span style="font-weight:400;font-size:12px;color:var(--color-neutral-700)">{{ i.sev }}</span></div><div style="font-size:14px;line-height:1.45;color:var(--color-neutral-900)">{{ i.msg }}</div></div>
+                </sc-for>
+                <sc-if value="{{ c.isEmpty }}" hint-placeholder-val="{{ false }}"><div style="font-size:14px;color:var(--color-neutral-700)">No rule landed here.</div></sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <section style="margin-top:80px">
+        <h2 style="font-size:30px;margin:0">The contract</h2>
+        <p style="margin:6px 0 0;font-size:15px;color:var(--color-neutral-700)">Effective values: what mech_scout declares, and what it inherits from Ronin's project defaults.</p>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:40px;margin-top:28px">
+          <div>
+            <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">Concept · art · rafa</div>
+            <h3 style="font-size:20px;margin:6px 0 12px">Silhouette rules</h3>
+            <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:15px">
+              <sc-for list="{{ silRules }}" as="r" hint-placeholder-count="2"><li>{{ r.text }}<sc-if value="{{ r.isNew }}" hint-placeholder-val="{{ false }}"> <span class="tag tag-accent" style="font-size:11px">promoted from {{ r.from }}</span></sc-if></li></sc-for>
+            </ol>
+            <h3 style="font-size:17px;margin:24px 0 8px">Project golden rules <span style="font-weight:400;font-size:13px;color:var(--color-neutral-700)">every Ronin asset</span></h3>
+            <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px">
+              <sc-for list="{{ goldRules }}" as="r" hint-placeholder-count="2"><li>{{ r.text }}<sc-if value="{{ r.isNew }}" hint-placeholder-val="{{ false }}"> <span class="tag tag-accent" style="font-size:11px">promoted from {{ r.from }}</span></sc-if></li></sc-for>
+            </ol>
+          </div>
+          <div>
+            <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">Design · dani</div>
+            <h3 style="font-size:20px;margin:6px 0 12px">What it must do</h3>
+            <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:15px">
+              <sc-for list="{{ designRows }}" as="r" hint-placeholder-count="6"><dt style="color:var(--color-neutral-700)">{{ r.k }}</dt><dd style="margin:0">{{ r.v }}</dd></sc-for>
+            </dl>
+          </div>
+          <div>
+            <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">Constraints · code · leo</div>
+            <h3 style="font-size:20px;margin:6px 0 12px">What it must respect</h3>
+            <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:15px">
+              <sc-for list="{{ constraintRows }}" as="r" hint-placeholder-count="8"><dt style="color:var(--color-neutral-700)">{{ r.k }}</dt><dd style="margin:0">{{ r.v }} <span style="font-size:12px;color:{{ r.srcColor }}">{{ r.src }}</span></dd></sc-for>
+            </dl>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside>
+      <h2 style="font-size:22px;margin:0">Open annotations <span style="font-weight:400;color:var(--color-neutral-700)">{{ openHere }}</span></h2>
+      <p style="margin:4px 0 0;font-size:13px;color:var(--color-neutral-700)">Each one leaves by promotion to a rule or by resolution.</p>
+      <div style="display:flex;flex-direction:column;gap:16px;margin-top:18px">
+        <sc-for list="{{ openList }}" as="a" hint-placeholder-count="5">
+          <button onClick="{{ a.onClick }}" style="border:0;background:none;padding:0;text-align:left;cursor:pointer;color:var(--color-text)" style-hover="color:var(--color-accent-700)">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700)">{{ a.kind }} · {{ a.where }} · {{ a.age }}</div>
+            <div style="font-size:15px;line-height:1.4">{{ a.text }}</div>
+            <div style="font-size:13px;color:{{ a.attrColor }}">{{ a.attribution }}{{ a.orphanNote }}</div>
+          </button>
+        </sc-for>
+        <sc-if value="{{ noneOpen }}" hint-placeholder-val="{{ false }}"><p style="margin:0;font-size:15px">Nothing open. The briefing is back to rules only.</p></sc-if>
+      </div>
+      <h2 style="font-size:22px;margin:48px 0 0">Concept views</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px">
+        <div><div style="height:180px"><image-slot id="cc-view-front-thumb" shape="rect" placeholder="Front view"></image-slot></div><div style="font-size:13px;margin-top:6px">front · v3 <span style="color:var(--color-neutral-700)">· 1 thread</span></div></div>
+        <div><div style="height:180px"><image-slot id="cc-view-tq-thumb" shape="rect" placeholder="Three-quarter view"></image-slot></div><div style="font-size:13px;margin-top:6px">three-quarter · v2 <span style="color:var(--color-neutral-700)">· 1 thread</span></div></div>
+      </div>
+      <h2 style="font-size:22px;margin:48px 0 0">Design documents</h2>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:14px;font-size:15px">
+        <div><a href="#">Ronin — recon roster</a><div style="font-size:13px;color:var(--color-neutral-700)">arche · linked by dani</div></div>
+        <div><a href="#">Combat readability at distance</a><div style="font-size:13px;color:var(--color-neutral-700)">arche · linked by iris</div></div>
+      </div>
+      <h2 style="font-size:22px;margin:48px 0 0">Links</h2>
+      <dl style="margin:12px 0 0;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14px">
+        <dt style="color:var(--color-neutral-700)">source</dt><dd style="margin:0">art/source/mech_scout.blend</dd>
+        <dt style="color:var(--color-neutral-700)">engine</dt><dd style="margin:0">Content/Ronin/Characters/MechScout</dd>
+      </dl>
+    </aside>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isSheet }}" hint-placeholder-val="{{ false }}">
+  <div style="display:grid;grid-template-columns:220px minmax(0,1fr) 460px;gap:48px;margin-top:40px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:28px">
+      <div><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:8px">View</div>
+        <div style="display:flex;flex-direction:column;gap:2px"><sc-for list="{{ viewList }}" as="v" hint-placeholder-count="2"><button onClick="{{ v.onClick }}" style="border:0;text-align:left;cursor:pointer;padding:8px 10px;border-radius:2px;font-size:15px;background:{{ v.bg }};color:{{ v.fg }}">{{ v.label }}<div style="font-size:12px;opacity:.8">{{ v.meta }}</div></button></sc-for></div></div>
+      <div><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:8px">Tool</div>
+        <div style="display:flex;flex-direction:column;gap:2px"><sc-for list="{{ toolList }}" as="v" hint-placeholder-count="3"><button onClick="{{ v.onClick }}" style="border:0;text-align:left;cursor:pointer;padding:8px 10px;border-radius:2px;font-size:15px;background:{{ v.bg }};color:{{ v.fg }}">{{ v.label }}</button></sc-for></div>
+        <p style="margin:8px 0 0;font-size:12px;color:var(--color-neutral-700)">On iPad: a pen draws, a finger pans.</p></div>
+      <div><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:8px">Kind</div>
+        <div style="display:flex;flex-direction:column;gap:2px"><sc-for list="{{ kindList }}" as="v" hint-placeholder-count="4"><button onClick="{{ v.onClick }}" style="border:0;text-align:left;cursor:pointer;padding:6px 10px;border-radius:2px;font-size:14px;background:{{ v.bg }};color:{{ v.fg }}">{{ v.label }}</button></sc-for></div></div>
+      <div><div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin-bottom:8px">State</div>
+        <div style="display:flex;flex-direction:column;gap:2px"><sc-for list="{{ stateList }}" as="v" hint-placeholder-count="3"><button onClick="{{ v.onClick }}" style="border:0;text-align:left;cursor:pointer;padding:6px 10px;border-radius:2px;font-size:14px;background:{{ v.bg }};color:{{ v.fg }}">{{ v.label }}</button></sc-for></div></div>
+    </div>
+
+    <div>
+      <div style="position:relative;width:100%;aspect-ratio:4/3;background:var(--color-surface);border-radius:2px;overflow:hidden">
+        <sc-if value="{{ isFront }}" hint-placeholder-val="{{ true }}"><div style="position:absolute;inset:0"><image-slot id="cc-view-front" shape="rect" fit="contain" placeholder="Drop the front concept view (v3)"></image-slot></div></sc-if>
+        <sc-if value="{{ isTQ }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;inset:0"><image-slot id="cc-view-tq" shape="rect" fit="contain" placeholder="Drop the three-quarter concept view (v2)"></image-slot></div></sc-if>
+        <div onPointerDown="{{ onSheetDown }}" onPointerMove="{{ onSheetMove }}" onPointerUp="{{ onSheetUp }}" style="position:absolute;inset:0;touch-action:none;cursor:{{ sheetCursor }};pointer-events:{{ overlayEvents }}">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none">
+            <sc-for list="{{ strokes }}" as="st" hint-placeholder-count="1"><path d="{{ st.d }}" fill="none" stroke="{{ st.color }}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"></path></sc-for>
+          </svg>
+          <sc-for list="{{ sheetPins }}" as="p" hint-placeholder-count="2">
+            <button onClick="{{ p.onClick }}" onPointerDown="{{ stop }}" title="{{ p.title }}" style="position:absolute;left:{{ p.left }};top:{{ p.top }};transform:translate(-50%,-50%);width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:13px;font-weight:600;background:{{ p.bg }};color:{{ p.fg }};border:2px {{ p.ring }} var(--color-bg);box-shadow:var(--shadow-md);pointer-events:auto">{{ p.n }}</button>
+          </sc-for>
+          <sc-if value="{{ hasDraftPin }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:{{ draftLeft }};top:{{ draftTop }};transform:translate(-50%,-50%);width:28px;height:28px;border-radius:50%;border:2px dashed var(--color-accent);background:var(--color-accent-100)"></div></sc-if>
+        </div>
+      </div>
+      <div style="display:flex;gap:24px;margin-top:12px;font-size:13px;color:var(--color-neutral-700)">
+        <span>{{ sheetCaption }}</span>
+        <span style="margin-left:auto">Pins sit on the image; replacing it with a new version keeps every thread.</span>
+      </div>
+    </div>
+
+    <aside style="display:flex;flex-direction:column;gap:36px">
+      <sc-if value="{{ hasDraft }}" hint-placeholder-val="{{ false }}">
+        <section>
+          <h3 style="font-size:20px;margin:0">New annotation</h3>
+          <div style="display:flex;gap:4px;margin-top:12px"><sc-for list="{{ draftKinds }}" as="k" hint-placeholder-count="3"><button onClick="{{ k.onClick }}" style="border:1px solid var(--color-divider);cursor:pointer;padding:6px 10px;border-radius:2px;font-size:13px;background:{{ k.bg }};color:{{ k.fg }}">{{ k.label }}</button></sc-for></div>
+          <textarea class="input" value="{{ draftText }}" onChange="{{ onDraftText }}" placeholder="What has to change, and what it has to read as" style="margin-top:10px;min-height:90px;font-size:15px;resize:vertical"></textarea>
+          <p style="margin:6px 0 0;font-size:13px;color:var(--color-neutral-700)">{{ draftMeta }}</p>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <button class="btn btn-primary" onClick="{{ saveDraft }}" disabled="{{ writeDisabled }}">Save</button>
+            <button class="btn btn-secondary" onClick="{{ undoStroke }}">Undo stroke</button>
+            <button class="btn btn-ghost" onClick="{{ discardDraft }}">Discard</button>
+          </div>
+        </section>
+      </sc-if>
+      <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ true }}">
+        <section>
+          <div style="display:flex;gap:10px;align-items:baseline">
+            <span style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">{{ sel.kind }} · {{ sel.id }}</span>
+            <span class="{{ sel.stateClass }}" style="margin-left:auto;font-size:12px">{{ sel.stateLabel }}</span>
+          </div>
+          <p style="margin:10px 0 0;font-size:19px;line-height:1.4;text-wrap:pretty">{{ sel.text }}</p>
+          <div style="display:flex;gap:10px;align-items:baseline;margin-top:6px;font-size:13px"><span style="color:{{ sel.attrColor }}">{{ sel.attribution }}</span><sc-if value="{{ sel.agent }}" hint-placeholder-val="{{ false }}"><span class="tag tag-neutral" style="font-size:11px">agent-authored</span></sc-if><span style="color:var(--color-neutral-700)">{{ sel.age }} · {{ sel.where }}</span></div>
+          <sc-if value="{{ sel.isOrphan }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:14px;padding:12px 14px;background:var(--color-accent-2-100);color:var(--color-accent-2-800);border-radius:2px;font-size:14px">
+              <b>Orphaned.</b> It was anchored to <b>{{ sel.part }}</b>, which is not in SM_mech_scout_LOD0.glb at a41c9e2. It is listed, not drawn, so it is never shown on the wrong part.
+              <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+                <span>Re-anchor to</span>
+                <select class="input" value="{{ reanchorPart }}" onChange="{{ onReanchorPart }}" style="width:auto;min-height:32px;font-size:14px"><sc-for list="{{ partOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+                <button class="btn btn-primary" onClick="{{ reanchor }}" disabled="{{ writeDisabled }}" style="font-size:13px">Re-anchor</button>
+              </div>
+            </div>
+          </sc-if>
+          <ol style="list-style:none;margin:18px 0 0;padding:0 0 0 16px;display:flex;flex-direction:column;gap:12px;border-left:2px solid var(--color-divider)">
+            <sc-for list="{{ sel.replies }}" as="r" hint-placeholder-count="1"><li><div style="font-size:15px">{{ r.text }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ r.attribution }}</div></li></sc-for>
+          </ol>
+          <sc-if value="{{ sel.isOpen }}" hint-placeholder-val="{{ true }}">
+            <textarea class="input" value="{{ replyText }}" onChange="{{ onReply }}" placeholder="Reply in this thread" disabled="{{ writeDisabled }}" style="margin-top:16px;min-height:64px;font-size:15px;resize:vertical"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-secondary" onClick="{{ sendReply }}" disabled="{{ writeDisabled }}">Reply</button>
+              <button class="btn btn-secondary" onClick="{{ resolveSel }}" disabled="{{ writeDisabled }}">Resolve as an issue</button>
+            </div>
+            <sc-if value="{{ mayPromote }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top:28px">
+                <h4 style="font-size:17px;margin:0">Promote to a durable rule</h4>
+                <p style="margin:4px 0 0;font-size:13px;color:var(--color-neutral-700)">The annotation retires; the rule stays in every briefing that reads this destination.</p>
+                <input class="input" value="{{ ruleText }}" onChange="{{ onRule }}" placeholder="The rule, as it should be read in the briefing" style="margin-top:10px;font-size:15px">
+                <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+                  <sc-for list="{{ destOpts }}" as="d" hint-placeholder-count="2"><button onClick="{{ d.onClick }}" style="border:1px solid var(--color-divider);text-align:left;cursor:pointer;padding:8px 12px;border-radius:2px;font-size:14px;background:{{ d.bg }};color:{{ d.fg }}"><b>{{ d.label }}</b><div style="font-size:12px;opacity:.85">{{ d.meta }}</div></button></sc-for>
+                </div>
+                <button class="btn btn-primary" onClick="{{ promoteSel }}" disabled="{{ promoteDisabled }}" style="margin-top:12px">Promote and retire {{ sel.id }}</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ mayNotPromote }}" hint-placeholder-val="{{ false }}"><p style="margin:20px 0 0;font-size:13px;color:var(--color-neutral-700)">Promotion to a rule is done by an art director during triage.</p></sc-if>
+          </sc-if>
+          <sc-if value="{{ sel.isClosed }}" hint-placeholder-val="{{ false }}">
+            <p style="margin:16px 0 0;font-size:14px;color:var(--color-neutral-800)">{{ sel.closedNote }}</p>
+            <button class="btn btn-ghost" onClick="{{ reopenSel }}" disabled="{{ writeDisabled }}" style="margin-top:6px">Reopen</button>
+          </sc-if>
+        </section>
+      </sc-if>
+      <section>
+        <h3 style="font-size:17px;margin:0">Threads on this surface <span style="font-weight:400;color:var(--color-neutral-700)">{{ threadCount }}</span></h3>
+        <div style="display:flex;flex-direction:column;gap:2px;margin-top:10px">
+          <sc-for list="{{ threads }}" as="t" hint-placeholder-count="3"><button onClick="{{ t.onClick }}" style="border:0;text-align:left;cursor:pointer;padding:8px 10px;border-radius:2px;font-size:14px;line-height:1.35;background:{{ t.bg }};color:var(--color-text)"><span style="font-weight:600">{{ t.n }}</span> <span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700)">{{ t.kind }}</span> {{ t.text }}</button></sc-for>
+          <sc-if value="{{ noThreads }}" hint-placeholder-val="{{ false }}"><p style="margin:0;font-size:14px;color:var(--color-neutral-700)">No thread matches these filters on this view.</p></sc-if>
+        </div>
+      </section>
+      <sc-if value="{{ hasOrphans }}" hint-placeholder-val="{{ false }}">
+        <section>
+          <h3 style="font-size:17px;margin:0;color:var(--color-accent-2-700)">Cannot be shown <span style="font-weight:400">{{ orphanCount }}</span></h3>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+            <sc-for list="{{ orphans }}" as="o" hint-placeholder-count="1"><button onClick="{{ o.onClick }}" style="border:0;background:none;text-align:left;cursor:pointer;padding:0;color:var(--color-text)"><div style="font-size:14px">{{ o.text }}</div><div style="font-size:13px;color:var(--color-accent-2-700)">{{ o.reason }}</div></button></sc-for>
+          </div>
+        </section>
+      </sc-if>
+    </aside>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ is3d }}" hint-placeholder-val="{{ false }}">
+  <div style="display:grid;grid-template-columns:260px minmax(0,1fr) 460px;gap:48px;margin-top:40px;align-items:start">
+    <div>
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">SM_mech_scout_LOD0.glb</div>
+      <div style="display:flex;gap:24px;margin-top:8px"><div><div style="font-size:26px;font-weight:600;font-variant-numeric:tabular-nums">12,418</div><div style="font-size:13px;color:var(--color-neutral-700)">triangles</div></div><div><div style="font-size:26px;font-weight:600">10</div><div style="font-size:13px;color:var(--color-neutral-700)">objects</div></div></div>
+      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700);margin:28px 0 8px">Parts</div>
+      <div style="display:flex;flex-direction:column;gap:1px">
+        <sc-for list="{{ partsList }}" as="p" hint-placeholder-count="10"><button onClick="{{ p.onClick }}" style="border:0;display:flex;gap:8px;align-items:baseline;text-align:left;cursor:pointer;padding:6px 10px;border-radius:2px;font-size:14px;background:{{ p.bg }};color:{{ p.fg }}"><span style="flex:1">{{ p.name }}</span><span style="font-size:12px;font-variant-numeric:tabular-nums;opacity:.8">{{ p.tris }}</span><span style="font-size:12px;font-weight:600;min-width:12px">{{ p.pins }}</span></button></sc-for>
+      </div>
+    </div>
+    <div>
+      <div style="position:relative;width:100%;aspect-ratio:4/3;background:var(--color-surface);border-radius:2px;overflow:hidden">
+        <div style="position:absolute;inset:0"><image-slot id="cc-viewer-render" shape="rect" fit="contain" placeholder="The three.js scene mounts here · drop a turntable render to stand in"></image-slot></div>
+        <div style="position:absolute;inset:0;pointer-events:none">
+          <sc-for list="{{ viewerPins }}" as="p" hint-placeholder-count="3">
+            <div style="position:absolute;left:{{ p.left }};top:{{ p.top }};display:flex;align-items:center;gap:8px;transform:translate(-16px,-50%)">
+              <button onClick="{{ p.onClick }}" style="pointer-events:auto;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:13px;font-weight:600;background:{{ p.bg }};color:{{ p.fg }};border:2px {{ p.ring }} var(--color-bg);box-shadow:var(--shadow-md)">{{ p.n }}</button>
+              <span style="font-size:12px;padding:2px 6px;background:var(--color-bg);border-radius:2px;box-shadow:var(--shadow-sm)">{{ p.part }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="position:absolute;right:14px;top:12px;font-size:12px;color:var(--color-neutral-800);background:var(--color-bg);padding:4px 8px;border-radius:2px">orbit: drag · pan: right-drag or two fingers · zoom: scroll or pinch</div>
+      </div>
+      <div style="display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:18px;align-items:center;margin-top:16px">
+        <select class="input" value="{{ clip }}" onChange="{{ onClip }}" style="width:auto;min-height:40px;font-size:14px"><sc-for list="{{ clipOpts }}" as="o" hint-placeholder-count="2"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+        <button class="btn btn-primary" onClick="{{ togglePlay }}" disabled="{{ clipMissing }}" style="min-width:88px">{{ playLabel }}</button>
+        <input type="range" min="0" max="24" value="{{ frame }}" onChange="{{ onScrub }}" disabled="{{ clipMissing }}" style="width:100%;accent-color:var(--color-accent)">
+        <span style="font-size:14px;font-variant-numeric:tabular-nums;min-width:150px;text-align:right">{{ timeLabel }}</span>
+      </div>
+      <p style="margin:8px 0 0;font-size:14px;color:{{ clipNoteColor }}">{{ clipNote }}</p>
+    </div>
+    <aside style="display:flex;flex-direction:column;gap:36px">
+      <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ true }}">
+        <section>
+          <div style="display:flex;gap:10px;align-items:baseline">
+            <span style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)">{{ sel.kind }} · {{ sel.id }}</span>
+            <span class="{{ sel.stateClass }}" style="margin-left:auto;font-size:12px">{{ sel.stateLabel }}</span>
+          </div>
+          <p style="margin:10px 0 0;font-size:19px;line-height:1.4;text-wrap:pretty">{{ sel.text }}</p>
+          <div style="display:flex;gap:10px;align-items:baseline;margin-top:6px;font-size:13px"><span style="color:{{ sel.attrColor }}">{{ sel.attribution }}</span><sc-if value="{{ sel.agent }}" hint-placeholder-val="{{ false }}"><span class="tag tag-neutral" style="font-size:11px">agent-authored</span></sc-if><span style="color:var(--color-neutral-700)">{{ sel.age }} · {{ sel.where }}</span></div>
+          <sc-if value="{{ sel.isOrphan }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:14px;padding:12px 14px;background:var(--color-accent-2-100);color:var(--color-accent-2-800);border-radius:2px;font-size:14px">
+              <b>Orphaned.</b> It was anchored to <b>{{ sel.part }}</b>, which is not in SM_mech_scout_LOD0.glb at a41c9e2. It is listed, not drawn, so it is never shown on the wrong part.
+              <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+                <span>Re-anchor to</span>
+                <select class="input" value="{{ reanchorPart }}" onChange="{{ onReanchorPart }}" style="width:auto;min-height:32px;font-size:14px"><sc-for list="{{ partOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+                <button class="btn btn-primary" onClick="{{ reanchor }}" disabled="{{ writeDisabled }}" style="font-size:13px">Re-anchor</button>
+              </div>
+            </div>
+          </sc-if>
+          <ol style="list-style:none;margin:18px 0 0;padding:0 0 0 16px;display:flex;flex-direction:column;gap:12px;border-left:2px solid var(--color-divider)">
+            <sc-for list="{{ sel.replies }}" as="r" hint-placeholder-count="1"><li><div style="font-size:15px">{{ r.text }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ r.attribution }}</div></li></sc-for>
+          </ol>
+          <sc-if value="{{ sel.isOpen }}" hint-placeholder-val="{{ true }}">
+            <textarea class="input" value="{{ replyText }}" onChange="{{ onReply }}" placeholder="Reply in this thread" disabled="{{ writeDisabled }}" style="margin-top:16px;min-height:64px;font-size:15px;resize:vertical"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-secondary" onClick="{{ sendReply }}" disabled="{{ writeDisabled }}">Reply</button>
+              <button class="btn btn-secondary" onClick="{{ resolveSel }}" disabled="{{ writeDisabled }}">Resolve as an issue</button>
+            </div>
+            <sc-if value="{{ mayPromote }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top:28px">
+                <h4 style="font-size:17px;margin:0">Promote to a durable rule</h4>
+                <p style="margin:4px 0 0;font-size:13px;color:var(--color-neutral-700)">The annotation retires; the rule stays in every briefing that reads this destination.</p>
+                <input class="input" value="{{ ruleText }}" onChange="{{ onRule }}" placeholder="The rule, as it should be read in the briefing" style="margin-top:10px;font-size:15px">
+                <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+                  <sc-for list="{{ destOpts }}" as="d" hint-placeholder-count="2"><button onClick="{{ d.onClick }}" style="border:1px solid var(--color-divider);text-align:left;cursor:pointer;padding:8px 12px;border-radius:2px;font-size:14px;background:{{ d.bg }};color:{{ d.fg }}"><b>{{ d.label }}</b><div style="font-size:12px;opacity:.85">{{ d.meta }}</div></button></sc-for>
+                </div>
+                <button class="btn btn-primary" onClick="{{ promoteSel }}" disabled="{{ promoteDisabled }}" style="margin-top:12px">Promote and retire {{ sel.id }}</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ mayNotPromote }}" hint-placeholder-val="{{ false }}"><p style="margin:20px 0 0;font-size:13px;color:var(--color-neutral-700)">Promotion to a rule is done by an art director during triage.</p></sc-if>
+          </sc-if>
+          <sc-if value="{{ sel.isClosed }}" hint-placeholder-val="{{ false }}">
+            <p style="margin:16px 0 0;font-size:14px;color:var(--color-neutral-800)">{{ sel.closedNote }}</p>
+            <button class="btn btn-ghost" onClick="{{ reopenSel }}" disabled="{{ writeDisabled }}" style="margin-top:6px">Reopen</button>
+          </sc-if>
+        </section>
+      </sc-if>
+      <section>
+        <h3 style="font-size:17px;margin:0">Threads on parts <span style="font-weight:400;color:var(--color-neutral-700)">{{ threadCount }}</span></h3>
+        <div style="display:flex;flex-direction:column;gap:2px;margin-top:10px">
+          <sc-for list="{{ threads }}" as="t" hint-placeholder-count="3"><button onClick="{{ t.onClick }}" style="border:0;text-align:left;cursor:pointer;padding:8px 10px;border-radius:2px;font-size:14px;line-height:1.35;background:{{ t.bg }};color:var(--color-text)"><span style="font-weight:600">{{ t.n }}</span> <span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700)">{{ t.kind }}</span> {{ t.text }}</button></sc-for>
+          <sc-if value="{{ noThreads }}" hint-placeholder-val="{{ false }}"><p style="margin:0;font-size:14px;color:var(--color-neutral-700)">No open thread is anchored to a part.</p></sc-if>
+        </div>
+      </section>
+      <sc-if value="{{ hasOrphans }}" hint-placeholder-val="{{ false }}">
+        <section>
+          <h3 style="font-size:17px;margin:0;color:var(--color-accent-2-700)">Orphaned · cannot be shown <span style="font-weight:400">{{ orphanCount }}</span></h3>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+            <sc-for list="{{ orphans }}" as="o" hint-placeholder-count="1"><button onClick="{{ o.onClick }}" style="border:0;background:none;text-align:left;cursor:pointer;padding:0;color:var(--color-text)"><div style="font-size:14px">{{ o.text }}</div><div style="font-size:13px;color:var(--color-accent-2-700)">{{ o.reason }}</div></button></sc-for>
+          </div>
+        </section>
+      </sc-if>
+    </aside>
+  </div>
+  </sc-if>
+</main>
+</sc-if>
+
+<sc-if value="{{ isTriage }}" hint-placeholder-val="{{ false }}">
+<main style="padding:48px 64px 96px">
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:40px;align-items:end">
+    <div>
+      <h1 style="font-size:56px;line-height:1.05;margin:0">Triage pass</h1>
+      <p style="margin:12px 0 0;font-size:17px;max-width:820px;color:var(--color-neutral-800)">Every open annotation in Ronin, in the order the canon puts them. Open a thread on its sheet, then promote recurring feedback to a rule or resolve it as an issue.</p>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:64px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums">{{ closedCount }}<span style="color:var(--color-neutral-500)"> / {{ passTotal }}</span></div>
+      <div style="font-size:14px;color:var(--color-neutral-700)">closed this pass</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:3px;margin-top:24px;height:6px">
+    <sc-for list="{{ passBar }}" as="b" hint-placeholder-count="8"><div style="flex:1;border-radius:1px;background:{{ b.bg }}"></div></sc-for>
+  </div>
+  <div style="display:flex;gap:4px;margin-top:32px">
+    <sc-for list="{{ triageKinds }}" as="k" hint-placeholder-count="4"><button onClick="{{ k.onClick }}" style="border:0;cursor:pointer;padding:7px 14px;border-radius:2px;font-size:14px;background:{{ k.bg }};color:{{ k.fg }}">{{ k.label }}</button></sc-for>
+  </div>
+  <sc-if value="{{ hasTriageRows }}" hint-placeholder-val="{{ true }}">
+  <table class="table" style="margin-top:20px;font-size:15px">
+    <thead><tr><th>Asset</th><th>Kind</th><th style="width:38%">Feedback</th><th style="text-align:right">Same kind on asset</th><th style="text-align:right">In project</th><th style="text-align:right">Replies</th><th style="text-align:right">Age</th><th>Owner</th><th></th></tr></thead>
+    <tbody>
+      <sc-for list="{{ triageRows }}" as="r" hint-placeholder-count="6">
+        <tr>
+          <td style="padding:14px 10px;font-weight:600">{{ r.asset }}</td>
+          <td style="font-size:13px">{{ r.kind }}</td>
+          <td>{{ r.text }}<div style="font-size:13px;color:{{ r.attrColor }}">{{ r.attribution }}</div></td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ r.onAsset }}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:{{ r.projWeight }};color:{{ r.projColor }}">{{ r.inProject }}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ r.replies }}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ r.age }}</td>
+          <td>{{ r.owner }}</td>
+          <td style="text-align:right"><button class="btn btn-ghost" onClick="{{ r.onClick }}" disabled="{{ r.disabled }}" style="font-size:14px">{{ r.cta }}</button></td>
+        </tr>
+      </sc-for>
+    </tbody>
+  </table>
+  </sc-if>
+  <sc-if value="{{ triageEmpty }}" hint-placeholder-val="{{ false }}">
+    <section style="margin-top:56px;max-width:820px">
+      <h2 style="font-size:40px;margin:0">Nothing left open</h2>
+      <p style="margin:12px 0 0;font-size:18px">Every annotation in this pass has left by one of its two exits. Briefings carry rules only; the archive stays out of them.</p>
+    </section>
+  </sc-if>
+  <sc-if value="{{ hasClosed }}" hint-placeholder-val="{{ false }}">
+    <section style="margin-top:64px;max-width:1100px">
+      <h2 style="font-size:24px;margin:0">Closed this pass</h2>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-top:16px">
+        <sc-for list="{{ closedList }}" as="c" hint-placeholder-count="1"><div style="display:grid;grid-template-columns:120px 150px minmax(0,1fr);gap:20px;font-size:15px;align-items:baseline"><span style="font-weight:600">{{ c.id }}</span><span class="{{ c.cls }}" style="justify-self:start">{{ c.exit }}</span><span>{{ c.detail }}</span></div></sc-for>
+      </div>
+    </section>
+  </sc-if>
+</main>
+</sc-if>
+
+<sc-if value="{{ showReauth }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:50">
+    <div class="dialog" style="width:520px;gap:14px">
+      <div class="dialog-title" style="font-size:24px">Your session expired</div>
+      <div class="dialog-body" style="font-size:15px;opacity:1">Nothing was sent and nothing was lost. This request is held until you sign in again, then it completes as {{ me.name }}:</div>
+      <div style="padding:12px 14px;background:var(--color-bg);border-radius:2px;font-size:15px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-700)">Held</div>{{ heldLabel }}</div>
+      <div style="font-size:13px;color:var(--color-neutral-700)">Sign-in opens in place. You stay on this page.</div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onClick="{{ discardHeld }}">Discard the request</button>
+        <button class="btn btn-primary" onClick="{{ reauth }}">Sign in again as {{ me.name }}</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;session&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;iris (art director)&quot;,&quot;rafa (3D artist)&quot;,&quot;sam (no git identity)&quot;],&quot;default&quot;:&quot;iris (art director)&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Session&quot;},&quot;showIndex&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Prototype&quot;}}">
+const A = 'mech_scout';
+const SESSIONS = {
+  iris: { name: 'iris', role: 'art director', git: 'iris@ronin.studio', mayPromote: true },
+  rafa: { name: 'rafa', role: '3D artist', git: 'rafa@ronin.studio', mayPromote: false },
+  sam: { name: 'sam', role: 'concept artist', git: null, mayPromote: false }
+};
+const STATUSES = ['concept', 'approved', 'modeling', 'validated', 'in-engine'];
+const ASSETS = [
+  { id: 'mech_scout', name: 'Scout Mech', status: 'modeling', art: 'rafa', design: 'dani', code: 'leo', tags: ['enemy', 'walker'], aliases: ['scout walker', 'mech scout'], desc: 'fast recon walker, no sustained fire', sugg: [] },
+  { id: 'drone_sentry', name: 'Sentry Drone', status: 'concept', art: 'rafa', design: 'dani', code: null, tags: ['enemy', 'flying'], aliases: ['sentry'], desc: 'Must read as hostile at 40 m during combat.', sugg: [] },
+  { id: 'turret_rail', name: 'Rail Turret', status: 'approved', art: 'mika', design: 'dani', code: 'leo', tags: ['enemy', 'static'], aliases: ['railgun emplacement'], desc: 'Static emplacement; telegraphs a 1.5 s charge.', sugg: [] },
+  { id: 'crate_supply', name: 'Supply Crate', status: 'in-engine', art: 'mika', design: null, code: 'leo', tags: ['prop'], aliases: [], desc: 'Breakable; drops ammunition.', sugg: [] },
+  { id: 'gate_dock', name: 'Dock Gate', status: 'validated', art: 'tomas', design: 'dani', code: 'leo', tags: ['environment'], aliases: ['hangar gate'], desc: 'Two-leaf hangar gate, opens on objective complete.', sugg: [] },
+  { id: 'pilot_kaede', name: 'Kaede', status: 'concept', art: 'sam', design: 'dani', code: null, tags: ['character', 'hero'], aliases: ['pilot'], desc: 'Player pilot; seen in cockpit and cutscenes.', sugg: ['recon'] }
+];
+const UNMAPPED = ['tomas', 'sam'];
+const PARTS = [
+  { name: 'torso', tris: 3120, x: 50, y: 46 }, { name: 'pauldron_l', tris: 1410, x: 34, y: 30 }, { name: 'pauldron_r', tris: 980, x: 64, y: 32 },
+  { name: 'head', tris: 640, x: 50, y: 22 }, { name: 'arm_l', tris: 1860, x: 28, y: 48 }, { name: 'arm_r', tris: 1720, x: 72, y: 50 },
+  { name: 'SOCKET_muzzle_l', tris: 0, x: 22, y: 62 }, { name: 'leg_l', tris: 1204, x: 42, y: 72 }, { name: 'leg_r', tris: 1204, x: 58, y: 72 },
+  { name: 'calf_plate_l', tris: 280, x: 40, y: 84 }
+];
+const PART_NAMES = PARTS.map(p => p.name);
+const INITIAL_ANNS = [
+  { id: 'ann-0007', asset: A, kind: 'art-direction', attribution: 'dani', text: 'The pauldron still reads as a backpack from behind at 25 m.', state: 'open', part: 'pauldron_l', age: '6d', replies: [{ attribution: 'rafa', text: 'Moved the vent stack forward in v3. From the rear it still reads as a pack.' }] },
+  { id: 'ann-0009', asset: A, kind: 'technical', attribution: 'leo', text: 'SOCKET_muzzle_l sits 4 cm inside the barrel, so the tracer spawns inside the arm geometry.', state: 'open', part: 'SOCKET_muzzle_l', age: '2d', replies: [] },
+  { id: 'ann-0010', asset: A, kind: 'technical', attribution: 'rafa, via blender-agent', agent: true, text: 'calf_plate_l UVs overlap the knee joint; the team colour region bleeds into it at 25 m.', state: 'open', view: 'front', x: 58, y: 80, age: '1d', replies: [] },
+  { id: 'ann-0011', asset: A, kind: 'design', attribution: 'dani', text: 'The head breaks the shoulder line in the fire pose.', state: 'open', part: 'head_turret', age: '9d', replies: [{ attribution: 'rafa', text: 'Lowered it 6 cm in v3 and renamed the part to head.' }] },
+  { id: 'ann-0012', asset: A, kind: 'art-direction', attribution: 'iris', text: 'Both shoulders sit at the same height from three-quarter. One asymmetric shoulder has to read as the front.', state: 'open', view: 'three_quarter', x: 60, y: 27, stroke: 'M48 22 C 54 13, 67 14, 71 24 S 64 38, 54 34', age: '4d', replies: [] },
+  { id: 'ann-0004', asset: A, kind: 'technical', attribution: 'leo', text: 'The muzzle empty was rotated 90 degrees in the first export.', state: 'resolved', part: 'SOCKET_muzzle_l', age: '21d', replies: [], closedNote: 'Resolved by leo 14d ago and archived. It is not in the briefing.' },
+  { id: 'ann-0021', asset: 'drone_sentry', kind: 'art-direction', attribution: 'dani', text: 'The rotor housing softens the outline. It has to read as hostile at 40 m during combat.', state: 'open', view: 'front', age: '3d', replies: [{}, {}] },
+  { id: 'ann-0022', asset: 'drone_sentry', kind: 'art-direction', attribution: 'iris', text: 'The sensor eye reads as friendly at distance. The colour is the problem, not the shape.', state: 'open', view: 'front', age: '1d', replies: [] },
+  { id: 'ann-0031', asset: 'gate_dock', kind: 'technical', attribution: 'leo', text: 'Pivot is at the hinge, not at world zero.', state: 'open', part: 'leaf_l', age: '12d', replies: [{}] }
+];
+const EXPORTS = {
+  glb: {
+    meta: 'SM_mech_scout_LOD0.glb · exported by rafa 3h ago · a41c9e2',
+    note: 'glTF records units, axes, skeleton, animation and empties, so almost every rule can be read from it.',
+    passed: [
+      ['naming.pattern', 'SM_mech_scout_LOD0 matches SM_{asset}_LOD{n}.'], ['socket.missing', 'SOCKET_muzzle_l is present.'],
+      ['rig.max_bones', '41 bones in SK_MechScout; the limit is 64.'], ['scale.unit', 'Unit scale 1.0; expected 1.0.'],
+      ['axis.up', 'Up axis Y; expected Y.'], ['animation.clip_duration', 'A_mech_scout_walk is 0.83 s; the minimum is 0.1 s.']
+    ],
+    violated: [
+      ['budget.triangles', 'mech_scout: 12,418 triangles in SM_mech_scout_LOD0; the budget is 12,000.', 'error'],
+      ['animation.clip_missing', 'mech_scout: state fire requires clip A_mech_scout_fire; the export contains A_mech_scout_walk only.', 'error']
+    ],
+    skipped: [['collider.faces', 'glTF records no collision shape. The convex hull is authored in engine, so its 12-face limit cannot be read here.']]
+  },
+  obj: {
+    meta: 'SM_mech_scout_LOD0.obj · exported by rafa 2d ago · 7d02b11',
+    note: 'OBJ carries geometry and materials only. Every rule that reads something OBJ does not record is named below with its reason, not counted as passed.',
+    passed: [['naming.pattern', 'SM_mech_scout_LOD0 matches SM_{asset}_LOD{n}.'], ['budget.triangles', '11,904 triangles; the budget is 12,000.']],
+    violated: [['texture.sets', 'mech_scout: 2 material sets in SM_mech_scout_LOD0; expected 1.', 'error']],
+    skipped: [
+      ['scale.unit', 'OBJ carries no unit scale. The tool will not claim the scale is right or wrong.'],
+      ['axis.up', 'OBJ records no up axis.'], ['rig.max_bones', 'OBJ carries no skeleton.'],
+      ['animation.clip_missing', 'OBJ carries no animation, so required clips cannot be looked for.'],
+      ['socket.missing', 'OBJ records no empties, so SOCKET_muzzle_l cannot be looked for.'],
+      ['collider.faces', 'OBJ records no collision shape.']
+    ]
+  }
+};
+const DESTS = [
+  { v: 'concept.silhouette_rules', label: 'concept.silhouette_rules of mech_scout', meta: 'Read by the mech_scout briefing only.' },
+  { v: 'project.golden_rules', label: 'golden_rules of Ronin', meta: 'Read by every asset briefing in Ronin. Use it for feedback that recurs across assets.' }
+];
+const PASSAGES = [
+  { doc: 'Ronin — recon roster', prov: 'arche · section 2', text: 'Recon units never hold a firing line; a walker spots, marks and retreats.' },
+  { doc: 'Combat readability at distance', prov: 'arche · section 1', text: 'Enemies must read as hostile at 40 m during combat, before colour does any work.' },
+  { doc: 'Combat readability at distance', prov: 'arche · section 3', text: 'A walker is read by its legs first; the torso is secondary at 25 m.' }
+];
+const KEY = 'cybercanon-proto-v1';
+
+class Component extends DCLogic {
+  state = {
+    route: 'asset', surface: 'overview', q: '', fStatus: '', fOwner: '', fTag: '', stateCase: '',
+    exportSel: 'glb', anns: INITIAL_ANNS, selAnn: 'ann-0012', annKind: '', annState: 'open', view: 'three_quarter', tool: 'pin',
+    draft: null, draftKind: 'art-direction', draftText: '', replyText: '', ruleText: '', dest: 'concept.silhouette_rules',
+    sil: [{ text: 'One asymmetric shoulder reads as the front at 25 m.' }, { text: 'The head sits below the shoulder line; it never breaks the top edge.' }],
+    gold: [{ text: 'The silhouette reads at 25 m before any detail does.' }, { text: 'An attachment point declared by design is a gate, not a suggestion.' }],
+    closed: [], expired: false, held: null, notice: '', part: '', reanchorPart: 'head', clip: 'A_mech_scout_walk', playing: false, frame: 0,
+    triageKind: '', fromTriage: false, copied: false
+  };
+  componentDidMount() {
+    try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) this.setState({ route: s.route, surface: s.surface }); } catch (e) {}
+  }
+  componentWillUnmount() { clearInterval(this._t); }
+  go(route, extra) {
+    const next = Object.assign({ route, stateCase: '', fromTriage: false }, extra || {});
+    this.setState(next, () => { try { localStorage.setItem(KEY, JSON.stringify({ route: this.state.route, surface: this.state.surface })); } catch (e) {} });
+  }
+  me() {
+    const k = String(this.props.session || 'iris').split(' ')[0];
+    return SESSIONS[k] || SESSIONS.iris;
+  }
+  bytes(anns, sil, gold) {
+    const open = anns.filter(a => a.asset === A && a.state === 'open').length;
+    const extra = sil.concat(gold).filter(r => r.from).reduce((n, r) => n + r.text.length + 3, 0);
+    return 714 + 96 * open + extra;
+  }
+  write(key, payload, label) {
+    if (!this.me().git) return;
+    if (this.state.expired) { this.setState({ held: { key, payload, label } }); return; }
+    this.apply(key, payload);
+  }
+  apply(key, p) {
+    const s = this.state, me = this.me();
+    let anns = s.anns, sil = s.sil, gold = s.gold, closed = s.closed, notice = '', extra = {};
+    const upd = (id, f) => anns.map(a => a.id === id ? Object.assign({}, a, f(a)) : a);
+    if (key === 'reply') { anns = upd(p.id, a => ({ replies: a.replies.concat([{ attribution: me.name, text: p.text }]) })); extra.replyText = ''; notice = `Reply posted to ${p.id} as ${me.name}.`; }
+    if (key === 'resolve') {
+      anns = upd(p.id, () => ({ state: 'resolved', closedNote: `Resolved by ${me.name} just now and archived. It no longer reaches any briefing.` }));
+      closed = closed.concat([{ id: p.id, exit: 'resolved', detail: 'Archived as a transient issue.' }]);
+    }
+    if (key === 'promote') {
+      const d = DESTS.find(x => x.v === p.dest);
+      anns = upd(p.id, () => ({ state: 'promoted', closedNote: `Promoted by ${me.name} to ${d.label} and retired. The rule reads: “${p.rule}”` }));
+      if (p.dest === 'project.golden_rules') gold = gold.concat([{ text: p.rule, from: p.id }]); else sil = sil.concat([{ text: p.rule, from: p.id }]);
+      closed = closed.concat([{ id: p.id, exit: 'promoted', detail: `“${p.rule}” → ${d.label}` }]);
+      extra.ruleText = '';
+    }
+    if (key === 'reopen') { anns = upd(p.id, () => ({ state: 'open' })); closed = closed.filter(c => c.id !== p.id); notice = `${p.id} reopened.`; }
+    if (key === 'reanchor') { anns = upd(p.id, () => ({ part: p.part })); notice = `${p.id} re-anchored to ${p.part}. It is drawn again.`; }
+    if (key === 'create') {
+      const id = 'ann-00' + (40 + anns.length);
+      anns = anns.concat([{ id, asset: A, kind: p.kind, attribution: me.name, text: p.text, state: 'open', view: p.view, x: p.x, y: p.y, stroke: p.stroke, age: 'new', replies: [] }]);
+      extra.draft = null; extra.draftText = ''; extra.selAnn = id; notice = `${id} saved as ${me.name}.`;
+    }
+    if (key === 'resolve' || key === 'promote' || key === 'create') {
+      const open = anns.filter(a => a.asset === A && a.state === 'open').length;
+      notice = (notice ? notice + ' ' : `${p.id} ${key === 'resolve' ? 'resolved' : 'promoted'}. `) + `mech_scout briefing: ${this.bytes(anns, sil, gold).toLocaleString()} bytes, ${open} open.`;
+    }
+    this.setState(Object.assign({ anns, sil, gold, closed, notice }, extra));
+  }
+  seg(list, cur, pick) {
+    return list.map(o => {
+      const v = typeof o === 'string' ? o : o.v, l = typeof o === 'string' ? o : o.l;
+      const on = v === cur;
+      return { label: l, onClick: () => pick(v), bg: on ? 'var(--color-text)' : 'transparent', fg: on ? 'var(--color-bg)' : 'var(--color-text)' };
+    });
+  }
+  ptFrom(e) {
+    const r = e.currentTarget.getBoundingClientRect();
+    return [Math.round((e.clientX - r.left) / r.width * 1000) / 10, Math.round((e.clientY - r.top) / r.height * 1000) / 10];
+  }
+  togglePlay() {
+    if (this.state.playing) { clearInterval(this._t); this.setState({ playing: false }); return; }
+    this._t = setInterval(() => this.setState(s => ({ frame: (s.frame + 1) % 25 })), 1000 / 30 * 2);
+    this.setState({ playing: true });
+  }
+
+  renderVals() {
+    const s = this.state, me = this.me();
+    const R = s.route;
+    const isAsset = R === 'asset';
+    const surf = s.surface;
+    const openAll = s.anns.filter(a => a.state === 'open');
+    const mech = s.anns.filter(a => a.asset === A);
+    const openHere = mech.filter(a => a.state === 'open');
+    const num = {}; mech.forEach((a, i) => { num[a.id] = i + 1; });
+    const isOrphan = a => !!a.part && a.asset === A && !PART_NAMES.includes(a.part);
+    const writeDisabled = !me.git;
+    const dim = 'var(--color-neutral-700)';
+
+    // index strip
+    const scr = [['Sign-in', 'signin'], ['Projects', 'projects'], ['Assets', 'assets'], ['Asset', 'asset', 'overview'], ['Model sheet', 'asset', 'sheet'], ['3D viewer', 'asset', '3d'], ['Triage', 'triage']];
+    const indexScreens = scr.map(([l, r, sf]) => {
+      const on = R === r && (!sf || surf === sf) && !s.stateCase;
+      return { label: l, bg: on ? 'var(--color-text)' : 'transparent', fg: on ? 'var(--color-bg)' : 'var(--color-text)', onClick: () => this.go(r, sf ? { surface: sf } : { q: '', fStatus: '', fOwner: '', fTag: '' }) };
+    });
+    const sts = [['No assets', 'no-assets'], ['Nothing matched', 'no-results'], ['Filters excluded', 'filters-excluded'], ['Forbidden', 'forbidden'], ['Not found', 'not-found'], ['Degraded', 'degraded'], ['Failed', 'failed']];
+    const curCase = R === 'assets' ? (s.stateCase || '') : '';
+    const indexStates = sts.map(([l, c]) => {
+      const on = curCase === c;
+      const extra = c === 'no-results' ? { q: 'harpoon', fStatus: '', fOwner: '', fTag: '' } : c === 'filters-excluded' ? { q: 'enemy', fStatus: 'in-engine', fOwner: '', fTag: '' } : { q: '', fStatus: '', fOwner: '', fTag: '' };
+      return { label: l, bg: on ? 'var(--color-text)' : 'transparent', fg: on ? 'var(--color-bg)' : 'var(--color-text)', onClick: () => this.go('assets', Object.assign({ stateCase: c }, extra)) };
+    });
+
+    // address
+    let address = '/sign-in';
+    if (R === 'projects') address = '/';
+    if (R === 'assets') {
+      const ps = []; if (s.q) ps.push('q=' + encodeURIComponent(s.q)); if (s.fStatus) ps.push('status=' + s.fStatus); if (s.fOwner) ps.push('owner=' + s.fOwner); if (s.fTag) ps.push('tag=' + s.fTag);
+      address = (s.stateCase === 'forbidden' ? '/p/kestrel/assets' : '/p/ronin/assets') + (ps.length ? '?' + ps.join('&') : '');
+      if (s.stateCase === 'not-found') address = '/p/ronin/a/mech_scoot';
+    }
+    if (isAsset) {
+      const ps = []; if (surf !== 'overview') ps.push('view=' + surf); if (surf !== 'overview' && s.selAnn) ps.push('annotation=' + s.selAnn); if (surf === 'sheet') ps.push('image=' + s.view);
+      address = '/p/ronin/a/mech_scout' + (ps.length ? '?' + ps.join('&') : '');
+    }
+    if (R === 'triage') address = '/p/ronin/triage' + (s.triageKind ? '?kind=' + s.triageKind : '');
+
+    // browser
+    const q = s.q.trim().toLowerCase();
+    const matchOf = a => {
+      if (!q) return { ok: true, how: '—' };
+      if (a.name.toLowerCase().includes(q) || a.id.includes(q)) return { ok: true, how: 'name' };
+      const al = a.aliases.find(x => x.includes(q)); if (al) return { ok: true, how: `alias “${al}”` };
+      const tg = a.tags.find(x => x.includes(q)); if (tg) return { ok: true, how: `tag “${tg}”` };
+      if (a.desc.toLowerCase().includes(q)) return { ok: true, how: `description: “${a.desc}”` };
+      const sg = a.sugg.find(x => x.includes(q)); if (sg) return { ok: true, how: `tag “${sg}”, suggested by an agent and not yet accepted`, unaccepted: true };
+      return { ok: false };
+    };
+    const base = ASSETS.map(a => Object.assign({ m: matchOf(a) }, a)).filter(a => a.m.ok);
+    const degradedHide = s.stateCase === 'degraded' && s.fTag ? ['gate_dock', 'pilot_kaede'] : [];
+    const filtered = base.filter(a => (!s.fStatus || a.status === s.fStatus) && (!s.fOwner || [a.art, a.design, a.code].includes(s.fOwner)) && (!s.fTag || a.tags.includes(s.fTag)) && !degradedHide.includes(a.id));
+    const own = (who) => who ? { label: who + (UNMAPPED.includes(who) ? ' (no git identity)' : ''), color: UNMAPPED.includes(who) ? 'var(--color-accent-2-700)' : 'var(--color-text)' } : { label: 'unassigned', color: dim };
+    const rows = filtered.map(a => ({
+      id: a.id, name: a.name, status: a.status, tags: a.tags.join(', '), art: own(a.art), design: own(a.design), code: own(a.code),
+      match: a.m.how, matchColor: a.m.unaccepted ? 'var(--color-accent-2-700)' : 'var(--color-neutral-800)',
+      nameColor: a.id === A ? 'var(--color-accent-700)' : 'var(--color-text)', cursor: a.id === A ? 'pointer' : 'default',
+      onClick: () => { if (a.id === A) this.go('asset', { surface: 'overview' }); }
+    }));
+    const forced = ['no-assets', 'forbidden', 'not-found', 'failed'];
+    let kind = 'content';
+    if (forced.includes(s.stateCase)) kind = s.stateCase;
+    else if (!rows.length) kind = base.length ? 'filters-excluded' : 'no-results';
+    const filterWords = [s.fStatus && 'status ' + s.fStatus, s.fOwner && 'owner ' + s.fOwner, s.fTag && 'tag ' + s.fTag].filter(Boolean).join(', ');
+    const clearFilters = () => this.setState({ fStatus: '', fOwner: '', fTag: '' });
+    const screens = {
+      'no-assets': { kicker: 'Empty', heading: 'Nothing here yet', detail: 'Ronin has no asset specifications at a41c9e2. An asset exists once its asset.yaml is committed; developers can request one before any art exists.', actions: [{ label: 'Request the first asset', cls: 'btn btn-primary' }] },
+      'no-results': { kicker: 'Empty · no match', heading: 'Nothing matched', detail: `No asset in Ronin matched “${s.q}”. No filters were applied, so this is the whole canon.`, searched: [{ k: 'Searched for', v: `“${s.q}”` }, { k: 'Looked in', v: 'names, identifiers, aliases, tags, descriptions, agent suggestions' }, { k: 'Across', v: '6 assets in Ronin at a41c9e2' }], actions: [{ label: 'Clear the search', cls: 'btn btn-secondary', onClick: () => this.setState({ q: '' }) }, { label: `Request “${s.q}” as a new asset`, cls: 'btn btn-ghost' }] },
+      'filters-excluded': { kicker: 'Empty · filtered out', heading: 'The filters excluded every match', detail: `“${s.q || 'the listing'}” matched ${base.length} asset${base.length === 1 ? '' : 's'}; ${filterWords} excluded all of them.`, searched: [{ k: 'Matched', v: base.map(a => a.id).join(', ') }, { k: 'Excluded by', v: filterWords }], actions: [{ label: 'Clear the filters', cls: 'btn btn-primary', onClick: clearFilters }] },
+      forbidden: { kicker: 'Forbidden', heading: 'You do not have access', detail: `${me.name} is not a member of Kestrel. Nothing from its canon is shown. A Kestrel admin can add you; your request names you and this address.`, actions: [{ label: 'Ask a Kestrel admin for access', cls: 'btn btn-primary' }, { label: 'Back to your projects', cls: 'btn btn-secondary', onClick: () => this.go('projects') }] },
+      'not-found': { kicker: 'Not found', heading: 'No asset named mech_scoot', detail: 'Ronin has no asset with the identifier mech_scoot at a41c9e2, and no alias of that name. The closest identifier is mech_scout.', actions: [{ label: 'Open mech_scout', cls: 'btn btn-primary', onClick: () => this.go('asset', { surface: 'overview' }) }, { label: 'Browse assets', cls: 'btn btn-secondary', onClick: () => this.go('assets') }] },
+      failed: { kicker: 'Failed', heading: 'That did not work', detail: 'The asset index did not answer: GET /p/ronin/assets returned 503 after 10.0 s. Nothing is shown because nothing was read. (correlation c-7f31a2)', actions: [{ label: 'Try again', cls: 'btn btn-primary', onClick: () => this.go('assets') }] }
+    };
+    const scrn = screens[kind] || null;
+    const stateScreen = scrn ? Object.assign({ searched: [], actions: [] }, scrn, { hasSearched: !!(scrn.searched && scrn.searched.length), kickerColor: kind === 'forbidden' || kind === 'failed' ? 'var(--color-accent-2-700)' : dim }) : { searched: [], actions: [] };
+    stateScreen.actions = stateScreen.actions.map(a => Object.assign({ onClick: () => {} }, a));
+    const owners = Array.from(new Set(ASSETS.flatMap(a => [a.art, a.design, a.code]).filter(Boolean))).sort();
+    const tags = Array.from(new Set(ASSETS.flatMap(a => a.tags))).sort();
+    const activeFilters = [
+      s.fStatus && { label: 'status: ' + s.fStatus, onClick: () => this.setState({ fStatus: '' }) },
+      s.fOwner && { label: 'owner: ' + s.fOwner, onClick: () => this.setState({ fOwner: '' }) },
+      s.fTag && { label: 'tag: ' + s.fTag, onClick: () => this.setState({ fTag: '' }) }
+    ].filter(Boolean);
+    const passages = q ? PASSAGES.filter(p => p.text.toLowerCase().includes(q)) : [];
+
+    // asset
+    const lifecycle = STATUSES.map((st, i) => ({ label: st, sep: i < STATUSES.length - 1 ? '  →' : '', weight: st === 'modeling' ? 600 : 400, color: st === 'modeling' ? 'var(--color-accent-700)' : STATUSES.indexOf(st) < 2 ? 'var(--color-text)' : dim }));
+    const E = EXPORTS[s.exportSel];
+    const it = arr => arr.map(([rule, msg, sev]) => ({ rule, msg, sev: rule === 'naming.pattern' ? 'warning' : (sev || '') }));
+    const vcols = [
+      { title: 'Passed', tagClass: 'tag tag-accent', items: it(E.passed), sub: 'Read from the file and satisfied.' },
+      { title: 'Violated', tagClass: 'tag tag-accent-2', items: it(E.violated), sub: 'Read from the file and not satisfied. Observed, expected, asset.' },
+      { title: 'Not evaluated', tagClass: 'tag tag-neutral', items: it(E.skipped), sub: 'The format does not record what the rule reads. Neither passed nor failed.' }
+    ].map(c => Object.assign(c, { count: c.items.length, isEmpty: !c.items.length }));
+    const bytes = this.bytes(s.anns, s.sil, s.gold);
+    const openList = openHere.map(a => ({
+      kind: a.kind, text: a.text, attribution: a.attribution, age: a.age,
+      where: a.view ? (a.view === 'front' ? 'front view' : 'three-quarter view') : a.part,
+      attrColor: isOrphan(a) ? 'var(--color-accent-2-700)' : dim, orphanNote: isOrphan(a) ? ' · orphaned: part renamed' : '',
+      onClick: () => this.go('asset', { surface: a.view ? 'sheet' : '3d', selAnn: a.id, view: a.view || s.view })
+    }));
+
+    // selected thread (shared)
+    const selA = s.anns.find(a => a.id === s.selAnn && a.asset === A);
+    const onSurface = a => surf === 'sheet' ? !!a.view : !!a.part;
+    const selOk = selA && onSurface(selA);
+    const sel = selOk ? {
+      id: selA.id, kind: selA.kind, text: selA.text, attribution: selA.attribution, agent: !!selA.agent, age: selA.age,
+      where: selA.view ? (selA.view === 'front' ? 'front view' : 'three-quarter view') : 'part ' + selA.part,
+      part: selA.part, isOrphan: isOrphan(selA) && selA.state === 'open', isOpen: selA.state === 'open', isClosed: selA.state !== 'open',
+      closedNote: selA.closedNote || '', stateLabel: selA.state, stateClass: selA.state === 'open' ? 'tag tag-outline' : 'tag tag-neutral',
+      attrColor: selA.agent ? 'var(--color-neutral-800)' : dim, replies: selA.replies.filter(r => r.text)
+    } : { replies: [] };
+    const kindOk = a => !s.annKind || a.kind === s.annKind;
+    const stateOk = a => s.annState === 'all' ? true : s.annState === 'open' ? a.state === 'open' : a.state !== 'open';
+    const pinStyle = a => {
+      const on = a.id === s.selAnn;
+      return { bg: on ? 'var(--color-accent)' : a.state === 'open' ? 'var(--color-text)' : 'var(--color-neutral-400)', fg: 'var(--color-bg)', ring: a.agent ? 'dashed' : 'solid' };
+    };
+    const pick = a => () => this.setState({ selAnn: a.id, draft: null, reanchorPart: 'head' });
+    const surfAnns = mech.filter(a => onSurface(a) && kindOk(a) && stateOk(a));
+    const sheetAnns = surf === 'sheet' ? surfAnns.filter(a => a.view === s.view) : surfAnns;
+    const drawable = sheetAnns.filter(a => !isOrphan(a));
+    const sheetPins = surf === 'sheet' ? drawable.map(a => Object.assign({ n: num[a.id], left: a.x + '%', top: a.y + '%', title: a.text, onClick: pick(a) }, pinStyle(a))) : [];
+    const strokes = [];
+    if (surf === 'sheet') {
+      drawable.filter(a => a.stroke).forEach(a => strokes.push({ d: a.stroke, color: a.id === s.selAnn ? 'var(--color-accent)' : 'var(--color-text)' }));
+      if (s.draft && s.draft.view === s.view) s.draft.strokes.forEach(st => strokes.push({ d: st, color: 'var(--color-accent)' }));
+    }
+    const viewerPins = surf === '3d' ? drawable.map(a => { const p = PARTS.find(x => x.name === a.part); return Object.assign({ n: num[a.id], left: p.x + '%', top: p.y + '%', part: a.part, onClick: pick(a) }, pinStyle(a)); }) : [];
+    const threads = sheetAnns.map(a => ({ n: num[a.id], kind: a.kind, text: a.text, onClick: pick(a), bg: a.id === s.selAnn ? 'var(--color-accent-100)' : 'transparent' }));
+    const orphanAnns = mech.filter(a => isOrphan(a) && a.state === 'open');
+    const orphans = orphanAnns.map(a => ({ text: a.text, reason: `Anchored to ${a.part}, which SM_mech_scout_LOD0.glb no longer has. Re-anchor it to a named part.`, onClick: () => this.setState({ selAnn: a.id, surface: '3d' }) }));
+
+    const sb = (list, cur, key) => list.map(([v, l, meta]) => ({ label: l, meta: meta || '', onClick: () => this.setState({ [key]: v }), bg: cur === v ? 'var(--color-text)' : 'transparent', fg: cur === v ? 'var(--color-bg)' : 'var(--color-text)' }));
+    const cntView = v => mech.filter(a => a.view === v && a.state === 'open').length;
+    const d = s.draft;
+    const draftMeta = d ? `${d.strokes.length} stroke${d.strokes.length === 1 ? '' : 's'} drawn · pinned on the ${d.view === 'front' ? 'front' : 'three-quarter'} view · will be attributed to ${me.name}` : '';
+
+    const promote = () => { const r = s.ruleText.trim(); if (!r || !selA) return; this.write('promote', { id: selA.id, rule: r, dest: s.dest }, `Promote ${selA.id} to ${s.dest}: “${r}”`); };
+
+    // triage
+    const tKinds = [['', 'every kind'], ['art-direction', 'art-direction'], ['technical', 'technical'], ['design', 'design']];
+    const tOpen = openAll.filter(a => !s.triageKind || a.kind === s.triageKind);
+    const passTotal = openAll.length + s.closed.length;
+    const triageRows = tOpen.map(a => {
+      const onA = openAll.filter(x => x.asset === a.asset && x.kind === a.kind).length;
+      const inP = openAll.filter(x => x.kind === a.kind).length;
+      const asset = ASSETS.find(x => x.id === a.asset);
+      const wired = a.asset === A;
+      return {
+        asset: a.asset, kind: a.kind, text: a.text, attribution: a.attribution, attrColor: a.agent ? 'var(--color-neutral-800)' : dim,
+        onAsset: onA, inProject: inP, projWeight: inP >= 3 ? 600 : 400, projColor: inP >= 3 ? 'var(--color-accent-700)' : 'var(--color-text)',
+        replies: a.replies.length, age: a.age, owner: (a.kind === 'technical' ? asset.code : a.kind === 'design' ? asset.design : asset.art) || 'unassigned',
+        cta: wired ? (a.view ? 'Open on sheet →' : 'Open in 3D →') : 'Open →', disabled: !wired,
+        onClick: () => this.go('asset', { surface: a.view ? 'sheet' : '3d', selAnn: a.id, view: a.view || s.view, fromTriage: true })
+      };
+    });
+    const passBar = Array.from({ length: passTotal }, (_, i) => ({ bg: i < s.closed.length ? 'var(--color-accent)' : 'var(--color-neutral-300)' }));
+
+    const clipMissing = s.clip === 'A_mech_scout_fire';
+
+    return {
+      showIndex: this.props.showIndex ?? true, indexScreens, indexStates,
+      toggleExpiry: () => this.setState({ expired: !s.expired, notice: s.expired ? '' : 'Prototype: the session is now expired. Your next write will be held, not lost.' }),
+      expiryLabel: s.expired ? 'Restore session' : 'Expire session',
+      isSignin: R === 'signin', hasChrome: R !== 'signin', inProject: R !== 'projects', isProjects: R === 'projects', isAssets: R === 'assets', isAsset, isTriage: R === 'triage',
+      signIn: () => this.go('projects'), signOut: () => this.go('signin'), goProjects: () => this.go('projects'), goAssets: () => this.go('assets'), goTriage: () => this.go('triage'),
+      navAssetsColor: R === 'assets' || isAsset ? 'var(--color-accent-700)' : 'var(--color-text)', navAssetsLine: R === 'assets' || isAsset ? 'var(--color-accent)' : 'transparent',
+      navTriageColor: R === 'triage' ? 'var(--color-accent-700)' : 'var(--color-text)', navTriageLine: R === 'triage' ? 'var(--color-accent)' : 'transparent',
+      openTotal: openAll.length,
+      me: { name: me.name, role: me.role, git: me.git, hasGit: !!me.git, noGit: !me.git },
+      expired: s.expired, address, copyLabel: s.copied ? 'Copied' : 'Copy link',
+      copyLink: () => { try { navigator.clipboard.writeText('https://canon.cyberdynecorp.ai' + address); } catch (e) {} this.setState({ copied: true }); setTimeout(() => this.setState({ copied: false }), 1400); },
+      hasNotice: !!s.notice, notice: s.notice, dismissNotice: () => this.setState({ notice: '' }),
+
+      projects: [
+        { name: 'Ronin', meta: '6 assets · 8 open annotations · last commit a41c9e2, 2 min ago', repo: 'git.ronin.studio/ronin/game', role: me.name + ' · ' + me.role, color: 'var(--color-accent-700)', onClick: () => this.go('assets') },
+        { name: 'Harbor Lights', meta: '9 assets · 0 open annotations', repo: 'git.ronin.studio/harbor/game', role: me.name + ' · reader', color: 'var(--color-text)', onClick: () => {} }
+      ],
+
+      assetCountLabel: rows.length + ' of 6 assets in Ronin', q: s.q,
+      onQuery: e => this.setState({ q: e.target.value, stateCase: s.stateCase === 'no-results' || s.stateCase === 'filters-excluded' ? '' : s.stateCase }),
+      statusSeg: this.seg([{ v: '', l: 'all' }].concat(STATUSES), s.fStatus, v => this.setState({ fStatus: v })),
+      fOwner: s.fOwner, fTag: s.fTag, onOwner: e => this.setState({ fOwner: e.target.value }), onTag: e => this.setState({ fTag: e.target.value }),
+      ownerOpts: [{ v: '', l: 'anyone' }].concat(owners.map(o => ({ v: o, l: o }))), tagOpts: [{ v: '', l: 'any tag' }].concat(tags.map(t => ({ v: t, l: t }))),
+      hasActive: activeFilters.length > 0, activeFilters, clearFilters,
+      showStateScreen: !!scrn, stateScreen, isDegraded: s.stateCase === 'degraded' && !scrn,
+      showRows: !scrn, rows, showSemantic: !scrn && !!q && s.stateCase !== 'degraded', passages, noPassages: !passages.length,
+
+      lifecycle, surfaceSeg: this.seg([{ v: 'overview', l: 'Overview' }, { v: 'sheet', l: 'Model sheet' }, { v: '3d', l: '3D viewer' }], surf, v => this.go('asset', { surface: v, selAnn: v === 'sheet' ? (s.view === 'front' ? 'ann-0010' : 'ann-0012') : v === '3d' ? 'ann-0007' : s.selAnn, draft: null })),
+      bytesLabel: bytes.toLocaleString() + ' bytes', openHere: openHere.length, backToTriage: s.fromTriage && isAsset,
+      isOverview: surf === 'overview', isSheet: surf === 'sheet', is3d: surf === '3d',
+      exportSeg: this.seg([{ v: 'glb', l: '.glb' }, { v: 'obj', l: '.obj' }], s.exportSel, v => this.setState({ exportSel: v })), exp: E, vcols,
+      silRules: s.sil.map(r => ({ text: r.text, isNew: !!r.from, from: r.from })), goldRules: s.gold.map(r => ({ text: r.text, isNew: !!r.from, from: r.from })),
+      designRows: [{ k: 'role', v: 'fast recon walker, no sustained fire' }, { k: 'read distance', v: '25 m' }, { k: 'silhouette priority', v: 'legs over torso' }, { k: 'scale reference', v: '3.2 m at the shoulder' }, { k: 'team colour', v: 'shoulder pauldron, calf plate' }, { k: 'socket', v: 'SOCKET_muzzle_l — muzzle flash and tracer origin, left arm' }, { k: 'state walk', v: 'loop, root motion, ≥ 0.1 s → A_mech_scout_walk' }, { k: 'state fire', v: 'once, root motion, ≥ 0.05 s → A_mech_scout_fire' }],
+      constraintRows: [['triangle budget', '12,000', 'asset'], ['LODs', '12,000 / 6,000 / 2,000', 'asset'], ['collider', 'convex hull, 12 faces', 'asset'], ['rig', 'SK_MechScout, skinned, ≤ 64 bones', 'asset + project'], ['naming', 'SM_{asset}_LOD{n}', 'project'], ['unit scale', '1.0', 'project'], ['up axis', 'Y', 'project'], ['pivot', 'feet centre, origin at world zero', 'project'], ['clips', 'A_{asset}_{state} at 30 fps', 'project'], ['textures', '2048, 1 set: base_color, normal, orm', 'project']].map(([k, v, src]) => ({ k, v, src, srcColor: src === 'asset' ? 'var(--color-accent-700)' : dim })),
+      openList, noneOpen: !openHere.length,
+
+      hasSel: !!selOk, sel, mayPromote: me.mayPromote, mayNotPromote: !me.mayPromote, writeDisabled,
+      promoteDisabled: writeDisabled || !s.ruleText.trim(),
+      replyText: s.replyText, onReply: e => this.setState({ replyText: e.target.value }),
+      sendReply: () => { const t = s.replyText.trim(); if (t && selA) this.write('reply', { id: selA.id, text: t }, `Reply to ${selA.id}: “${t}”`); },
+      resolveSel: () => selA && this.write('resolve', { id: selA.id }, `Resolve ${selA.id} as a transient issue`),
+      reopenSel: () => selA && this.write('reopen', { id: selA.id }, `Reopen ${selA.id}`),
+      ruleText: s.ruleText, onRule: e => this.setState({ ruleText: e.target.value }), promoteSel: promote,
+      destOpts: DESTS.map(x => ({ label: x.label, meta: x.meta, onClick: () => this.setState({ dest: x.v }), bg: s.dest === x.v ? 'var(--color-accent-100)' : 'transparent', fg: s.dest === x.v ? 'var(--color-accent-900)' : 'var(--color-text)' })),
+      reanchorPart: s.reanchorPart, onReanchorPart: e => this.setState({ reanchorPart: e.target.value }), partOpts: PARTS.map(p => ({ v: p.name, l: p.name })),
+      reanchor: () => selA && this.write('reanchor', { id: selA.id, part: s.reanchorPart }, `Re-anchor ${selA.id} to ${s.reanchorPart}`),
+      threads, threadCount: threads.length, noThreads: !threads.length, hasOrphans: orphans.length > 0 && surf === '3d', orphans, orphanCount: orphans.length,
+
+      viewList: sb([['front', 'Front', `v3 · ${cntView('front')} open`], ['three_quarter', 'Three-quarter', `v2 · ${cntView('three_quarter')} open`]], s.view, 'view'),
+      toolList: sb([['pin', 'Pin'], ['scribble', 'Scribble'], ['pan', 'Pan']], s.tool, 'tool'),
+      kindList: sb([['', 'every kind'], ['art-direction', 'art-direction'], ['technical', 'technical'], ['design', 'design']], s.annKind, 'annKind'),
+      stateList: sb([['open', 'open'], ['closed', 'resolved or promoted'], ['all', 'all']], s.annState, 'annState'),
+      isFront: s.view === 'front', isTQ: s.view === 'three_quarter',
+      sheetCursor: s.tool === 'pan' ? 'grab' : 'crosshair', overlayEvents: 'auto',
+      stop: e => e.stopPropagation(),
+      onSheetDown: e => {
+        if (s.tool === 'pan' || e.pointerType === 'touch' || writeDisabled) return;
+        const [x, y] = this.ptFrom(e);
+        const base = s.draft && s.draft.view === s.view ? s.draft : { view: s.view, x, y, strokes: [] };
+        if (s.tool === 'pin') { this.setState({ draft: Object.assign({}, base, { x, y }), selAnn: null }); return; }
+        e.currentTarget.setPointerCapture(e.pointerId);
+        this._pts = [[x, y]];
+        this.setState({ draft: Object.assign({}, base, { strokes: base.strokes.concat(['M' + x + ' ' + y]) }), selAnn: null });
+      },
+      onSheetMove: e => {
+        if (!this._pts || !s.draft) return;
+        const [x, y] = this.ptFrom(e); this._pts.push([x, y]);
+        const d2 = 'M' + this._pts.map(p => p.join(' ')).join(' L ');
+        const st = s.draft.strokes.slice(0, -1).concat([d2]);
+        this.setState({ draft: Object.assign({}, s.draft, { strokes: st }) });
+      },
+      onSheetUp: () => { this._pts = null; },
+      hasDraftPin: !!(d && d.view === s.view && surf === 'sheet'), draftLeft: d ? d.x + '%' : '0', draftTop: d ? d.y + '%' : '0',
+      hasDraft: !!d && surf === 'sheet', draftText: s.draftText, onDraftText: e => this.setState({ draftText: e.target.value }), draftMeta,
+      draftKinds: this.seg(['art-direction', 'technical', 'design'], s.draftKind, v => this.setState({ draftKind: v })),
+      saveDraft: () => { const t = s.draftText.trim(); if (!t || !d) return; this.write('create', { kind: s.draftKind, text: t, view: d.view, x: d.x, y: d.y, stroke: d.strokes.join(' ') || undefined }, `New ${s.draftKind} annotation on the ${d.view} view: “${t}”`); },
+      undoStroke: () => d && this.setState({ draft: Object.assign({}, d, { strokes: d.strokes.slice(0, -1) }) }),
+      discardDraft: () => this.setState({ draft: null, draftText: '' }),
+      sheetCaption: s.view === 'front' ? 'front · v3 · replaced by rafa 2d ago; its thread carried over' : 'three-quarter · v2 · uploaded by rafa 5d ago',
+
+      partsList: PARTS.map(p => {
+        const n = mech.filter(a => a.part === p.name && a.state === 'open').length;
+        const on = s.part === p.name;
+        return { name: p.name, tris: p.tris ? p.tris.toLocaleString() : 'empty', pins: n || '', onClick: () => this.setState({ part: on ? '' : p.name }), bg: on ? 'var(--color-text)' : 'transparent', fg: on ? 'var(--color-bg)' : 'var(--color-text)' };
+      }),
+      viewerPins: s.part ? viewerPins.filter(p => p.part === s.part) : viewerPins,
+      clip: s.clip, onClip: e => { clearInterval(this._t); this.setState({ clip: e.target.value, playing: false, frame: 0 }); },
+      clipOpts: [{ v: 'A_mech_scout_walk', l: 'A_mech_scout_walk · state walk' }, { v: 'A_mech_scout_fire', l: 'A_mech_scout_fire · state fire (missing)' }],
+      clipMissing, togglePlay: () => this.togglePlay(), playLabel: s.playing ? 'Pause' : 'Play', frame: s.frame,
+      onScrub: e => this.setState({ frame: +e.target.value }),
+      timeLabel: clipMissing ? '— / —' : `${(s.frame / 30).toFixed(2)} s / 0.83 s · f${s.frame}`,
+      clipNote: clipMissing ? 'State fire requires A_mech_scout_fire. This export does not contain it, so there is nothing to play.' : 'Loops with root motion, as design declared for state walk.',
+      clipNoteColor: clipMissing ? 'var(--color-accent-2-700)' : dim,
+
+      triageKinds: this.seg(tKinds.map(([v, l]) => ({ v, l })), s.triageKind, v => this.setState({ triageKind: v })),
+      triageRows, hasTriageRows: triageRows.length > 0, triageEmpty: !triageRows.length,
+      closedCount: s.closed.length, passTotal, passBar, hasClosed: s.closed.length > 0,
+      closedList: s.closed.map(c => ({ id: c.id, exit: c.exit, detail: c.detail, cls: c.exit === 'promoted' ? 'tag tag-accent' : 'tag tag-neutral' })),
+
+      showReauth: !!s.held, heldLabel: s.held ? s.held.label : '',
+      reauth: () => { const h = s.held; this.setState({ expired: false, held: null }, () => { if (h) { this.apply(h.key, h.payload); this.setState(st => ({ notice: `Signed in again as ${me.name}. The held request completed: ${h.label}. ` + st.notice })); } }); },
+      discardHeld: () => this.setState({ held: null, notice: 'The held request was discarded. Nothing was written.' })
+    };
+  }
+}
+</script>
+</body>
+</html>
