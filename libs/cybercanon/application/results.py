@@ -65,11 +65,25 @@ class Refusal:
 
     `identifier` is stable across releases because a client branches on it;
     `message` is for a person; `subject` is the thing at fault, where one exists.
+
+    `reason` is the discriminating detail *behind* the message, for the record
+    and never for the response. An authentication refusal says one undisclosing
+    sentence to every caller on purpose — a wrong signature and an untrusted
+    client must not be distinguishable from outside — while an operator needs to
+    know which of them happened. Carrying it here is what lets those two be
+    different without the surface choosing between them, and it is empty for
+    every refusal whose message already says everything there is to say.
+
+    Nothing serialises this. The response body is assembled field by field in
+    :mod:`cybercanon.adapters.inbound.http.outcomes`, and a test asserts no
+    reason reaches a body, because a field that leaked by default would undo the
+    non-disclosure the identity capability is explicit about.
     """
 
     identifier: str
     message: str
     subject: str = ""
+    reason: str = ""
 
     kind: ClassVar[FailureKind]
 
@@ -133,19 +147,39 @@ REFUSALS: Mapping[FailureKind, type[Refusal]] = {
 """Kind to member, one entry each. A test asserts it covers `FailureKind` exactly."""
 
 
-def refuse(kind: FailureKind, identifier: str, message: str, subject: str = "") -> Refusal:
+def refuse(
+    kind: FailureKind,
+    identifier: str,
+    message: str,
+    subject: str = "",
+    reason: str = "",
+) -> Refusal:
     """The refusal of that kind — the one constructor that takes a kind as data.
 
     Used where the kind was decided by something that is not an exception: a
     domain :class:`~cybercanon.domain.requests.TransitionDecision`, a policy
     decision, a precondition a use case checked for itself.
     """
-    return REFUSALS[kind](identifier=identifier, message=message, subject=subject)
+    return REFUSALS[kind](identifier=identifier, message=message, subject=subject, reason=reason)
 
 
 def classify(error: OperationFailed) -> Refusal:
-    """The refusal a port failure means to the caller, from its own declaration."""
-    return refuse(error.kind, error.identifier, error.message, error.subject or "")
+    """The refusal a port failure means to the caller, from its own declaration.
+
+    `reason` is read with :func:`getattr` because only the identity failures
+    carry one, and this function converts every port failure there is. Dropping
+    it here is the bug this argument fixes: the detail survived the whole way up
+    the call stack and was discarded one line before anything could record it,
+    which is why the identity port's own documentation said the reason lived
+    "where a log line reaches it" while no log line ever did.
+    """
+    return refuse(
+        error.kind,
+        error.identifier,
+        error.message,
+        error.subject or "",
+        getattr(error, "reason", ""),
+    )
 
 
 def attempt[T](operation: Callable[[], T]) -> Result[T]:

@@ -24,6 +24,11 @@ from http_world import PROJECT, RAFA, TOKEN, a_surface
 from cybercanon.adapters.inbound.http import logs
 from cybercanon.adapters.inbound.http.health import LIVE_PATH
 from cybercanon.adapters.inbound.http.versioning import VERSION
+from cybercanon.adapters.outbound.auth.cyberdyne import UNTRUSTED_CLIENT
+from cybercanon.application.ports.identity_provider import (
+    CREDENTIAL_REFUSED,
+    CredentialRejected,
+)
 
 BASE = f"/{VERSION}/projects/{PROJECT}"
 
@@ -103,6 +108,61 @@ def test_two_requests_without_an_identifier_are_told_apart() -> None:
     first, second = _lines(stream)
 
     assert first["request_id"] != second["request_id"]
+
+
+# --------------------------------------------------------------------------
+# Why a request was refused — recorded, and never disclosed
+# --------------------------------------------------------------------------
+
+
+def test_a_rejected_credential_records_which_check_failed() -> None:
+    """The operator half of a refusal that tells the caller nothing.
+
+    `auth-integration` requires one undisclosing sentence for every rejection,
+    so a wrong signature and a client this deployment does not admit are the
+    same `401` to whoever presented it. That is right, and it leaves an operator
+    with two indistinguishable failures — one of which is a variable somebody
+    forgot to set. The reason exists on the refusal for exactly this line.
+    """
+    stream = _capturing()
+    wired = a_surface()
+    wired.identity_provider.fail_with(CredentialRejected(UNTRUSTED_CLIENT))
+
+    wired.client.get(f"{BASE}/assets", headers={"Authorization": f"Bearer {TOKEN}"})
+    (line,) = _lines(stream)
+
+    assert line["status"] == 401
+    assert line["reason"] == UNTRUSTED_CLIENT
+
+
+def test_the_reason_recorded_is_never_the_reason_returned() -> None:
+    """The non-disclosure the reason exists to make possible, asserted as one pair.
+
+    Both halves in one test on purpose: the value of recording the detail is
+    that the response still does not carry it, and a change that leaked it into
+    the body would otherwise satisfy the test above and break nothing else.
+    """
+    stream = _capturing()
+    wired = a_surface()
+    wired.identity_provider.fail_with(CredentialRejected(UNTRUSTED_CLIENT))
+
+    response = wired.client.get(f"{BASE}/assets", headers={"Authorization": f"Bearer {TOKEN}"})
+    (line,) = _lines(stream)
+
+    assert UNTRUSTED_CLIENT not in response.text
+    assert response.json()["error"]["message"] == CREDENTIAL_REFUSED
+    assert line["reason"] == UNTRUSTED_CLIENT
+
+
+def test_a_request_that_was_not_refused_records_no_reason() -> None:
+    """`null`, and present — the field describes what happened, like the others."""
+    stream = _capturing()
+    wired = a_surface()
+
+    wired.get(f"{BASE}/assets", token=TOKEN)
+    (line,) = _lines(stream)
+
+    assert line["reason"] is None
 
 
 def test_no_credential_is_ever_written_to_the_line() -> None:

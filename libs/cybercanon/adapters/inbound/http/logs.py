@@ -42,9 +42,19 @@ PROJECT_FIELD = "project"
 METHOD_FIELD = "method"
 PATH_FIELD = "path"
 STATUS_FIELD = "status"
+REASON_FIELD = "reason"
+"""Why a request was refused, where the response deliberately does not say.
+
+An authentication refusal tells every caller the same undisclosing sentence, so
+that a wrong signature and a client this deployment does not admit cannot be
+told apart from outside. An operator has the opposite need: "our worker stopped"
+and "somebody is presenting a forged token" are the same `401` in this file
+without it, and the first is a variable somebody has to set.
+"""
 
 ACTOR_STATE = "actor"
 PROJECT_STATE = "project"
+REASON_STATE = "reason"
 REQUEST_ID_STATE = "request_id"
 """Where the pipeline leaves what it resolved, for this middleware to report."""
 
@@ -100,6 +110,7 @@ def fields(request: Request, response: Response, identifier: str) -> dict[str, A
         METHOD_FIELD: request.method,
         PATH_FIELD: request.url.path,
         STATUS_FIELD: response.status_code,
+        REASON_FIELD: recorded(request, REASON_STATE),
     }
 
 

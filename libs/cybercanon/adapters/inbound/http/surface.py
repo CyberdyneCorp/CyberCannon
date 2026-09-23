@@ -37,6 +37,7 @@ from typing import Any
 
 from fastapi import Request
 
+from cybercanon.adapters.inbound.http import logs
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.clock import Clock, system_clock
 from cybercanon.application.ports.dismissals import Dismissals
@@ -245,11 +246,14 @@ def acting(surface: Surface, request: Request) -> Result[Authenticated]:
     """
     if surface.identity_provider is None:
         return Unavailable(identifier=NO_IDENTITY, message=NOT_CONFIGURED, subject="this surface")
-    return authenticate(
+    resolved = authenticate(
         presented(request),
         identity_provider=surface.identity_provider,
         claimed=dict(request.query_params),
     )
+    if isinstance(resolved, Refusal) and resolved.reason:
+        logs.remember(request, logs.REASON_STATE, resolved.reason)
+    return resolved
 
 
 # --------------------------------------------------------------------------

@@ -45,6 +45,7 @@ from cybercanon.adapters.wiring.configuration import (
     REQUIRED,
     ConfigurationIncomplete,
     ConfigurationInvalid,
+    ConfigurationRejected,
     Secret,
     client_ids,
     group_roles,
@@ -502,3 +503,75 @@ def test_a_malformed_setting_stops_the_boot_before_an_application_exists(
         application({**COMPLETE, "CANON_LINK_EXPIRY_S": "two minutes"})
 
     assert built == []
+
+
+# --------------------------------------------------------------------------
+# A worker nobody admits — the quiet half-configuration, made loud
+# --------------------------------------------------------------------------
+
+
+def test_naming_a_worker_this_deployment_does_not_admit_refuses_the_boot() -> None:
+    """The degradation this replaces is silent, which is the whole argument.
+
+    `CANON_WORKER_CLIENT_ID` says which client background work signs in as;
+    `CANON_AUTH_SERVICE_CLIENTS` says which clients are admitted when they do.
+    Set the first without the second and the worker's own credential is refused
+    by this deployment's own verifier — and nothing stops: the scheduled pass
+    still runs, recorded as unattributed automation. Nobody finds that until
+    they need the attribution, so the boot refuses instead.
+    """
+    with pytest.raises(ConfigurationRejected) as refused:
+        load(
+            COMPLETE
+            | {
+                "CANON_WORKER_CLIENT_ID": "cyb_Worker00Admitted",
+                "CANON_WORKER_CLIENT_SECRET": "a-worker-secret",
+                "CANON_AUTH_SERVICE_CLIENTS": "cyb_Some0ther0Client",
+            }
+        )
+
+    named = str(refused.value)
+    assert "CANON_WORKER_CLIENT_ID" in named
+    assert "CANON_AUTH_SERVICE_CLIENTS" in named
+
+
+def test_the_refusal_names_both_variables_because_either_could_be_the_wrong_one() -> None:
+    """The person reading knows which of the two they meant; this cannot."""
+    with pytest.raises(ConfigurationRejected) as refused:
+        load(
+            COMPLETE
+            | {
+                "CANON_WORKER_CLIENT_ID": "cyb_Worker00Admitted",
+                "CANON_WORKER_CLIENT_SECRET": "a-worker-secret",
+            }
+        )
+
+    reported = {problem.name for problem in refused.value.problems}
+    assert reported == {"CANON_WORKER_CLIENT_ID", "CANON_AUTH_SERVICE_CLIENTS"}
+
+
+def test_a_worker_on_the_list_boots() -> None:
+    """The configuration this check exists to let through."""
+    loaded = load(
+        COMPLETE
+        | {
+            "CANON_WORKER_CLIENT_ID": "cyb_Worker00Admitted",
+            "CANON_WORKER_CLIENT_SECRET": "a-worker-secret",
+            "CANON_AUTH_SERVICE_CLIENTS": "cyb_Some0ther0Client,cyb_Worker00Admitted",
+        }
+    )
+
+    assert loaded.worker.available
+    assert "cyb_Worker00Admitted" in loaded.identity.service_clients
+
+
+def test_configuring_no_worker_at_all_is_not_a_mismatch() -> None:
+    """A deployment with no background client is an ordinary supported shape.
+
+    This is what team-cyber-deploy's first deploy looks like, and it must not
+    become collateral damage of a check aimed at a half-configuration.
+    """
+    loaded = load(COMPLETE)
+
+    assert not loaded.worker.available
+    assert loaded.identity.service_clients == ()

@@ -640,6 +640,46 @@ def rollover_problems(rollover: RolloverConfig) -> tuple[Problem, ...]:
     )
 
 
+WORKER_ADMISSION = (
+    "a deployment that names the client its background work signs in as must also "
+    "admit that client as automation, or its own worker is refused by its own "
+    "verifier and the scheduled pass is recorded as unattributed automation"
+)
+"""The sentence a half-configured worker earns, and why it is a refusal.
+
+The degradation this prevents is quiet, which is the whole argument for making
+it loud. A worker refused by its own API keeps running: the scheduled pass still
+fetches, still validates, still records — just as plain `automation` rather than
+as the client somebody registered for it. Nothing fails, nothing pages, and the
+attribution is wrong in a journal nobody reads until they need it.
+"""
+
+
+def worker_admission_problems(worker: str, admitted: Sequence[str]) -> tuple[Problem, ...]:
+    """The refusal a worker nobody admits earns, naming both variables.
+
+    Both, for the same reason :func:`rollover_problems` names both: either one
+    could be the one that is wrong, and the person reading knows which. A
+    deployment that configures no worker at all is not a mismatch — it has no
+    background client, which is an ordinary and supported shape.
+    """
+    if not worker or worker in admitted:
+        return ()
+    listed = ", ".join(admitted) if admitted else "nothing"
+    return (
+        Problem(
+            WORKER_CLIENT_ID,
+            f"not listed in {AUTH_SERVICE_CLIENTS}: {WORKER_ADMISSION}",
+            present=True,
+        ),
+        Problem(
+            AUTH_SERVICE_CLIENTS,
+            f"lists {listed}, not {worker!r}: {WORKER_ADMISSION}",
+            present=True,
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class ModelConfig:
     """The language model, which is off until somebody turns it on.
@@ -722,7 +762,9 @@ def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
         write_back_timeout=values[WRITE_BACK_TIMEOUT],
         drain_window=values[DRAIN_WINDOW],
     )
-    problems = rollover_problems(rollover)
+    problems = rollover_problems(rollover) + worker_admission_problems(
+        values[WORKER_CLIENT_ID], values[AUTH_SERVICE_CLIENTS]
+    )
     if problems:
         raise refusal(problems)
     return ServiceConfiguration(
