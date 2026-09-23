@@ -11,8 +11,10 @@
 export interface TestClaims {
 	readonly sub?: string;
 	readonly name?: string;
+	readonly email?: string;
 	readonly git_emails?: readonly string[];
 	readonly exp?: number;
+	readonly [claim: string]: unknown;
 }
 
 export function credential(claims: TestClaims): string {
@@ -36,4 +38,39 @@ export function unmappedPerson(overrides: TestClaims = {}): string {
 
 function base64Url(text: string): string {
 	return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The subject CyberdyneAuth gives a person: a UUID, and nothing a person reads. */
+export const CYBERDYNE_SUBJECT = '968a70af-8b4c-4f0e-9a51-3c2d1e0f7a6b';
+export const CYBERDYNE_CLIENT = 'cyb_5UIdba7PWtBo1MmH';
+
+/**
+ * An access token shaped like the ones CyberdyneAuth actually issues: a
+ * subject, roles prefixed with the client id, an audience of `cybercanon` —
+ * and no `name`, no `email` and no `git_emails`.
+ */
+export function cyberdyneAccessToken(overrides: TestClaims = {}): string {
+	return credential({
+		iss: 'https://auth.backend.coolify.cyberdynecorp.ai',
+		sub: CYBERDYNE_SUBJECT,
+		type: 'access',
+		aud: 'cybercanon',
+		client_id: CYBERDYNE_CLIENT,
+		roles: [`${CYBERDYNE_CLIENT}:art_director`, `${CYBERDYNE_CLIENT}:artist`],
+		scope: 'openid profile email offline_access roles',
+		exp: Math.floor(Date.now() / 1000) + 900,
+		...overrides
+	});
+}
+
+/** The identity token beside it: the client as its audience, and the person's email. */
+export function cyberdyneIdToken(overrides: TestClaims = {}): string {
+	return credential({
+		iss: 'https://auth.backend.coolify.cyberdynecorp.ai',
+		sub: CYBERDYNE_SUBJECT,
+		aud: CYBERDYNE_CLIENT,
+		email: 'leo@cyberdynecorp.ai',
+		email_verified: false,
+		...overrides
+	});
 }

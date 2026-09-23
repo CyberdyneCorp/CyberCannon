@@ -26,13 +26,22 @@ from cybercanon.adapters.wiring.configuration import OPTIONAL, REQUIRED, SECRETS
 
 DEPLOY = Path("deploy") / "README.md"
 WEB_CONFIG = Path("apps") / "cybercanon" / "web" / "src" / "lib" / "config.ts"
+WEB_SERVER_CONFIG = Path("apps") / "cybercanon" / "web" / "src" / "lib" / "server" / "identity.ts"
 
 VARIABLE = re.compile(r"`(CANON_[A-Z0-9_]+)`")
+SERVER_VARIABLE = re.compile(r"\bvalues\.(CANON_[A-Z0-9_]+)\b")
 PUBLIC_VARIABLE = re.compile(r"\b(PUBLIC_[A-Z0-9_]+)\b")
 
 REQUIRED_HEADING = "### `api` — required"
 OPTIONAL_HEADING = "### `api` — optional"
 WEB_HEADING = "### `web` — required"
+WEB_SERVER_HEADING = "### `web` — optional, server-only"
+
+
+@pytest.fixture(scope="module")
+def web_server_reads(repo_root: Path) -> set[str]:
+    """The server-only settings the web application's own server reads."""
+    return set(SERVER_VARIABLE.findall((repo_root / WEB_SERVER_CONFIG).read_text(encoding="utf-8")))
 
 
 @pytest.fixture(scope="module")
@@ -74,8 +83,10 @@ def test_every_optional_variable_is_documented(document: str) -> None:
     assert not undocumented, f"{DEPLOY} omits the optional settings {sorted(undocumented)}"
 
 
-def test_the_document_describes_nothing_the_service_does_not_read(document: str) -> None:
-    declared = {setting.name for setting in SETTINGS}
+def test_the_document_describes_nothing_the_service_does_not_read(
+    document: str, web_server_reads: set[str]
+) -> None:
+    declared = {setting.name for setting in SETTINGS} | web_server_reads
     invented = _named(document) - declared
 
     assert not invented, (
@@ -108,6 +119,19 @@ def test_the_web_applications_variables_are_documented(repo_root: Path, document
 
     assert read, f"{WEB_CONFIG} is where the application reads its endpoint"
     assert set(read) <= set(documented), f"{DEPLOY} omits {sorted(set(read) - set(documented))}"
+
+
+def test_the_web_servers_own_settings_are_documented(
+    document: str, web_server_reads: set[str]
+) -> None:
+    """The web server reads discovery and relays the token exchange, so it has settings too."""
+    documented = _named(_section(document, WEB_SERVER_HEADING))
+
+    assert web_server_reads, f"{WEB_SERVER_CONFIG} is where the web server reads its settings"
+    assert web_server_reads <= documented, f"{DEPLOY} omits {sorted(web_server_reads - documented)}"
+    assert not web_server_reads & {setting.name for setting in SETTINGS}, (
+        "a web-server setting must not share a name with an api setting"
+    )
 
 
 def test_the_document_names_the_four_deployed_applications(document: str) -> None:

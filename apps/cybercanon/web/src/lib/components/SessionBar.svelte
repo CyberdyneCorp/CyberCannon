@@ -9,12 +9,19 @@
 	 * disclosures a session also owes a person — no git identity, and an
 	 * identity provider outage — are `SessionNotices`, which is a sibling
 	 * because a paragraph does not belong inside a row of controls.
+	 *
+	 * Signing out ends the identity service's session as well as this tab's:
+	 * after the local state is gone the browser is sent to the end-session
+	 * relay, because a shared machine whose identity service still remembered
+	 * the last person would sign the next one straight back in as them.
 	 */
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { actingIdentity, sessionStore, type Session } from '$lib/session/session';
 	import { currentAddress, HOME, signInAddress } from '$lib/session/intent';
+	import { endSessionAddress } from '$lib/session/oidc';
 	import { writeGate } from '$lib/session';
+	import { signInConfiguration } from '$lib/config';
 
 	let session = $state<Session>(sessionStore.current());
 
@@ -24,9 +31,12 @@
 	const signIn = $derived(signInAddress(currentAddress(page.url)));
 
 	function signOut(): void {
+		const idToken = sessionStore.idToken();
 		writeGate.discard();
 		sessionStore.signOut();
-		goto(HOME, { invalidateAll: true });
+		const configuration = signInConfiguration(page.url.origin);
+		if (configuration) globalThis.location.assign(endSessionAddress(configuration, idToken));
+		else goto(HOME, { invalidateAll: true });
 	}
 </script>
 

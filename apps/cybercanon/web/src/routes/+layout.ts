@@ -21,14 +21,22 @@
  * provider outage, during which reads carry on and re-verification does not.
  * It never throws — the probe resolves whatever happens — so an API that is
  * entirely down produces a frame, not a 500.
+ *
+ * Before anything is read, a session whose access token is about to lapse is
+ * renewed with its refresh token (`$lib/session/renewal`), and the renewal is
+ * set to keep doing so while the tab is open. A renewal that fails leaves the
+ * session as it was or `expired`, both of which the screens already handle.
  */
 
 import type { LayoutLoad } from './$types';
 import { probeApi } from '$api/availability';
 import { CanonApi } from '$lib/api';
-import { apiBaseUrl } from '$lib/config';
+import { apiBaseUrl, signInConfiguration } from '$lib/config';
 import { entitledProjects } from '$lib/projects';
 import { SESSION_DEPENDENCY } from '$lib/session/dependency';
+import { fetchTransport, refreshSession } from '$lib/session/oidc';
+import type { Refresher } from '$lib/session/renewal';
+import { sessionRenewal } from '$lib/session';
 import { sessionStore } from '$lib/session/session';
 import { verificationNotice } from '$lib/session/verification';
 
@@ -36,12 +44,25 @@ export const ssr = false;
 
 export const load: LayoutLoad = async ({ fetch, depends }) => {
 	depends(SESSION_DEPENDENCY);
+	// The page's own origin, rather than `url`: reading `url` would re-run this
+	// load, and its API probe, on every navigation.
+	await keepSessionFresh(globalThis.location?.origin);
 	const reach = await probeApi(fetch, apiBaseUrl());
 	return {
 		verification: verificationNotice(reach),
 		projects: await switchableProjects(fetch)
 	};
 };
+
+/** Renew now if due, and keep renewing while the tab is open. */
+async function keepSessionFresh(origin: string | undefined): Promise<void> {
+	const configuration = origin ? signInConfiguration(origin) : null;
+	if (!configuration) return;
+	const transport = fetchTransport(globalThis.fetch);
+	const refresh: Refresher = (token) => refreshSession(configuration, token, transport);
+	sessionRenewal.watch(refresh);
+	await sessionRenewal.ensureFresh(refresh);
+}
 
 /**
  * The projects the switcher offers, and nothing while nobody is signed in.
@@ -56,5 +77,7 @@ export const load: LayoutLoad = async ({ fetch, depends }) => {
 async function switchableProjects(fetch: typeof globalThis.fetch): Promise<readonly string[]> {
 	if (!sessionStore.isAuthenticated()) return [];
 	const api = new CanonApi({ baseUrl: apiBaseUrl(), fetch, token: () => sessionStore.token() });
-	return entitledProjects(await api.status());
+	// A surface that never answered makes `fetch` throw rather than resolve.
+	const status = await api.status().catch(() => null);
+	return status ? entitledProjects(status) : [];
 }

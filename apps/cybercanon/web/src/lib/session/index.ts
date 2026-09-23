@@ -13,6 +13,7 @@ export * from './identity';
 export * from './intent';
 export * from './oidc';
 export * from './reauthentication';
+export * from './renewal';
 export * from './session';
 export * from './storage';
 export * from './verification';
@@ -20,6 +21,7 @@ export * from './writes';
 
 import { sessionStore } from './session';
 import { WriteGate } from './writes';
+import { SessionRenewal } from './renewal';
 
 /**
  * The one gate every write goes through.
@@ -30,3 +32,6 @@ import { WriteGate } from './writes';
  * question the prompt on screen is asking.
  */
 export const writeGate = new WriteGate(sessionStore);
+
+/** The one renewal, for the one session: two would spend one rotating refresh token twice. */
+export const sessionRenewal = new SessionRenewal(sessionStore);

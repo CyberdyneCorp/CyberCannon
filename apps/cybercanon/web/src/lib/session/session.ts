@@ -12,6 +12,13 @@
  * *"your session as Rafa has expired"* rather than dropping the person on a
  * sign-in screen that has forgotten who they were.
  *
+ * The store keeps the whole credential the issuer answered with, not only the
+ * access token: the refresh token renews the session without a redirect
+ * (`renewal.ts`) and the identity token names the person and is the hint
+ * sign-out hands the identity service. Only the access token is ever presented
+ * to the API. All three live in the tab's session storage, which a closed tab
+ * ends, and sign-out removes them.
+ *
  * This is a plain class with listeners, not a rune module: D1 reserves
  * `*.svelte.ts` for the one `AnnotationViewModel`, and a component subscribes
  * to this from `$state` in three lines. It is also what makes the whole session
@@ -21,6 +28,7 @@
 import { queryCache } from '../api/cache';
 import type { Identity } from './identity';
 import { claimsOf, expiryOf, identityFrom } from './identity';
+import type { Credential } from './oidc';
 import { browserStorage, type SessionStorage } from './storage';
 
 export const SESSION_KEY = 'cybercanon.session';
@@ -57,6 +65,7 @@ export interface SessionOptions {
 
 export class SessionStore {
 	#session: Session = ANONYMOUS;
+	#credential: Credential | null = null;
 	readonly #listeners = new Set<Listener>();
 	readonly #storage: SessionStorage;
 	readonly #forget: () => void;
@@ -92,13 +101,49 @@ export class SessionStore {
 		return () => void this.#listeners.delete(listener);
 	}
 
+	/** The refresh token the session can be renewed with, or `null`. */
+	refreshToken(): string | null {
+		return this.#credential?.refreshToken ?? null;
+	}
+
+	/** The identity token sign-out hands back as a hint, or `null`. */
+	idToken(): string | null {
+		return this.#credential?.idToken ?? null;
+	}
+
+	/**
+	 * Whether the session should be renewed now: it can be, and its access token
+	 * lapses within `leadMs` — or already has.
+	 */
+	renewalDue(leadMs: number): boolean {
+		if (!this.refreshToken()) return false;
+		const session = this.#session;
+		if (session.kind === 'expired') return true;
+		if (session.kind !== 'active' || session.expiresAt === null) return false;
+		return session.expiresAt - this.#now() <= leadMs;
+	}
+
 	/** A credential accepted: the session this application acts under. */
-	signIn(token: string): Session {
-		const claims = claimsOf(token);
-		const identity = identityFrom(claims);
+	signIn(accepted: Credential | string): Session {
+		const credential = credentialOf(accepted);
+		const claims = claimsOf(credential.accessToken);
+		const identity = identityFrom(claims, claimsOf(credential.idToken ?? ''));
 		if (!identity) return this.#moveTo(ANONYMOUS);
-		this.#store(token);
+		this.#store(credential);
+		const token = credential.accessToken;
 		return this.#moveTo({ kind: 'active', identity, token, expiresAt: expiryOf(claims) });
+	}
+
+	/**
+	 * A renewed credential. The issuer rotates refresh tokens, so the new one
+	 * replaces the old; a token the answer left out is kept rather than lost.
+	 */
+	renew(renewed: Credential): Session {
+		return this.signIn({
+			accessToken: renewed.accessToken,
+			refreshToken: renewed.refreshToken ?? this.refreshToken(),
+			idToken: renewed.idToken ?? this.idToken()
+		});
 	}
 
 	/**
@@ -110,6 +155,7 @@ export class SessionStore {
 	 */
 	expire(): Session {
 		const identity = this.identity();
+		this.#credential = null;
 		this.#storage.remove(SESSION_KEY);
 		return this.#moveTo(identity ? { kind: 'expired', identity } : ANONYMOUS);
 	}
@@ -122,20 +168,26 @@ export class SessionStore {
 	 * is the scenario in so many words.
 	 */
 	signOut(): Session {
+		this.#credential = null;
 		this.#storage.remove(SESSION_KEY);
 		this.#forget();
 		return this.#moveTo(ANONYMOUS);
 	}
 
+	/**
+	 * The session a reload finds. A lapsed one is `expired` but keeps its
+	 * credential, so a refresh token can still renew it without a prompt.
+	 */
 	#restored(): Session {
-		const token = this.#storage.read(SESSION_KEY);
-		if (!token) return ANONYMOUS;
-		const claims = claimsOf(token);
-		const identity = identityFrom(claims);
+		const credential = parsedCredential(this.#storage.read(SESSION_KEY));
+		if (!credential) return ANONYMOUS;
+		const claims = claimsOf(credential.accessToken);
+		const identity = identityFrom(claims, claimsOf(credential.idToken ?? ''));
 		if (!identity) return ANONYMOUS;
+		this.#credential = credential;
 		const expiresAt = expiryOf(claims);
 		if (expiresAt !== null && expiresAt <= this.#now()) return { kind: 'expired', identity };
-		return { kind: 'active', identity, token, expiresAt };
+		return { kind: 'active', identity, token: credential.accessToken, expiresAt };
 	}
 
 	#lapsed(): boolean {
@@ -144,14 +196,40 @@ export class SessionStore {
 		return session.expiresAt <= this.#now();
 	}
 
-	#store(token: string): void {
-		this.#storage.write(SESSION_KEY, token);
+	#store(credential: Credential): void {
+		this.#credential = credential;
+		this.#storage.write(SESSION_KEY, JSON.stringify(credential));
 	}
 
 	#moveTo(session: Session): Session {
 		this.#session = session;
 		for (const listener of this.#listeners) listener(session);
 		return session;
+	}
+}
+
+/** A bare access token is a credential with nothing to renew it and no identity token. */
+function credentialOf(accepted: Credential | string): Credential {
+	if (typeof accepted !== 'string') return accepted;
+	return { accessToken: accepted, refreshToken: null, idToken: null };
+}
+
+/**
+ * What storage held. A value that is not a stored credential is read as a bare
+ * access token, which is what an earlier build of this application kept there.
+ */
+function parsedCredential(held: string | null): Credential | null {
+	if (!held) return null;
+	try {
+		const parsed = JSON.parse(held) as Partial<Credential>;
+		if (typeof parsed.accessToken !== 'string') return null;
+		return {
+			accessToken: parsed.accessToken,
+			refreshToken: parsed.refreshToken ?? null,
+			idToken: parsed.idToken ?? null
+		};
+	} catch {
+		return credentialOf(held);
 	}
 }
 

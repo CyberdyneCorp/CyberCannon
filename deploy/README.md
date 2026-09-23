@@ -129,7 +129,7 @@ outage is not honoured until the window ends.
 | Variable | Shape | Secret | What it is |
 |---|---|:--:|---|
 | `PUBLIC_CANON_API_URL` | `scheme://host`, or empty for the same origin | | where the `api` application is served |
-| `PUBLIC_CANON_AUTH_ISSUER` | `https://host/` | | CyberdyneAuth, the same issuer the `api` application verifies against |
+| `PUBLIC_CANON_AUTH_ISSUER` | `https://host`, no trailing slash, exactly the discovery document's `issuer` | | CyberdyneAuth, the same issuer the `api` application verifies against. Its endpoints are read from `<issuer>/.well-known/openid-configuration` by the web server, never configured |
 | `PUBLIC_CANON_AUTH_CLIENT_ID` | the public client's identifier | | this application's registered browser client |
 | `PUBLIC_CANON_AUTH_AUDIENCE` | the API's audience | | requested so the credential is accepted by `api`; omit where the issuer needs no audience |
 
@@ -138,6 +138,22 @@ and none may ever become one. **There is deliberately no client secret**: the
 browser signs people in with an authorization code bound to a proof key it
 generates (`auth-integration`), and a build that embedded a secret would be
 publishing it.
+
+The web **server** reads the issuer's discovery document and relays the token
+exchange (`/auth/authorize`, `/auth/token`, `/auth/end-session`), because
+CyberdyneAuth answers no cross-origin request from a browser. The relay adds no
+secret and keeps nothing. The relay is a form POST, and SvelteKit refuses one
+whose `Origin` differs from the origin the server computes. adapter-node
+computes it as `https://` plus the `Host` header, which is right behind
+Coolify's proxy. A deployment served over plain http (the e2e stack) sets
+adapter-node's `ORIGIN`.
+
+### `web` — optional, server-only
+
+| Variable | Shape | Secret | What it is |
+|---|---|:--:|---|
+| `CANON_AUTH_INTERNAL_URL` | `scheme://host` | | where the web server reaches the issuer when that differs from the issuer identifier (the e2e stack's `http://issuer:9000`); defaults to the issuer |
+| `CANON_AUTH_POST_LOGOUT_REDIRECT` | `true` or unset | | set once the identity service has this origin's `/` registered as a post-logout redirect URI; unset, sign-out ends on the identity service's own page |
 
 Without the two required auth variables the application still serves every
 screen and states that sign-in is unavailable — a misconfigured environment is

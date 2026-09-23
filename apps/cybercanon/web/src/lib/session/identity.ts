@@ -33,6 +33,7 @@
 export interface Claims {
 	readonly sub?: unknown;
 	readonly name?: unknown;
+	readonly email?: unknown;
 	readonly git_emails?: unknown;
 	readonly exp?: unknown;
 }
@@ -40,7 +41,7 @@ export interface Claims {
 export interface Identity {
 	/** The `sub` claim — stable, and what the API attributes a write to. */
 	readonly subject: string;
-	/** What a person recognises themselves by. The subject when there is no name. */
+	/** What a person recognises themselves by: a name, else an email, else the subject. */
 	readonly display: string;
 	/** The git author a write would be committed as, or `null` when unknown. */
 	readonly gitIdentity: string | null;
@@ -84,15 +85,26 @@ export function isMapped(identity: Identity | null): boolean {
 	return Boolean(identity?.gitIdentity);
 }
 
-/** The identity a set of claims describes. A claimless token has no identity. */
-export function identityFrom(claims: Claims): Identity | null {
+/**
+ * The identity a set of claims describes. A claimless token has no identity.
+ *
+ * `claims` are the access token's, whose `sub` is what the API attributes a
+ * write to. `profile` is the identity token's: CyberdyneAuth puts the person's
+ * email there and nothing but the subject in the access token, so a session
+ * read from the access token alone would print a UUID as the person.
+ */
+export function identityFrom(claims: Claims, profile: Claims = {}): Identity | null {
 	const subject = text(claims.sub);
 	if (!subject) return null;
 	return {
 		subject,
-		display: text(claims.name) ?? subject,
-		gitIdentity: firstEmail(claims.git_emails)
+		display: displayName(profile) ?? displayName(claims) ?? subject,
+		gitIdentity: firstEmail(claims.git_emails) ?? firstEmail(profile.git_emails)
 	};
+}
+
+function displayName(claims: Claims): string | null {
+	return text(claims.name) ?? text(claims.email);
 }
 
 /**

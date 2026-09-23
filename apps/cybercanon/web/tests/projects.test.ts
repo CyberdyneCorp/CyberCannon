@@ -229,4 +229,15 @@ describe('where the switcher’s projects come from', () => {
 
 		expect(loaded.projects).toEqual([IRONWOOD]);
 	});
+
+	it('renders the frame, with no projects, when a signed-in person’s API never answers (regression)', async () => {
+		sessionStore.signIn(mappedPerson());
+		const down = (async () => {
+			throw new TypeError('Failed to fetch');
+		}) as unknown as typeof fetch;
+
+		const loaded = (await loadFrame(frameEvent(down))) as { projects: readonly string[] };
+
+		expect(loaded.projects).toEqual([]);
+	});
 });

@@ -48,7 +48,7 @@ export const load: PageLoad = async ({ url, fetch }) => {
 		transport: fetchTransport(fetch)
 	});
 	if (outcome.kind === 'signed-in') {
-		sessionStore.signIn(outcome.token);
+		sessionStore.signIn(outcome.credential);
 		redirect(303, outcome.next);
 	}
 	if (outcome.kind === 'refused') {

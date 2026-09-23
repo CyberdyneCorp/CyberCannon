@@ -123,9 +123,10 @@ here:
 
 ## 4. The gating item: identity
 
-**Nothing is registered in CyberdyneAuth yet, and until it is, nobody can sign
-in.** This is the one thing that blocks the deployment and it needs a human with
-administrative access to the organisation's auth server.
+**The client is registered** (`cyb_5UIdba7PWtBo1MmH`, B1 resolved). What is
+left for a human with administrative access to the auth server is the
+post-logout redirect URIs (§4.1).
+
 [`deploy/go-live.md`](deploy/go-live.md) §1 has the full detail; this is the
 shape and the requests.
 
@@ -141,14 +142,15 @@ names the API.
 
 | | Value to register |
 |---|---|
-| client id | `cybercanon-web` |
+| client id | `cyb_5UIdba7PWtBo1MmH` (registered) |
 | client name | CyberCanon |
 | client type | public (`token_endpoint_auth_method: none`) |
-| grant types | `authorization_code` |
+| grant types | `authorization_code`, `refresh_token` |
 | response types | `code` |
 | PKCE | required, `S256` — the only method the application offers |
-| audience | `https://api.backend.coolify.cyberdynecorp.ai` |
-| scopes | `openid profile email`, plus whatever scope carries groups and roles (§4.3) |
+| audience | `cybercanon`, bound to the client registration (the `audience` request parameter is ignored) |
+| scopes | `openid profile email offline_access roles`, the application's `DEFAULT_SCOPE`. `offline_access` returns the refresh token that renews a session |
+| CORS | none needed. The application's server reads discovery and relays the token exchange |
 
 Redirect URIs are **derived** from the origin the person is on — always the
 origin plus `/signed-in`, deliberately, so a preview deployment cannot send
@@ -160,8 +162,13 @@ https://canon-pre.backend.coolify.cyberdynecorp.ai/signed-in      pre-production
 http://localhost:5173/signed-in                                   a developer machine
 ```
 
-There is no post-logout redirect: sign-out is local — it discards the credential
-and the query cache — and never reaches `end_session_endpoint`.
+Sign-out also ends the CyberdyneAuth session: the browser goes to
+`end_session_endpoint` with `client_id` and `id_token_hint`, so the next person on
+a shared machine is not signed straight back in. **Still to register:** one
+post-logout redirect URI per origin plus `/` (`https://canon.backend.coolify.cyberdynecorp.ai/`
+and the others). CyberdyneAuth refuses an unregistered one outright, so the
+application asks to come back only once `CANON_AUTH_POST_LOGOUT_REDIRECT=true`
+is set on `web`. Until then sign-out ends on CyberdyneAuth's "signed out" page.
 
 ### 4.2 The requests
 
@@ -173,19 +180,23 @@ curl -sS -X POST https://auth.backend.coolify.cyberdynecorp.ai/api/v1/admin/oaut
   -H "Authorization: Bearer $CYBERDYNE_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
-        "client_id": "cybercanon-web",
         "client_name": "CyberCanon",
         "token_endpoint_auth_method": "none",
-        "grant_types": ["authorization_code"],
+        "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
         "require_pkce": true,
         "code_challenge_methods": ["S256"],
-        "audience": ["https://api.backend.coolify.cyberdynecorp.ai"],
-        "scope": "openid profile email",
+        "audience": ["cybercanon"],
+        "scope": "openid profile email offline_access roles",
         "redirect_uris": [
           "https://canon.backend.coolify.cyberdynecorp.ai/signed-in",
           "https://canon-pre.backend.coolify.cyberdynecorp.ai/signed-in",
           "http://localhost:5173/signed-in"
+        ],
+        "post_logout_redirect_uris": [
+          "https://canon.backend.coolify.cyberdynecorp.ai/",
+          "https://canon-pre.backend.coolify.cyberdynecorp.ai/",
+          "http://localhost:5173/"
         ]
       }'
 
@@ -195,7 +206,9 @@ curl -sS https://auth.backend.coolify.cyberdynecorp.ai/api/v1/admin/oauth/client
 ```
 
 Then **obtain one real token before deploying anything**, and decode it. The
-authorization and token endpoints CyberdyneAuth publishes are:
+authorization and token endpoints CyberdyneAuth publishes are listed below. The
+application reads them from `/.well-known/openid-configuration` and does not
+configure them:
 
 ```
 https://auth.backend.coolify.cyberdynecorp.ai/api/v1/auth/oauth2/authorize
@@ -303,19 +316,24 @@ on `/status`.
 | `CANON_ARCHE_TIMEOUT_S` | | 5 | |
 | `CANON_ARCHE_WEB_URL` | | the API root | where a person opens a document in a browser |
 
-### `web` — four, all public, none a secret
+### `web` — four, all public, none a secret, and two optional server-only settings
 
 | Variable | | What it is |
 |---|:--:|---|
 | `PUBLIC_CANON_API_URL` | | where the `api` application is served |
-| `PUBLIC_CANON_AUTH_ISSUER` | | the same issuer `api` verifies against. **See B2** |
-| `PUBLIC_CANON_AUTH_CLIENT_ID` | ⛔ | `cybercanon-web`, once registered |
+| `PUBLIC_CANON_AUTH_ISSUER` | | the same issuer `api` verifies against, with no trailing slash, exactly as the discovery document's `issuer` gives it. The endpoints are read from discovery |
+| `PUBLIC_CANON_AUTH_CLIENT_ID` | | `cyb_5UIdba7PWtBo1MmH` |
 | `PUBLIC_CANON_AUTH_AUDIENCE` | ⛔ | the same string as `CANON_AUTH_AUDIENCE`, or `api` refuses every credential this application obtains |
 
 `PUBLIC_` is the prefix the browser build carries: none of these is a secret and
 none may become one. **There is no client-secret variable and there could not
 be.** The redirect address is not configured — it is the origin plus
 `/signed-in`.
+
+Optional and server-only: `CANON_AUTH_POST_LOGOUT_REDIRECT=true` once the
+post-logout URIs are registered (§4.1), and `CANON_AUTH_INTERNAL_URL` when the
+`web` container reaches the issuer at another address than the public one. The
+e2e stack sets it to `http://issuer:9000`.
 
 ### `postgres` and `minio`
 
@@ -382,8 +400,9 @@ webhook and the schedule update `WorkingCopyStatus` identically.
 
 **8. Sign in.** Not a numbered step — the plan predates the client existing. Do
 it anyway before calling the environment stood up: open the application, sign
-in, confirm the frame names the person and a project screen renders.
-⚠️ **B2 applies here and this will fail until it is resolved.**
+in, confirm the frame names the person and a project screen renders. B2 is
+resolved. Also confirm that signing out and signing in again shows the
+CyberdyneAuth login page.
 
 Afterwards the drills (`just drill`) run against this environment, and
 `just drill-check` is the release pipeline's gate over their log.
@@ -467,15 +486,18 @@ is a guess and none can be worked around by configuration alone.** Read this
 before writing any environment variable. Full detail is in
 [`deploy/go-live.md`](deploy/go-live.md) §0.
 
-### B1 — CyberCanon has no OAuth client, so no correctly-audienced token exists
+### B1 — resolved: CyberCanon had no OAuth client, so no correctly-audienced token existed
 
 `Trust` requires both an issuer and an audience: *"a token minted elsewhere is
 not a session"*. A CyberArche-issued token was presented and correctly refused —
 it carries no `aud` claim. Until the client of §4 exists, nothing can sign in
 and `CANON_AUTH_AUDIENCE`, `PUBLIC_CANON_AUTH_CLIENT_ID` and
-`PUBLIC_CANON_AUTH_AUDIENCE` are unknowable. **This is the gating item.**
+`PUBLIC_CANON_AUTH_AUDIENCE` are unknowable.
 
-### B2 — the web application asks CyberdyneAuth at paths it does not serve
+**Resolved:** the client `cyb_5UIdba7PWtBo1MmH` exists and issues access tokens
+with `aud=cybercanon`.
+
+### B2 — resolved: the web application asked CyberdyneAuth at paths it does not serve
 
 `apps/cybercanon/web/src/lib/config.ts` builds both endpoints from the issuer
 with **fixed paths**:
@@ -491,10 +513,17 @@ paths were observed to 404. **There is no value of `PUBLIC_CANON_AUTH_ISSUER`
 that fixes this** — any prefix that makes `/authorize` resolve leaves the token
 address wrong, because the two published paths do not share a suffix shape.
 
-The honest fix is that the application reads `/.well-known/openid-configuration`
-and takes `authorization_endpoint` and `token_endpoint` from it. That is a
-frontend change with its own tests and it was reported rather than attempted.
-**Sign-in through the browser cannot work in production until it is made.**
+**Resolved** (`openspec/changes/fix-web-oidc-discovery`). The fixed paths are
+gone. The application's server reads `<issuer>/.well-known/openid-configuration`,
+checks its `issuer`, and serves three same-origin relays: `/auth/authorize`
+redirects to the discovered authorization endpoint, `/auth/token` relays the
+code exchange and the refresh grant to the discovered token endpoint, and
+`/auth/end-session` redirects to the discovered end-session endpoint. The relay
+is needed as well as the paths: CyberdyneAuth sends no
+`Access-Control-Allow-Origin` for the application's origin, so a token exchange
+posted from the browser failed with *"Failed to fetch"* even at the right
+address. It remains a public client: the proof key never leaves the browser and
+no secret exists. Verified against the live CyberdyneAuth on 2026-09-23.
 
 ### B3 — the documented index rebuild keys rows by the wrong project
 
@@ -547,11 +576,12 @@ correctly-audienced token.
   out, code exchange, credential, screen. The signed-in images in
   `docs/screenshots/` that predate this run needed an issuer bolted on from the
   host; 01 through 14 have been re-captured from the stack as it now ships.
-* **`tests/e2e/test_web_signed_in.py` does not prove B2, and cannot.** The
-  stack's issuer serves `tools/canon_issuer`'s paths, which are the paths the
-  application has hard-coded. A stack whose issuer published CyberdyneAuth's
-  paths would fail the sign-in — and that is the test worth having once B2 is
-  fixed.
+* **B2 is fixed and the stack now checks the way it was fixed.** The
+  application has no hard-coded paths and finds the stack's issuer through its
+  discovery document. The fake issuer no longer sends
+  `Access-Control-Allow-Origin: *`, so a browser calling it cross-origin fails
+  here as it does against CyberdyneAuth. `tests/auth-relay.test.ts` pins
+  discovery against CyberdyneAuth's own `/api/v1/auth/oauth2/…` paths.
 * **The index rebuild after bringing the e2e stack up is manual**, because of
   B3. It is not a `just` recipe, deliberately: a recipe that silently depended
   on somebody having run a command by hand would be a recipe that misleads.
@@ -599,8 +629,8 @@ everywhere — and says so per test rather than reporting green over nothing.
 > *Stand up pre-production from the same artifacts following the Migration Plan
 > order, and verify each numbered step's stated confirmation.*
 
-**Needs:** the OAuth client of §4 (B1), a resolution for B2 before step 8 can
-pass, a resolution for B3 before step 5 can pass on a project whose declared
+**Needs:** the OAuth client of §4 (B1, registered), the post-logout redirect
+URIs of §4.1 for sign-out to return to the application, a resolution for B3 before step 5 can pass on a project whose declared
 name differs from its address, a git deploy credential with write access, a
 webhook secret, and the managed `postgres` and `minio` applications.
 
