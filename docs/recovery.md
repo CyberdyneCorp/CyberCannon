@@ -37,8 +37,16 @@ somebody hoped was still there.
    re-clones a missing copy and resets a diverged one, reporting any local
    commits it discarded. Reads report `provisioning` until it finishes rather
    than answering an empty asset list.
-3. **Rebuild the index** — per project, over the working copy. Reads that the
-   index would have answered fall back to the working copy while it runs.
+3. **Rebuild the index** — per project, over the working copy
+   (`python -m cybercanon.api.recover /data/worktrees/<project>` on a
+   deployment). Reads that the index would have answered fall back to the
+   working copy while it runs. **The rows are keyed by the name the deployment
+   serves the project at** — the working copy's directory under the volume,
+   which is `CANON_PROJECT` — and not by the `name:` the copy's
+   `.canon/project.yaml` declares, which is repository content and may differ
+   from the address by a capital letter. An index keyed by the other name is
+   one the hosted surface cannot read: every listing answers `total: 0` while
+   the rebuild reports success.
 4. **Re-mirror the blobs** — per project, over the same working copy. Because
    keys are content digests, every object lands under the key it had before, so
    links and references that predate the loss keep resolving.

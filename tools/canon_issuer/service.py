@@ -54,7 +54,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from canon_issuer import AUTHORIZE_PATH, TOKEN_PATH, FakeIssuer
+from canon_issuer import (
+    AUTHORIZE_PATH,
+    ORG_ID,
+    ORG_SHORT_NAME,
+    TOKEN_PATH,
+    FakeIssuer,
+    an_org,
+)
 from cybercanon.adapters.outbound.auth import pkce
 
 DISCOVERY_PATH = "/.well-known/openid-configuration"
@@ -66,7 +73,8 @@ DEFAULT_ISSUER_URL = "http://localhost:9000"
 DEFAULT_AUDIENCE = "cybercanon-e2e"
 DEFAULT_CLIENT_ID = "cybercanon-web"
 DEFAULT_SUBJECT = "auth|rafa"
-DEFAULT_NAME = "Rafa Moreno"
+DEFAULT_ORG_ID = ORG_ID
+DEFAULT_ORG_SHORT_NAME = ORG_SHORT_NAME
 LIFETIME_S = 3600
 
 LIST_SEPARATOR = ","
@@ -84,27 +92,42 @@ class Profile:
     Every field is an environment variable, because the point of the stack is
     that the identity is the stack's decision rather than this module's: a suite
     that wanted a person holding no role would start the issuer with
-    ``ISSUER_GROUPS`` empty rather than patch a constant.
+    ``ISSUER_ROLES`` empty rather than patch a constant.
+
+    The fields are **the claims CyberdyneAuth emits** — ``roles``, ``orgs`` and
+    ``entitlements``. They used to be ``groups``, ``projects``, ``name`` and
+    ``git_emails``, which the real issuer sends none of: the stack described a
+    person the identity service could never describe, so a signed-in screen here
+    proved nothing about a signed-in screen there.
+
+    ``org_id`` is the one that decides whether the person reads anything, and it
+    is here as a variable rather than a constant for the same reason the API
+    reads its own from the environment: the organisation is a deployment's
+    decision, and a stack whose issuer and whose API disagreed about it would
+    serve a signed-in person an empty project.
     """
 
     issuer_url: str = DEFAULT_ISSUER_URL
     audience: str = DEFAULT_AUDIENCE
     client_id: str = DEFAULT_CLIENT_ID
     subject: str = DEFAULT_SUBJECT
-    name: str = DEFAULT_NAME
-    groups: tuple[str, ...] = ()
-    projects: tuple[str, ...] = ()
-    git_emails: tuple[str, ...] = ()
+    org_id: str = DEFAULT_ORG_ID
+    org_short_name: str = DEFAULT_ORG_SHORT_NAME
+    roles: tuple[str, ...] = ()
+    entitlements: tuple[str, ...] = ()
     port: int = DEFAULT_PORT
 
     @property
     def claims(self) -> dict[str, Any]:
-        """The non-registered claims every credential this service mints carries."""
+        """The non-registered claims every credential this service mints carries.
+
+        One organisation, with a null ``github_login`` — the shape the real
+        issuer sends and the shape the real organisation has.
+        """
         return {
-            "name": self.name,
-            "groups": self.groups,
-            "projects": self.projects,
-            "git_emails": self.git_emails,
+            "roles": self.roles,
+            "entitlements": self.entitlements,
+            "orgs": (an_org(self.org_id, self.org_short_name),),
         }
 
 
@@ -115,10 +138,10 @@ def profile_from(environment: Mapping[str, str]) -> Profile:
         audience=environment.get("ISSUER_AUDIENCE", DEFAULT_AUDIENCE),
         client_id=environment.get("ISSUER_CLIENT_ID", DEFAULT_CLIENT_ID),
         subject=environment.get("ISSUER_SUBJECT", DEFAULT_SUBJECT),
-        name=environment.get("ISSUER_NAME", DEFAULT_NAME),
-        groups=_listed(environment.get("ISSUER_GROUPS", "")),
-        projects=_listed(environment.get("ISSUER_PROJECTS", "")),
-        git_emails=_listed(environment.get("ISSUER_GIT_EMAILS", "")),
+        org_id=environment.get("ISSUER_ORG_ID", DEFAULT_ORG_ID),
+        org_short_name=environment.get("ISSUER_ORG_SHORT_NAME", DEFAULT_ORG_SHORT_NAME),
+        roles=_listed(environment.get("ISSUER_ROLES", "")),
+        entitlements=_listed(environment.get("ISSUER_ENTITLEMENTS", "")),
         port=int(environment.get("ISSUER_PORT", str(DEFAULT_PORT))),
     )
 

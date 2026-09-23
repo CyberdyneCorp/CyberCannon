@@ -61,7 +61,7 @@ environment (D3, and "one artifact, promoted unchanged").
 
 ### `api` — required
 
-The service will not start without these fifteen.
+The service will not start without these seventeen.
 
 | Variable | Shape | Secret | What it is |
 |---|---|:--:|---|
@@ -73,8 +73,10 @@ The service will not start without these fifteen.
 | `CANON_WEBHOOK_SECRET` | a shared secret | ● | what the git host signs its notifications with |
 | `CANON_AUTH_ISSUER` | an issuer identifier | | the CyberdyneAuth issuer this service trusts |
 | `CANON_AUTH_AUDIENCE` | an audience identifier | | what this service is addressed as in a token |
+| `CANON_AUTH_CLIENT_ID` | the client this deployment is registered as | | CyberdyneAuth puts **every** client's roles in one `roles` claim, each entry written `<client id>:<role>`. This is how the service knows which entries are its own; unset, it recognises none, and wrong, it would read somebody else's application's roles as this one's |
+| `CANON_AUTH_ORG_ID` | an organisation identifier | | the organisation this deployment belongs to. A person reads the project only if their `orgs` claim carries this id **and** they hold a role on the client above. Matched on `id`, never `github_login`; `org` is the person's *primary* organisation and is deliberately not what is checked, so a member whose primary is elsewhere is not locked out |
 | `CANON_AUTH_KEY_SET_URL` | `scheme://host/path` | | where the signing keys are published |
-| `CANON_AUTH_GROUP_ROLES` | `group=ROLE,group=ROLE` | | how groups become roles (D12). An unmapped group grants nothing |
+| `CANON_AUTH_GROUP_ROLES` | `role=ROLE,role=ROLE` | | how the identity service's role keys become domain roles (D12), written **without** the client-id prefix. An unmapped key grants nothing |
 | `CANON_DATABASE_URL` | `scheme://host/database` | ● | the rebuildable index |
 | `CANON_OBJECT_STORE_URL` | `scheme://host` | | the blob mirror |
 | `CANON_LINK_EXPIRY_S` | a whole number of seconds | | how long a blob download link lasts |
@@ -109,6 +111,8 @@ outage is not honoured until the window ends.
 | Variable | Shape | Secret | Default | What it is |
 |---|---|:--:|---|---|
 | `CANON_AUTH_KEY_CACHE_TTL_S` | a whole number of seconds | | 900 | how long cached signing keys keep verifying while CyberdyneAuth is unreachable (D8) |
+| `CANON_WORKER_CLIENT_ID` | the client background work signs in as | | — | the client-credentials client scheduled work obtains its own credential for. A **pair** with the row below: set both, and background work exchanges them for a service credential at the issuer's discovered token endpoint; set neither, and it runs as it does today. Either way it is recorded as automation, and half a pair behaves like the absence rather than failing once per run |
+| `CANON_WORKER_CLIENT_SECRET` | that client's secret | ● | — | held as a secret everywhere, so it reaches the exchange and never a log line, a refusal or a traceback |
 | `CANON_WORKING_COPIES` | a directory on the working-copy volume | | `/data/worktrees` | where the persistent working copies live; the manifest mounts the volume there |
 | `CANON_WEB_ORIGINS` | `scheme://host,scheme://host` | | — | the browser origins permitted to read this API. Absent grants none, and `*` is refused: the API and the web application are on different hosts, so the application's origin has to be named |
 | `CANON_LLM_ENABLED` | a switch | | off | the master switch (`project.md`) |
@@ -278,6 +282,16 @@ target version and rebuilds the index from the working copy, reporting progress
 as it goes. A restore path would make the index authoritative in practice even
 while `openspec/project.md` says it is not.
 
+**The directory you name is the key.** Rows are written under the working
+copy's directory name, because that is the identifier this deployment serves
+the project at: the volume holds each copy at `<volume>/<CANON_PROJECT>`, and
+`/v1/projects/{project}/…` answers at the same string. So recover the copy
+where the service keeps it, and the index you get back is the one the API
+reads. (Before this was so, the rebuild took the name out of the copy's
+`.canon/project.yaml` instead — repository content, free to differ from the
+address by a capital letter — and a recovery that reported success could leave
+every listing answering `total: 0`.)
+
 ## Volumes
 
 Three pieces of persistent state, and each one is recoverable by rebuilding it
@@ -324,6 +338,15 @@ Configure Coolify accordingly:
   application to decide whether it is ready, and a page whose data cannot be
   fetched renders an explicit unavailable state rather than an error (D10).
 
+**The probe runs inside the container, so the client is part of the image.**
+Coolify issues the health request from within the container rather than from
+outside it, and `python:3.12-slim` ships no HTTP client — so `deploy/api.Dockerfile`
+installs `curl` alongside `git`. Without it the probe fails on a service that is
+answering perfectly well, the instance is never routed to, and `/readyz` is in
+effect gated off. `tests/tooling/test_container_artifacts.py` runs `curl` **in
+the built image** rather than reading the `Dockerfile`, because what a base image
+ships is not something a `Dockerfile` can assert about itself.
+
 ## Rollover: readiness gates it, and the drain window outlives a write-back
 
 A deploy replaces instances without dropping a request, and it does that by
@@ -352,6 +375,42 @@ branch — before anything terminates the process. Inverted, a container would b
 killed holding a half-applied edit on the volume, which is the one state the
 specification forbids. So the service **refuses to start** on an inverted pair,
 naming both variables; it is not a paragraph anybody has to remember.
+
+### How large the two numbers have to be
+
+A write-back is *precondition, commit, push*, bounded at three attempts; a retry
+adds a fetch, so one write-back is at most **three pushes and two fetches** —
+five remote round trips — and everything else it does is local.
+
+Measured on a developer machine against a real git remote, over the integration
+suite's own fixture project, 25 consecutive write-backs of one edit:
+
+| | min | median | p90 | max |
+|---|---|---|---|---|
+| one write-back, local remote | 198 ms | 219 ms | 258 ms | 343 ms |
+
+That remote is a bare repository on the same disk, so the number is the
+**floor**: it contains no network at all, exactly as the recovery drills'
+`working-copy-re-clone` (0.07–0.11 s) does not. What the pair of numbers has to
+cover is therefore five round trips to the git host plus about a quarter of a
+second of local work, and `20` over `30` leaves four seconds per round trip in
+the worst retry case — ample for a small commit over a network that is working,
+and comfortably more than the 10-second margin needs for the one attempt that
+may still be in flight when the budget expires.
+
+**What neither number bounds is a stalled remote.** The deadline is evaluated
+*between* attempts and never interrupts one — an edit torn in half is what it
+exists to prevent — and each `git` invocation carries its own 300-second
+subprocess timeout
+(`cybercanon.adapters.outbound.git.commands.TIMEOUT_S`). So a push to a host
+that accepts the connection and then stops answering overruns any write-back
+budget and any drain window, and what actually ends it is the platform's
+SIGKILL at the stop grace period. That is safe rather than merely survivable —
+the boot step resets every working copy to its configured branch, so the
+successor starts from the remote — but it does mean **the write-back budget is a
+budget for a working network, not a bound on a hung one**. If the git host is
+ever slow enough for this to matter, the number to change is git's timeout, not
+this pair.
 
 Configure Coolify to match:
 

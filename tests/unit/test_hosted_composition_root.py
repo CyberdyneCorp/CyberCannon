@@ -66,6 +66,8 @@ def an_environment(**overrides: str) -> dict[str, str]:
         "CANON_WEBHOOK_SECRET": SECRET,
         "CANON_AUTH_ISSUER": f"https://{UNRESOLVABLE}",
         "CANON_AUTH_AUDIENCE": "cybercanon",
+        "CANON_AUTH_CLIENT_ID": "cyb_Hosted00Client1",
+        "CANON_AUTH_ORG_ID": "org_Hosted00Studio",
         "CANON_AUTH_KEY_SET_URL": f"https://{UNRESOLVABLE}/.well-known/jwks.json",
         "CANON_AUTH_GROUP_ROLES": "canon-art=ART_DIRECTOR",
         "CANON_DATABASE_URL": f"postgresql://canon@{UNRESOLVABLE}:5432/canon",

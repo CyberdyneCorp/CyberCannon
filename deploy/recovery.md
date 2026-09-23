@@ -73,6 +73,15 @@ no second implementation of an index rebuild, and a recovery that used one would
 recover a different index from the one it lost. It prints its progress as it
 goes, so a long rebuild is visibly a rebuild and not a hang, and it is resumable.
 
+**The directory named on the command line is the key the rows are written
+under**, because it is the identifier this deployment serves the project at: the
+volume holds each copy at `<volume>/<CANON_PROJECT>` and `/v1/projects/{project}/…`
+answers at the same string. Name the copy where the service keeps it and the
+index that comes back is the one the API reads. The rebuild used to take the
+name out of the copy's `.canon/project.yaml` instead — repository content, free
+to differ from the address by a capital letter — which is how a rebuild could
+report two assets indexed while every listing answered `total: 0`.
+
 While it runs, `/status` reports the rebuild as in progress and reads that
 cannot be served from the partial index report unavailability rather than an
 incomplete answer. Reads the working copy alone can answer keep answering.

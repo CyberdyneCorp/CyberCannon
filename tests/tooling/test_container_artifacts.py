@@ -331,6 +331,45 @@ def _build(repo_root: Path, dockerfile: Path, tag: str) -> str:
     return built.stdout.strip()
 
 
+HEALTH_CHECK_CLIENT = ("curl", "--version")
+"""What the platform runs the readiness probe with, asked for its own version.
+
+Coolify issues the health check **from inside the container**, so the client is
+part of the artifact rather than of the platform: an image without one reports
+unhealthy for a service that is answering perfectly well, and an instance the
+platform believes is unhealthy is never routed to — `/readyz` is gated off not
+because it refuses but because nothing ever reaches it.
+
+This runs the binary in the built image rather than reading the `Dockerfile`,
+because the failure it guards against is precisely the one reading cannot see: a
+base image that stops shipping something, an `apt` line whose package resolved
+to nothing, a multi-stage copy that left it behind. The `Dockerfile` can only
+say what was asked for. The image is what arrived.
+"""
+
+
+@pytest.mark.skipif(shutil.which(ENGINE) is None, reason=NO_ENGINE)
+def test_the_api_image_carries_the_client_its_health_check_is_made_with(
+    repo_root: Path,
+) -> None:
+    """*Verified by running it in the image*, never by trusting the base image."""
+    tag = "cybercanon-api:health-check"
+    _build(repo_root, repo_root / API, tag)
+
+    ran = subprocess.run(
+        [ENGINE, "run", "--rm", tag, *HEALTH_CHECK_CLIENT],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+
+    assert ran.returncode == 0, (
+        "the built API image cannot run the platform's health check: "
+        f"{' '.join(HEALTH_CHECK_CLIENT)} exited {ran.returncode}\n{ran.stderr}"
+    )
+    assert "curl" in ran.stdout.lower()
+
+
 @pytest.mark.skipif(shutil.which(ENGINE) is None, reason=NO_ENGINE)
 def test_building_one_revision_twice_produces_one_digest(repo_root: Path) -> None:
     """*"Built once per revision and promoted"* is only safe if a rebuild agrees."""

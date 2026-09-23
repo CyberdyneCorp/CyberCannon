@@ -29,10 +29,24 @@
 
 FROM python:3.12-slim
 
-# git is not a convenience here: the working copy is the source of truth, and
-# the service reads specifications out of a real repository's object database.
+# Two packages, and neither is a convenience.
+#
+# **git**, because the working copy is the source of truth: the service reads
+# specifications out of a real repository's object database and writes back by
+# committing and pushing.
+#
+# **curl**, because the platform's health check runs *inside* the container.
+# Coolify's check is an HTTP request issued by the container itself, so a health
+# probe with no client to make it with reports unhealthy on a service that is
+# perfectly well — and a container the platform believes is unhealthy is never
+# routed to, which is the whole of `/readyz` being gated off. `python:3.12-slim`
+# ships no `curl`, so this is what puts one there;
+# `tests/tooling/test_container_artifacts.py` runs `curl --version` inside the
+# built image rather than reading this line, because a base image that stopped
+# shipping something is exactly the class of thing a `Dockerfile` cannot assert
+# about itself.
 RUN apt-get update \
- && apt-get install --yes --no-install-recommends git ca-certificates \
+ && apt-get install --yes --no-install-recommends git curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

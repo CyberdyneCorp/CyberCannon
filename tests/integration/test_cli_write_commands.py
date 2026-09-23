@@ -30,7 +30,15 @@ from pathlib import Path
 
 import pytest
 from game_repo import MECH_EXPORT, build_game_repo
-from machine import AGENT, GIT_EMAIL, PERSON, Issuing, bare_environment, signing_issuer
+from machine import (
+    AGENT,
+    GIT_EMAIL,
+    PERSON,
+    SUBJECT,
+    Issuing,
+    bare_environment,
+    signing_issuer,
+)
 from typer.testing import CliRunner
 
 from cybercanon.adapters.inbound.cli.app import build_app
@@ -119,12 +127,21 @@ def test_the_sign_in_prints_no_credential_anywhere(game: Path, machine: dict[str
 def test_whoami_names_the_person_and_the_pending_report_count(
     game: Path, machine: dict[str, str]
 ) -> None:
+    """It names them by **subject**, because that is what the credential carries.
+
+    A CyberdyneAuth access token has no `name` and no `email`: the display name
+    this used to print came from a claim the fixture minted and the identity
+    service has never sent. The stable subject is what authorization,
+    attribution and `.canon/actors.yaml` all agree on, so it is what a person
+    sees here — and the readable name, where a surface wants one, is the mapping
+    file's to supply (D13).
+    """
     canon(game, "login", env=machine)
 
     result = canon(game, "whoami", env=machine)
 
     assert result.returncode == CLEAN, result.stderr
-    assert PERSON in result.stdout
+    assert SUBJECT in result.stdout
     assert "0 report(s) pending" in result.stdout
 
 

@@ -32,6 +32,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
+from cybercanon.adapters.outbound.auth.discovery import EndpointDirectory
 from cybercanon.adapters.outbound.auth.oauth import (
     ACCESS_DENIED,
     EXPIRED_TOKEN,
@@ -52,7 +53,22 @@ DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 AUTHORIZATION_CODE_GRANT = "authorization_code"
 CLIENT_CREDENTIALS_GRANT = "client_credentials"
 
-DEFAULT_SCOPE = "openid profile email"
+DEFAULT_SCOPE = "openid profile email offline_access roles"
+"""What a sign-in asks for, and the last two are why this line has a docstring.
+
+`offline_access` is what makes the issuer return a refresh token, which is what
+the keychain stores: without it a session lapses with its access token — fifteen
+minutes, in this deployment — and the person is sent back to the browser mid-task
+for no reason anybody could see.
+
+`roles` is the claim **everything** now depends on. CyberdyneAuth puts a
+person's roles in a `roles` claim only when the sign-in asked for them, and a
+credential without it resolves to nobody: the adapter reads an absent `roles`
+claim as the identity service failing to answer and fails closed, which is the
+correct reading and a miserable way to discover that a scope was missing. The
+web application asks for the same five words (`lib/session/oidc.ts`), and it is
+the same sentence because it is the same question.
+"""
 
 NO_TOKEN = "the issuer answered without a token"
 TIMED_OUT = "the device authorization expired before it was approved"
@@ -64,7 +80,14 @@ Monotonic = Callable[[], float]
 
 @dataclass(frozen=True)
 class Endpoints:
-    """Where the issuer's three relevant endpoints live."""
+    """Where the issuer's three relevant endpoints live, as somebody wrote them.
+
+    The other :class:`~cybercanon.adapters.outbound.auth.discovery.EndpointDirectory`
+    is :class:`~cybercanon.adapters.outbound.auth.discovery.IssuerEndpoints`,
+    which reads the same three addresses out of the issuer's discovery document.
+    A flow cannot tell them apart, which is what lets the deployment discover its
+    endpoints while every suite here keeps using addresses a test wrote down.
+    """
 
     token: str
     device_authorization: str = ""
@@ -100,7 +123,7 @@ class DeviceAuthorization:
     def __init__(
         self,
         *,
-        endpoints: Endpoints,
+        endpoints: EndpointDirectory,
         client_id: str,
         scope: str = DEFAULT_SCOPE,
         audience: str = "",
@@ -199,7 +222,7 @@ class BrowserSignIn:
     def __init__(
         self,
         *,
-        endpoints: Endpoints,
+        endpoints: EndpointDirectory,
         client_id: str,
         redirect_uri: str,
         scope: str = DEFAULT_SCOPE,
@@ -268,7 +291,7 @@ class ServiceCredentials:
     def __init__(
         self,
         *,
-        endpoints: Endpoints,
+        endpoints: EndpointDirectory,
         client_id: str,
         client_secret: str,
         audience: str = "",

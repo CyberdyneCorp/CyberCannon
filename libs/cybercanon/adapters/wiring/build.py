@@ -36,6 +36,7 @@ from pathlib import Path
 
 from cybercanon.adapters.outbound.arche.config import ArcheSettings, settings_from
 from cybercanon.adapters.outbound.arche.platform import ArcheDocumentPlatform
+from cybercanon.adapters.outbound.auth.discovery import IssuerEndpoints
 from cybercanon.adapters.outbound.auth.flows import DeviceAuthorization, Endpoints
 from cybercanon.adapters.outbound.auth.keychain import KeychainCredentialStore
 from cybercanon.adapters.outbound.fs.blob_store import FsBlobStore
@@ -77,6 +78,7 @@ CANON_DIR = ".canon"
 
 ISSUER = "CANON_AUTH_ISSUER"
 CLIENT_ID = "CANON_AUTH_CLIENT_ID"
+ORGANISATION = "CANON_AUTH_ORG_ID"
 AUDIENCE = "CANON_AUTH_AUDIENCE"
 DEVICE_CODE_URL = "CANON_AUTH_DEVICE_CODE_URL"
 TOKEN_URL = "CANON_AUTH_TOKEN_URL"
@@ -95,9 +97,6 @@ A process started without it keeps every read and is refused both writes, which
 is the specified behaviour rather than a wiring accident: the container's
 `agent` stays ``None`` and the use case refuses naming the missing identifier.
 """
-
-DEVICE_CODE_PATH = "/oauth/device/code"
-TOKEN_PATH = "/oauth/token"
 
 
 def build_container(root: str | Path, environment: Mapping[str, str] | None = None) -> Container:
@@ -204,7 +203,7 @@ def writing_resolver(
     was asked about. An unreachable store is not a failure either: it declines,
     and the write that needed it is refused naming the sign-in action.
     """
-    provider = identity_provider(source)
+    provider = identity_provider(source, project=project)
     if provider is None:
         return ActorResolver(project=project)
     return ActorResolver(project=project, provider=provider, credential=stored(credential_store))
@@ -218,13 +217,21 @@ def stored(credential_store: CredentialStore) -> Credential | None:
         return None
 
 
-def identity_provider(source: Mapping[str, str]) -> IdentityProvider | None:
+def identity_provider(source: Mapping[str, str], project: str = "") -> IdentityProvider | None:
     """The verifier for this machine's own credential, when an issuer is configured.
 
     ``None`` when the three values it needs are not all there, which is the
     ordinary local case: `canon` is useful on a machine that has never heard of
     an identity service, and writes are then refused with the sign-in action
     rather than the tool refusing to start.
+
+    The other three — the client id, the organisation and the project — are what
+    a CyberdyneAuth credential has to be read *against*: the client id says which
+    entries of the one `roles` claim are this product's, and the organisation
+    plus the project say whether this person may read what this machine is
+    standing in. A machine configured with an issuer and none of them verifies
+    credentials and entitles nobody, which is the fail-closed direction and is
+    visible as a refusal naming what is missing rather than as a silent grant.
 
     The import is deferred for the reason the keychain's is: verification pulls
     in a JOSE implementation, and a pre-commit `canon validate` should not pay
@@ -239,8 +246,14 @@ def identity_provider(source: Mapping[str, str]) -> IdentityProvider | None:
     from cybercanon.adapters.outbound.auth.keys import CachedKeySet, JwksKeySource
 
     return CyberdyneAuth(
-        trust=Trust(issuer=issuer, audience=audience),
+        trust=Trust(
+            issuer=issuer,
+            audience=audience,
+            client_id=source.get(CLIENT_ID, "").strip(),
+            organisation=source.get(ORGANISATION, "").strip(),
+        ),
         keys=CachedKeySet(JwksKeySource(key_set_url)),
+        project=project,
         group_roles=dict(group_roles(source.get(GROUP_ROLES, ""))),
     )
 
@@ -310,9 +323,20 @@ def device_sign_in(environment: Mapping[str, str] | None = None) -> DeviceAuthor
     application that will not start — which is the opposite of the hosted
     service's rule, and deliberately so.
 
-    The two endpoint addresses default to CyberdyneAuth's paths under the issuer
-    and are overridable, because deriving an endpoint from an issuer is a
-    convention rather than a guarantee.
+    **The endpoints come from the issuer's discovery document, not from a path
+    this module knows.** They used to be `<issuer>/oauth/token` and
+    `<issuer>/oauth/device/code`, and CyberdyneAuth serves neither: it publishes
+    `/api/v1/auth/oauth2/token`, so every terminal sign-in posted its redemption
+    into a 404. Replacing one constant with another would have fixed this issuer
+    and left the defect standing for the next one, so
+    :class:`~cybercanon.adapters.outbound.auth.discovery.IssuerEndpoints` asks
+    the issuer instead — on first use, never here, because `canon` builds this
+    container on every invocation and a validator must not open a socket.
+
+    `CANON_AUTH_TOKEN_URL` and `CANON_AUTH_DEVICE_CODE_URL` still win where they
+    are set, per endpoint, for the deployment whose issuer publishes no document.
+    They are the escape hatch now rather than the default, which is the whole of
+    the inversion.
     """
     source = os.environ if environment is None else environment
     issuer = source.get(ISSUER, "").strip().rstrip("/")
@@ -320,10 +344,11 @@ def device_sign_in(environment: Mapping[str, str] | None = None) -> DeviceAuthor
     if not issuer or not client_id:
         return None
     return DeviceAuthorization(
-        endpoints=Endpoints(
-            token=source.get(TOKEN_URL, "").strip() or f"{issuer}{TOKEN_PATH}",
-            device_authorization=(
-                source.get(DEVICE_CODE_URL, "").strip() or f"{issuer}{DEVICE_CODE_PATH}"
+        endpoints=IssuerEndpoints(
+            issuer,
+            overrides=Endpoints(
+                token=source.get(TOKEN_URL, "").strip(),
+                device_authorization=source.get(DEVICE_CODE_URL, "").strip(),
             ),
         ),
         client_id=client_id,
@@ -374,12 +399,11 @@ __all__ = [
     "AUDIENCE",
     "CANON_DIR",
     "CLIENT_ID",
-    "DEVICE_CODE_PATH",
     "DEVICE_CODE_URL",
     "GROUP_ROLES",
     "ISSUER",
     "KEY_SET_URL",
-    "TOKEN_PATH",
+    "ORGANISATION",
     "TOKEN_URL",
     "agent_identifier",
     "arche_settings",

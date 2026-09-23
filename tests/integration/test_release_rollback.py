@@ -96,6 +96,8 @@ SERVICE_ENVIRONMENT: dict[str, str] = {
     "CANON_WEBHOOK_SECRET": "unused-in-this-test",  # not-a-credential
     "CANON_AUTH_ISSUER": f"https://{UNRESOLVABLE}",
     "CANON_AUTH_AUDIENCE": "cybercanon",
+    "CANON_AUTH_CLIENT_ID": "cyb_Rollback0Client",
+    "CANON_AUTH_ORG_ID": "org_Rollback0Studio",
     "CANON_AUTH_KEY_SET_URL": f"https://{UNRESOLVABLE}/jwks.json",
     "CANON_AUTH_GROUP_ROLES": "canon-art=ART_DIRECTOR",
     "CANON_DATABASE_URL": f"postgresql://canon@{UNRESOLVABLE}:5432/canon",

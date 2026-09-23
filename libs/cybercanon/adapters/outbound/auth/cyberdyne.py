@@ -10,9 +10,10 @@ them in order and decides what each failure means.
 
 What leaves this class is a
 :class:`~cybercanon.application.ports.identity_provider.ResolvedIdentity`: an
-actor and, when the issuer describes them, the person's commit addresses.
-Nothing else — no claim name, no group name, no issuer, no token, and in
-particular **no decision**. The adapter cannot grant, cannot deny and has no
+actor, and no commit addresses, because a CyberdyneAuth access token carries
+none — `.canon/actors.yaml` answers that question instead (D13). Nothing else —
+no claim name, no role key, no issuer, no token, and in particular **no
+decision**. The adapter cannot grant, cannot deny and has no
 method that takes an operation, which is what makes *"identical decision for
 identical actors"* a property of the type rather than of a test.
 
@@ -50,8 +51,8 @@ from cybercanon.adapters.outbound.auth.claims import (
     DEFAULT_CLAIMS,
     ClaimNames,
     ClaimsIncomplete,
+    Deployment,
     actor_from,
-    git_emails_from,
 )
 from cybercanon.adapters.outbound.auth.keys import CachedKeySet
 from cybercanon.application.ports.identity_provider import (
@@ -73,6 +74,15 @@ UNREADABLE = "the credential is not a well-formed signed token"
 BAD_SIGNATURE = "the signature does not verify against the issuer's published keys"
 BAD_CLAIMS = "a required claim is absent, wrong or outside its validity period"
 NO_SUBJECT = "the credential carries no subject"
+NO_ACTOR = "the credential does not describe an actor that can be resolved"
+"""What a credential that verified and still says nothing usable is refused as.
+
+Three shapes reach it — an unknown `type`, a service subject naming no client,
+and a person's credential carrying no `roles` claim at all — and every one of
+them is the identity service failing to describe somebody rather than a person
+holding nothing. They fail closed, and the discriminating detail rides on
+`reason` for the log, exactly as every other refusal here does.
+"""
 
 PRESENTED = PRESENTED_CREDENTIAL
 """What a refusal is *about*. Never the credential itself, which never prints."""
@@ -86,15 +96,27 @@ def system_now() -> datetime:
 
 @dataclass(frozen=True)
 class Trust:
-    """What the service will accept: one issuer, one audience.
+    """What the service will accept, and what it is: issuer, audience, client, org.
 
-    Both are required rather than optional. An audience nobody checks is how a
-    token minted for another service becomes a session here, and the
-    specification asks for the check by name.
+    The issuer and the audience are required rather than optional. An audience
+    nobody checks is how a token minted for another service becomes a session
+    here, and the specification asks for the check by name.
+
+    `client_id` and `organisation` are what this deployment *is*, rather than
+    what it accepts, and they are configuration for the same reason the issuer
+    is. CyberdyneAuth writes every client's roles into one `roles` claim, so the
+    client id is the only thing that says which entries are ours; and the
+    organisation is the one whose members may read what this deployment serves.
+    Both default to empty and empty fails closed — an adapter that has not been
+    told which client it is recognises no role, and one that has not been told
+    its organisation admits nobody — because the alternative is a default that
+    was a guess.
     """
 
     issuer: str
     audience: str
+    client_id: str = ""
+    organisation: str = ""
 
     def __post_init__(self) -> None:
         if not self.issuer.strip():
@@ -108,17 +130,30 @@ class CyberdyneAuth:
     """Verifies a CyberdyneAuth credential and resolves the actor behind it.
 
     `group_roles` is the configured mapping and is read, never interpreted: this
-    class names no group, which is what makes adding one a configuration change.
-    `claims` says which claim carries what — the credential's shape, fixed by
-    the issuer rather than by a studio.
+    class names no role key, which is what makes adding one a configuration
+    change. `project` is what this deployment serves and is the entitlement an
+    admitted credential resolves with — nothing in a real token names a project,
+    so the adapter has to be told, exactly as it is told its issuer and its
+    audience. `claims` says which claim carries what — the credential's shape,
+    fixed by the issuer rather than by a studio.
     """
 
     trust: Trust
     keys: CachedKeySet
+    project: str = ""
     group_roles: Mapping[str, str] = field(default_factory=dict)
     claims: ClaimNames = DEFAULT_CLAIMS
     now: Now = system_now
     leeway_s: int = 30
+
+    @property
+    def deployment(self) -> Deployment:
+        """Which client, which organisation and which project this instance is."""
+        return Deployment(
+            client_id=self.trust.client_id,
+            organisation=self.trust.organisation,
+            project=self.project,
+        )
 
     def resolve(self, credential: Credential) -> ResolvedIdentity:
         """The actor this credential belongs to, or a named refusal.
@@ -169,18 +204,33 @@ class CyberdyneAuth:
             raise CredentialRejected(BAD_CLAIMS) from failure
 
     def _resolved(self, claims: Mapping[str, Any]) -> ResolvedIdentity:
-        """Claims to actor. The last line at which a claim name exists."""
+        """Claims to actor. The last line at which a claim name exists.
+
+        The resolution describes no git authorship, and that is the token's
+        shape rather than an omission: a CyberdyneAuth access token carries no
+        `name`, no `email` and no commit addresses, so `.canon/actors.yaml`
+        answers instead and D13's order is unchanged — provider first, file
+        second, with the provider declining.
+        """
         try:
-            actor = actor_from(claims, group_roles=self.group_roles, names=self.claims)
-        except (ClaimsIncomplete, ValueError) as failure:
+            actor = actor_from(
+                claims,
+                group_roles=self.group_roles,
+                deployment=self.deployment,
+                names=self.claims,
+            )
+        except ClaimsIncomplete as failure:
+            raise CredentialRejected(NO_ACTOR) from failure
+        except ValueError as failure:
             raise CredentialRejected(NO_SUBJECT) from failure
-        return ResolvedIdentity(actor=actor, git_emails=git_emails_from(claims, self.claims))
+        return ResolvedIdentity(actor=actor)
 
 
 __all__ = [
     "ALGORITHMS",
     "BAD_CLAIMS",
     "BAD_SIGNATURE",
+    "NO_ACTOR",
     "NO_SUBJECT",
     "PRESENTED",
     "UNREADABLE",

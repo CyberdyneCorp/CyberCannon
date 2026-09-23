@@ -44,7 +44,7 @@ import boto3
 import psycopg
 import pytest
 from moto import mock_aws
-from staged_project import PROJECT, SCOUT_SPEC, Staged, ready
+from staged_project import CORPUS, PROJECT, SCOUT_SPEC, Staged, ready
 from test_postgres_index import Answers, fingerprints_under
 
 from canon_drill import records
@@ -235,6 +235,65 @@ def test_the_index_recovery_leaves_the_working_copy_alone(
 
     assert staged.host.head(PROJECT).value == revision
     assert (staged.working_copy / SCOUT_SPEC).is_file()
+
+
+# --------------------------------------------------------------------------
+# The rebuilt rows are keyed by the name the deployment serves (go-live B3)
+# --------------------------------------------------------------------------
+
+DECLARED = "Ronin"
+"""What the working copy's `.canon/project.yaml` calls the project here.
+
+Deliberately **not** :data:`PROJECT`. The rest of this suite stages a copy whose
+declared name and served address are the same string, so every assertion it
+makes about the recovery holds whichever of the two the rebuild keyed rows by —
+which is exactly how a recovery that reported *"rebuilt 1 project(s), 1
+asset(s)"* and left `/v1/projects/ronin/assets` answering `total: 0` went on
+passing this suite. A fixture that agrees with the code under test cannot
+disagree with it, and the only fix is a fixture that differs where the real
+world differs: the address is configuration (`CANON_PROJECT`), the declared
+name is repository content, and nothing keeps them equal — not even case.
+"""
+
+DIVERGENT = {**CORPUS, ".canon/project.yaml": f"schema_version: 1\nname: {DECLARED}\n".encode()}
+"""The same project, declaring a name that is not the one it is served at."""
+
+
+def test_the_index_recovery_keys_rows_by_the_name_the_deployment_serves(
+    tmp_path: Path, postgres_dsn: str
+) -> None:
+    """B3: rows the hosted surface cannot read are not a recovered index.
+
+    A deployment answers `/v1/projects/{project}/assets` at `CANON_PROJECT` and
+    reads rows keyed by it, and the working copy lives at `<volume>/<that name>`
+    — so the directory the operator names in the documented command *is* the
+    key. A rebuild that took the name out of `.canon/project.yaml` instead was
+    keying by repository content, which the address is deliberately not derived
+    from.
+    """
+    staged = ready(tmp_path, DIVERGENT)
+    assert DECLARED != PROJECT, "the fixture has to differ where the real world differs"
+    assert staged.working_copy.name == PROJECT
+
+    report = recovery.recover([staged.working_copy], dsn=postgres_dsn)
+
+    with PostgresSearchIndex(postgres_dsn) as index:
+        assert index.list_assets(project=PROJECT), (
+            f"the recovery reported {report} and the deployment's own project has no rows to read"
+        )
+        assert not index.list_assets(project=DECLARED)
+
+
+def test_the_divergent_fixture_really_declares_the_other_name(
+    tmp_path: Path,
+) -> None:
+    """Otherwise the test above stages the agreeable corpus and proves nothing."""
+    staged = ready(tmp_path, DIVERGENT)
+
+    declared = (staged.working_copy / ".canon" / "project.yaml").read_text(encoding="utf-8")
+
+    assert f"name: {DECLARED}" in declared
+    assert f"name: {PROJECT}" not in declared
 
 
 # --------------------------------------------------------------------------

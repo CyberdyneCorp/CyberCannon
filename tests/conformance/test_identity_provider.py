@@ -35,13 +35,14 @@ from identity_provider_contract import (
     ANA,
     BARE,
     DESCRIBED,
+    ORGANISATION,
     PROJECT,
     RAFA,
     RAFA_EMAILS,
     IdentityProviderContract,
 )
 
-from canon_issuer import EPOCH, FakeIssuer
+from canon_issuer import ANOTHER_CLIENT_ID, EPOCH, PRO_MONTHLY, FakeIssuer, an_org
 from cybercanon.adapters.outbound.auth.cyberdyne import CyberdyneAuth, Trust
 from cybercanon.adapters.outbound.auth.keys import CachedKeySet
 from cybercanon.application.ports.identity_provider import (
@@ -51,9 +52,10 @@ from cybercanon.application.ports.identity_provider import (
 )
 from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
 
-ART_LEADS = "cyberdyne-art-leads"
-ARTISTS = "cyberdyne-artists"
-GROUP_ROLES = {ART_LEADS: "ART_DIRECTOR", ARTISTS: "ARTIST"}
+ART_LEAD_KEY = "art_director"
+ARTIST_KEY = "artist"
+GROUP_ROLES = {ART_LEAD_KEY: "ART_DIRECTOR", ARTIST_KEY: "ARTIST"}
+"""Role keys as CyberdyneAuth spells them, before the client-id prefix."""
 
 
 class AsIssued:
@@ -94,44 +96,79 @@ def in_memory_without_git_authorship(directory: Path) -> InMemoryIdentityProvide
     return provider
 
 
-def cyberdyne(directory: Path, *, describes_git_authorship: bool = True) -> AsIssued:
-    """The real adapter, over a real issuer, resolving the contract's two people."""
+def cyberdyne(directory: Path) -> AsIssued:
+    """The real adapter, over a real issuer, resolving the contract's two people.
+
+    The credentials are minted **in the shape CyberdyneAuth emits**: `roles`
+    prefixed with the client id, `orgs` for the organisation the person belongs
+    to, `entitlements` for the billing products they hold, and no `name` and no
+    `git_emails`, because a real access token carries neither.
+
+    The contract asks these people to be entitled to `PROJECT`, and nothing in a
+    real token names a project: entitlement is `orgs` plus a role on this
+    client. So the adapter is told the three things it cannot guess — the client
+    id its roles are prefixed with, the organisation whose members it serves and
+    the project they read — and the credentials carry the organisation it was
+    told about.
+
+    There used to be a `describes_git_authorship` switch here and a second
+    factory built from it, so that CyberdyneAuth ran the contract as *both* of
+    the shapes the port permits. It could only do that because this file minted
+    a `git_emails` claim the issuer has never sent. The switch is gone: there is
+    one CyberdyneAuth, it describes no commit addresses, and it therefore stands
+    for the port's "describes none" shape while the fake stands for the other.
+
+    Rafa also holds an art director role on **another client**, because that is
+    what the claim really looks like — one list covering every application in
+    the organisation — and the contract's `RAFA` holds `ARTIST` alone.
+    """
     issuer = FakeIssuer()
     provider = CyberdyneAuth(
-        trust=Trust(issuer=issuer.issuer, audience=issuer.audience),
+        trust=Trust(
+            issuer=issuer.issuer,
+            audience=issuer.audience,
+            client_id=issuer.client_id,
+            organisation=ORGANISATION,
+        ),
         keys=CachedKeySet(issuer),
+        project=PROJECT,
         group_roles=GROUP_ROLES,
         now=lambda: datetime.fromtimestamp(EPOCH, tz=UTC),
     )
-    emails = RAFA_EMAILS if describes_git_authorship else ()
+    home = an_org(ORGANISATION, "contract-studio")
     return AsIssued(
         provider,
         {
             DESCRIBED.value: issuer.mint(
                 RAFA.id.value,
-                name=RAFA.display_name,
-                groups=[ARTISTS],
-                projects=[PROJECT],
-                git_emails=emails,
+                roles=[ARTIST_KEY, f"{ANOTHER_CLIENT_ID}:{ART_LEAD_KEY}"],
+                orgs=[home],
+                entitlements=[PRO_MONTHLY],
             ),
             BARE.value: issuer.mint(
                 ANA.id.value,
-                name=ANA.display_name,
-                groups=[ART_LEADS],
-                projects=[PROJECT],
+                roles=[ART_LEAD_KEY],
+                orgs=[home],
+                entitlements=[PRO_MONTHLY],
             ),
         },
     )
 
 
-def cyberdyne_without_git_authorship(directory: Path) -> AsIssued:
-    """The shape CyberdyneAuth has today: no commit addresses in any claim (D13)."""
-    return cyberdyne(directory, describes_git_authorship=False)
-
-
 implementation = implementation_fixture(fake=in_memory, cyberdyne=cyberdyne)
+describes_git_authorship = implementation_fixture(fake=in_memory)
+"""The providers that answer D13's first question at all.
+
+CyberdyneAuth is deliberately absent, and its absence is the finding rather than
+a gap: a real access token carries no commit addresses, so the only way this
+adapter could have satisfied *"a provider may supply git author emails"* was for
+this file to mint a claim the issuer never sends — which is exactly what it used
+to do. It runs the other shape, below, and every implementation-agnostic
+scenario in the contract.
+"""
+
 without_git_authorship = implementation_fixture(
-    fake=in_memory_without_git_authorship, cyberdyne=cyberdyne_without_git_authorship
+    fake=in_memory_without_git_authorship, cyberdyne=cyberdyne
 )
 
 

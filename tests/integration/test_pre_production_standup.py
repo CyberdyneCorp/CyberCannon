@@ -167,6 +167,8 @@ def step_1_record_the_connection_settings(environment: Environment) -> None:
         "CANON_WEBHOOK_SECRET": SECRET,
         "CANON_AUTH_ISSUER": "https://auth.invalid/",
         "CANON_AUTH_AUDIENCE": "cybercanon-pre-production",
+        "CANON_AUTH_CLIENT_ID": "cyb_PreProd0Client1",
+        "CANON_AUTH_ORG_ID": "org_PreProd0Studio",
         "CANON_AUTH_KEY_SET_URL": "https://auth.invalid/.well-known/jwks.json",
         "CANON_AUTH_GROUP_ROLES": "art-leads=ART_DIRECTOR",
         "CANON_DATABASE_URL": environment.dsn,

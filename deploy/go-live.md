@@ -85,16 +85,16 @@ The fixed paths are gone. The issuer is the only address configured. Checked
 against the live CyberdyneAuth on 2026-09-23: sign-in, the refresh grant and
 sign-out all worked end to end from `http://localhost:5173`.
 
-### B3 — the documented index rebuild keys rows by the wrong project
+### B3 — the documented index rebuild keys rows by the wrong project — **resolved**
 
-`deploy/README.md` and `docs/recovery.md` both give the recovery as:
+`deploy/README.md` and `docs/recovery.md` both gave the recovery as:
 
 ```
 python -m cybercanon.api.recover /data/worktrees/<project>
 ```
 
-`services/cybercanon/api/recover.py` calls `rebuild_index("")` and passes **no**
-`project=`, so rows are keyed by the `name:` declared in the working copy's
+`services/cybercanon/api/recover.py` called `rebuild_index("")` and passed **no**
+`project=`, so rows were keyed by the `name:` declared in the working copy's
 `.canon/project.yaml`. The hosted surface reads rows keyed by `CANON_PROJECT`,
 which `deploy/e2e/compose.yaml` is explicit is *"deliberately not derived from
 the repository URL or from `.canon/project.yaml`, which disagree"*.
@@ -102,21 +102,24 @@ the repository URL or from `.canon/project.yaml`, which disagree"*.
 Observed end to end in the e2e stack: with `CANON_PROJECT=ronin` and
 `name: Ronin`, the recovery reported *"rebuilt 1 project(s), 1 asset(s)"*, the
 row landed under `Ronin`, and `/v1/projects/ronin/assets` answered `total: 0`
-for ever after. `rebuild_index` **already takes** the `project=` parameter and
-documents it as existing for exactly this reason:
+for ever after.
 
-> a hosted deployment serves this working copy at one name and must key every
-> row by it
+**Resolved in the entry point, where the gap was.** The rebuild now keys rows by
+the working copy's **directory name**, which is the identifier the deployment
+serves the project at: `GitRepositoryHost.path(project)` is `<volume>/<project>`,
+so the path in the documented command already carries the answer and the command
+itself does not change. `rebuild_index` always took `project=`; nothing about the
+use case moved, and `canon index` on a laptop still keys by the declared name
+because it has no address.
 
-so the gap is in the entry point, not in the use case. Which name wins is a
-decision for the person who owns the specification, which is why this is
-reported rather than changed.
+The regression test is
+`tests/integration/test_recovery_drills.py::test_the_index_recovery_keys_rows_by_the_name_the_deployment_serves`,
+and it stages a working copy that **declares a different name from the one it is
+served at** — which is the whole reason this suite passed for as long as it did.
+Every other fixture in it declares `name: ronin` in a directory called `ronin`,
+so the rebuild keyed rows correctly by accident and no assertion could tell.
 
-**This blocks Migration Plan step 5** (*"build the index for each project;
-confirm `/status` reports it in sync"*) whenever `CANON_PROJECT` and the
-declared name differ — including by case alone.
-
-### B4 — the group and project claims are not in `claims_supported`
+### B4 — the group and project claims are not in `claims_supported` — **resolved**
 
 CyberdyneAuth's discovery document lists:
 
@@ -132,16 +135,35 @@ by design, but is a person who can read nothing. `roles` and `roles:read` are in
 `scopes_supported`, so the facts exist under some name.
 
 *Observed since, with the registered client:* the access token carries `roles`
-as `cyb_5UIdba7PWtBo1MmH:<role>` (prefixed with the client id) and carries no
-`groups` and no `projects`. Mapping those is the API's claim reading, which
-another team owns. It is not changed by the web fix.
+prefixed with the client id, and carries no `groups` and no `projects`.
 
-`claims_supported` is advisory rather than exhaustive in OIDC, so this is an
-**open question for registration (§1.3)** rather than a proven defect: the
-answer is whatever the token actually carries, and the first correctly-audienced
-token settles it. If the names differ, `ClaimNames` is the one place to change —
-it is a value object, not configuration, because *"what a studio changes is the
-group mapping"*.
+**The API now reads the token the issuer really emits**, and the three things
+that changed are configuration rather than code:
+
+* roles come from `roles`, keeping only the entries prefixed with
+  `CANON_AUTH_CLIENT_ID` and stripping the prefix before
+  `CANON_AUTH_GROUP_ROLES` maps them. `roles` covers **every** client the person
+  holds a role on, so an unfiltered reader would hand somebody this project's
+  art director because they are an art director in another application;
+* entitlement is `orgs` **and** roles: a person reads `CANON_PROJECT` only when
+  their `orgs` claim carries `CANON_AUTH_ORG_ID` *and* they hold at least one
+  role on this client. Not `org` (that is their *primary* organisation, so
+  keying on it would lock out a member whose primary is elsewhere), not
+  `entitlements` (billing products), not `github_login` (nullable, and null for
+  the only organisation today), and `is_admin` does not bypass it;
+* automation is `type: "service"` with a `sub` of `client:<id>`. The `gty` claim
+  the adapter used to read was a guess and is gone.
+
+A credential carrying no `roles` claim at all is **refused** rather than read as
+"holds nothing": an absent claim means the identity service did not answer, and
+this is the one place where the sign-in's scope matters — the scope must include
+`roles`, which is why `openid profile email offline_access roles` is the default
+in both the web application and `canon`.
+
+Two new required settings come with it, `CANON_AUTH_CLIENT_ID` and
+`CANON_AUTH_ORG_ID`; both are in §2's worksheet. A deployment missing either
+starts, signs people in and shows them nothing, which is why they are required
+rather than optional.
 
 ---
 
@@ -207,26 +229,45 @@ application sends none until `CANON_AUTH_POST_LOGOUT_REDIRECT=true` is set on
 `web`. Until then, sign-out ends on CyberdyneAuth's own "You have been signed
 out" page.
 
-### 1.3 The claims the token must carry
+### 1.3 The claims the token carries
 
-This is the half that decides whether anybody can read anything, and it is the
-one question to settle with whoever administers CyberdyneAuth.
+This is the half that decides whether anybody can read anything, and these are
+the claims **CyberdyneAuth actually emits**, verified against production. The
+version of this table that listed `groups`, `projects`, `tenant` and
+`git_emails` described a token the issuer has never sent — and the suites agreed
+with it because the fixtures minted that shape too.
 
 | Claim | Read by | What it decides | Absent means |
 |---|---|---|---|
-| `sub` | `actor_from` | the `ActorId` | the credential is **refused** (`NO_SUBJECT`) |
+| `sub` | `actor_from` | the `ActorId`; `client:<id>` on a service token | the credential is **refused** (`NO_SUBJECT`) |
 | `aud` | `Trust` | that this token was minted for *this* service | **refused** |
 | `iss`, `exp` | `Trust` | issuer and validity | **refused** |
-| `name` | `actor_from` | what the frame shows | the subject is shown instead. The web frame reads `name`, then `email`, from the **id token**, which is where CyberdyneAuth puts the email |
-| `groups` | `roles_from` | which `Role`s the actor holds | no roles: every mutating operation refuses, naming the role |
-| `projects` | `Actor.may_see` | which projects the actor is entitled to read | **nothing is readable** |
-| `tenant` | `tenants_agree` | the organisation | no tenancy question is asked |
-| `git_emails` | `git_emails_from` | commit attribution (D13) | `.canon/actors.yaml` answers next |
+| `type` | `actor_from` | `access` is a person, `service` is automation | **refused** — a shape this cannot read is not a session |
+| `roles` | `roles_from` | which `Role`s the actor holds, from the entries prefixed `<CANON_AUTH_CLIENT_ID>:` | **refused**: an absent claim means the identity service did not answer, which is not the same as holding nothing |
+| `orgs` | entitlement | whether the person belongs to `CANON_AUTH_ORG_ID`, matched on `id` | **nothing is readable** — and `orgs: []` is the same answer |
+| `org` | — | **deliberately not read**: the person's *primary* organisation only, so keying on it would lock out a member whose primary is elsewhere | — |
+| `entitlements` | — | **deliberately not read**: billing products (`pro:monthly`), never access | — |
+| `is_admin` | — | **deliberately not read**: an admin flag does not widen access | — |
 
-Ask for `groups` and `projects` by those names. If CyberdyneAuth emits them
-under other names, say so in the reply to this document: `ClaimNames` in
+There is **no `name`, no `email` and no `git_emails`** on an access token: a
+surface shows the subject, and commit attribution comes from `.canon/actors.yaml`
+(D13). The web frame reads `name` and `email` from the **id token**, which is
+where CyberdyneAuth puts them.
+
+A person reads `CANON_PROJECT` if and only if their `orgs` claim carries
+`CANON_AUTH_ORG_ID` **and** their `roles` claim holds at least one entry
+prefixed with `CANON_AUTH_CLIENT_ID`. Membership alone is not access, and a role
+alone is not membership.
+
+The sign-in must request the `roles` scope —
+`openid profile email offline_access roles`, the default in both the web
+application and `canon` — because a token without the claim is refused rather
+than read as a person who holds nothing.
+
+If CyberdyneAuth ever emits these under other names, `ClaimNames` in
 `libs/cybercanon/adapters/outbound/auth/claims.py` is the single place that
-changes, and it is eight fields.
+changes: six fields, a value object rather than configuration. What a deployment
+sets is `CANON_AUTH_CLIENT_ID`, `CANON_AUTH_ORG_ID` and the role mapping.
 
 ### 1.4 The requests
 
@@ -291,28 +332,42 @@ curl -sS -X POST https://auth.backend.coolify.cyberdynecorp.ai/api/v1/auth/oauth
 fixes `CANON_AUTH_AUDIENCE`, and tells you what to write in
 `CANON_AUTH_GROUP_ROLES`.
 
-### 1.5 `CANON_AUTH_GROUP_ROLES`
+### 1.5 `CANON_AUTH_GROUP_ROLES`, `CANON_AUTH_CLIENT_ID` and `CANON_AUTH_ORG_ID`
 
-The mapping is configuration and names no group in code, so *"adding a mapping
-is a configuration change rather than a deploy"*. The right-hand side must be a
-`Role`; a value that is not one contributes nothing, because a configuration
-mistake may only ever grant **less**.
+The mapping is configuration and names no role key in code, so *"adding a
+mapping is a configuration change rather than a deploy"*. The right-hand side
+must be a `Role`; a value that is not one contributes nothing, because a
+configuration mistake may only ever grant **less**.
 
-The roles are `ART_DIRECTOR` and `ARTIST` (`cybercanon.domain.identity.Role`).
-Write the studio's real group names on the left:
+The roles are `ART_DIRECTOR`, `ARTIST`, `DESIGNER` and `ENGINEER`
+(`cybercanon.domain.identity.Role` — four members, not two; earlier revisions of
+this page said two and that was drift). Write the studio's role keys **without
+the client-id prefix** on the left — the token says `<client id>:art_director`,
+and the API strips the prefix before it looks anything up:
 
 ```
-CANON_AUTH_GROUP_ROLES=cybercanon-art-directors=ART_DIRECTOR,cybercanon-artists=ARTIST
+CANON_AUTH_GROUP_ROLES=art_director=ART_DIRECTOR,artist=ARTIST
 ```
 
-An unmapped group grants nothing and is **not** an error — which is what makes a
+An unmapped key grants nothing and is **not** an error — which is what makes a
 mapping mistake look like what it is rather than like an outage.
+
+`CANON_AUTH_CLIENT_ID` is the same client id the browser application is given as
+`PUBLIC_CANON_AUTH_CLIENT_ID` (§1.1). It is what tells the API which entries of
+the one `roles` claim are its own.
+
+`CANON_AUTH_ORG_ID` is the **`id`** of the organisation this deployment serves,
+read from the `orgs` claim of the token decoded above — the opaque identifier,
+not `short_name` and not `github_login`, which is null for the organisation that
+exists today. It is not written down in this repository, and nothing in the
+product knows it: a person reads the project only when their `orgs` claim
+carries this id and they hold a role on the client above.
 
 ---
 
 ## 2. The worksheet
 
-Thirty settings on `api`, four on `web`. This table is the same set as
+Thirty-four settings on `api`, four on `web`. This table is the same set as
 [`README.md`](README.md)'s and as [`coolify.yaml`](coolify.yaml)'s — that is
 asserted in both directions by `tests/tooling/test_deploy_documents.py` and
 `just deploy-check`, so a variable missing here is a build failure and not a
@@ -320,31 +375,35 @@ surprise on the day.
 
 **⛔ = cannot be known until the OAuth client of §1 exists.**
 
-### `api` — the fifteen it refuses to start without
+### `api` — the seventeen it refuses to start without
 
 | Variable | | Value for pre-production |
 |---|:--:|---|
-| `CANON_PROJECT` | | `ronin` — **and it must equal the `name:` in that project's `.canon/project.yaml` until B3 is resolved** |
+| `CANON_PROJECT` | | `ronin` — the address the project is served at, and the directory its working copy is kept in. It no longer has to equal the `name:` in `.canon/project.yaml` (B3) |
 | `CANON_REPOSITORY_URL` | | the project's git remote, e.g. `https://git.cyberdynecorp.ai/cyberdyne/ronin.git` |
 | `CANON_REPOSITORY_BRANCH` | | `main` |
 | `CANON_REPOSITORY_CREDENTIAL` | 🔒 | a deploy credential with **write** access — write-backs commit and push |
 | `CANON_FETCH_INTERVAL_S` | | `300`. The schedule is the guarantee; the webhook only shortens the wait |
 | `CANON_WEBHOOK_SECRET` | 🔒 | generate one, and give the same string to the git host in step 7 |
 | `CANON_AUTH_ISSUER` | | `https://auth.backend.coolify.cyberdynecorp.ai` — the `issuer` in the discovery document, character for character |
-| `CANON_AUTH_AUDIENCE` | ⛔ | the audience registered in §1.1, expected `https://api.backend.coolify.cyberdynecorp.ai`; **confirm against a real token** |
+| `CANON_AUTH_AUDIENCE` | | `cybercanon` — the audience bound to the client registration (§1.1), read off a real token's `aud`. It is **not** the API's URL: an earlier revision of this line expected one, and the token settled it |
+| `CANON_AUTH_CLIENT_ID` | | the client registered in §1.1 — the same string as `PUBLIC_CANON_AUTH_CLIENT_ID`. The API keeps only the `roles` entries carrying this prefix |
+| `CANON_AUTH_ORG_ID` | ⛔ | §1.5 — the `id` of the organisation in the token's `orgs` claim. Get it from the decoded token of §1.4; it is nowhere in this repository |
 | `CANON_AUTH_KEY_SET_URL` | | `https://auth.backend.coolify.cyberdynecorp.ai/.well-known/jwks.json` |
-| `CANON_AUTH_GROUP_ROLES` | ⛔ | §1.5 — needs the group names a real token carries |
+| `CANON_AUTH_GROUP_ROLES` | ⛔ | §1.5 — needs the role keys a real token carries, written without the client-id prefix |
 | `CANON_DATABASE_URL` | 🔒 | from the managed PostgreSQL application, created in step 1 |
 | `CANON_OBJECT_STORE_URL` | | from the managed MinIO application, created in step 1 |
 | `CANON_LINK_EXPIRY_S` | | `900` |
 | `CANON_WRITE_BACK_TIMEOUT_S` | | `30` |
 | `CANON_DRAIN_WINDOW_S` | | `60` — **must be greater than the line above**, or the service refuses to start naming both |
 
-### `api` — the fifteen whose absence is a feature being off
+### `api` — the seventeen whose absence is a feature being off
 
 | Variable | | Default | Value for pre-production |
 |---|:--:|---|---|
 | `CANON_AUTH_KEY_CACHE_TTL_S` | | 900 | leave unset. An identity-service outage then costs new sign-ins and nothing else |
+| `CANON_WORKER_CLIENT_ID` | | — | leave unset unless a client-credentials client exists for background work. With it, the scheduled validation pass obtains a service credential of its own and is recorded as the subject it resolves to; without it the pass runs and is recorded as `automation`, exactly as it does today |
+| `CANON_WORKER_CLIENT_SECRET` | 🔒 | — | that client's secret. Set it **with** the id or not at all: half the pair behaves like the absence |
 | `CANON_WORKING_COPIES` | | `/data/worktrees` | leave unset; the manifest mounts the volume there |
 | `CANON_WEB_ORIGINS` | | none | `https://canon-pre.backend.coolify.cyberdynecorp.ai`. **Without it the application shows an unavailable state against a perfectly healthy API.** Never `*` — it is refused |
 | `CANON_LLM_ENABLED` | | off | `true` — this is task 8.2 |
@@ -370,7 +429,7 @@ and are deliberately not written down here.
 | `PUBLIC_CANON_API_URL` | | `https://api.backend.coolify.cyberdynecorp.ai` |
 | `PUBLIC_CANON_AUTH_ISSUER` | | `https://auth.backend.coolify.cyberdynecorp.ai`, with no trailing slash, exactly as the discovery document's `issuer` gives it. The endpoints are read from discovery (B2, resolved) |
 | `PUBLIC_CANON_AUTH_CLIENT_ID` | | `cyb_5UIdba7PWtBo1MmH` |
-| `PUBLIC_CANON_AUTH_AUDIENCE` | ⛔ | the same string as `CANON_AUTH_AUDIENCE`, or the API refuses every credential this application obtains |
+| `PUBLIC_CANON_AUTH_AUDIENCE` | | `cybercanon` — the same string as `CANON_AUTH_AUDIENCE`, or the API refuses every credential this application obtains |
 
 `PUBLIC_` is the prefix the browser build carries: none of these is a secret and
 none may become one. There is no client-secret variable and there could not be.
@@ -430,10 +489,11 @@ deploy.
 python -m cybercanon.api.recover /data/worktrees/<project>
 ```
 *Confirm:* `/status` reports the index in sync, naming the same revision as the
-working copy. ⚠️ **B3 applies here.** Check that
-`/v1/projects/<CANON_PROJECT>/assets` returns rows rather than `total: 0`. If it
-returns zero while the recovery reported assets, the index was keyed by the
-declared name and not by the address — stop and resolve B3.
+working copy, **and `/v1/projects/<CANON_PROJECT>/assets` returns rows rather
+than `total: 0`**. The second half is what B3 was: a rebuild can report assets
+indexed and still leave every listing empty if the rows went in under another
+name. Name the copy at the path the volume keeps it at — `/data/worktrees/` plus
+`CANON_PROJECT` — and the two agree by construction.
 
 **6. Deploy the web application.**
 *Confirm:* it becomes ready **with the API stopped** — readiness is process-only

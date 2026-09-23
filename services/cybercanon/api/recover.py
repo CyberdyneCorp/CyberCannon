@@ -20,7 +20,10 @@ So this is the whole procedure, in the order an operator runs it:
 3. **rebuild** — per project, from its working copy, through the same
    `rebuild_index` use case the hosted service and `canon index` call. The
    working copy is the source: git is where the specifications live, and a
-   rebuild that read anything else would be restoring, not rebuilding.
+   rebuild that read anything else would be restoring, not rebuilding. The rows
+   are keyed by the name the deployment *serves* the copy at — see
+   :func:`served_as` — because an index the hosted surface cannot read is not a
+   recovered index, however many assets the report counted.
 
 It takes the working copies as arguments rather than from the environment
 because it is an *operation*, run against the volume an operator names, and
@@ -31,6 +34,7 @@ recovery cannot rebuild one database while the service serves another.
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -80,10 +84,38 @@ class RecoveryReport:
         )
 
 
+def served_as(root: Path | str) -> str:
+    """The identifier this deployment serves the working copy at `root` as.
+
+    It is the directory's own name, and that is a structural fact rather than a
+    convention: the volume is laid out by
+    :meth:`~cybercanon.adapters.outbound.git.repository_host.GitRepositoryHost.path`,
+    which is `root / project`, so the directory a copy lives in under
+    `/data/worktrees` *is* the `CANON_PROJECT` the hosted surface answers at.
+
+    This is the whole of the defect `deploy/go-live.md` records as B3. The
+    rebuild used to pass no project at all, so rows were keyed by the `name:`
+    in the working copy's `.canon/project.yaml` — repository content, chosen by
+    whoever wrote it, and free to differ from the address by a capital letter.
+    Observed end to end: with `CANON_PROJECT=ronin` and `name: Ronin` the
+    recovery reported success, the rows landed under `Ronin`, and
+    `/v1/projects/ronin/assets` answered `total: 0` for ever after — a recovery
+    that reports what it did and restores nothing anybody can read, which is
+    worse than one that fails.
+
+    The path is normalised but **not resolved**: a trailing slash or a `.` is
+    tidied away, and a symbolic link keeps the name it was mounted under, which
+    is the name the service serves — resolving would answer with whatever the
+    link points at.
+    """
+    return Path(os.path.abspath(root)).name
+
+
 def rebuild_from(
     root: Path | str,
     *,
     dsn: str,
+    project: str = "",
     progress: Progress = no_progress,
 ) -> RebuildReport:
     """Rebuild one project's index from the working copy at `root`.
@@ -92,6 +124,11 @@ def rebuild_from(
     surface is a thin adapter over the SAME use cases"*, and a recovery that
     reindexed through a second implementation would recover a different index
     from the one it lost.
+
+    `project` is the identifier the rows are keyed by, and passing it is what
+    makes the rebuilt index the one the hosted surface reads. It defaults to
+    :func:`served_as`; an operator recovering a copy that is not under the
+    volume — a staging clone, a scratch directory — names it instead.
     """
     spec_store = GitSpecStore(root)
     with PostgresSearchIndex(dsn) as search_index:
@@ -101,6 +138,7 @@ def rebuild_from(
             search_index=search_index,
             fingerprints=file_fingerprints(spec_store.root),
             progress=progress,
+            project=project or served_as(root),
         )
     if isinstance(outcome, Ok):
         return outcome.value
@@ -113,16 +151,23 @@ def recover(
     environment: Mapping[str, str] | None = None,
     directory: Path | str = DEFAULT_DIRECTORY,
     dsn: str = "",
+    project: str = "",
     progress: Progress = no_progress,
 ) -> RecoveryReport:
-    """Drop the index, migrate to the target version, rebuild from the copies."""
+    """Drop the index, migrate to the target version, rebuild from the copies.
+
+    Each copy is rebuilt under the name it is served at — :func:`served_as`,
+    unless `project` names one, which only makes sense for a single copy.
+    """
     url = dsn or database_url(environment)
     dropped = drop_schema(url, directory)
     applied = apply_migrations(url, directory)
     return RecoveryReport(
         dropped=dropped,
         applied=applied.applied,
-        rebuilt=tuple(rebuild_from(root, dsn=url, progress=progress) for root in roots),
+        rebuilt=tuple(
+            rebuild_from(root, dsn=url, project=project, progress=progress) for root in roots
+        ),
     )
 
 
