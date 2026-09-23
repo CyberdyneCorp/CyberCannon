@@ -46,6 +46,7 @@ from canon_issuer import (
     ORG_ID,
     PRO_MONTHLY,
     TOKEN_PATH,
+    WORKER_CLIENT_ID,
     FakeIssuer,
     impostor_key,
 )
@@ -169,6 +170,7 @@ def a_verifier(identity: dict[str, Any], **group_roles: str) -> CyberdyneAuth:
             audience=issuer.audience,
             client_id=issuer.client_id,
             organisation=ORG_ID,
+            service_clients=(WORKER_CLIENT_ID,),
         ),
         keys=keys,
         project=PROJECT,
@@ -909,7 +911,7 @@ def _a_scheduled_refresh_records(identity: dict[str, Any]) -> None:
     beside the operation could name anybody.
     """
     verifier = a_verifier(identity)
-    service = identity["issuer"].mint("cybercanon-worker", service=True, entitlements=[PRO_MONTHLY])
+    service = identity["issuer"].mint_service(WORKER_CLIENT_ID)
     authenticated = ran(authenticate_background(service, identity_provider=verifier))
 
     host = InMemoryRepositoryHost()
@@ -944,9 +946,7 @@ def _no_person_is_named(identity: dict[str, Any]) -> None:
 @given("a service credential")
 def _a_service_credential(identity: dict[str, Any]) -> None:
     a_verifier(identity)
-    identity["credential"] = identity["issuer"].mint(
-        "cybercanon-worker", service=True, entitlements=[PRO_MONTHLY]
-    )
+    identity["credential"] = identity["issuer"].mint_service(WORKER_CLIENT_ID)
 
 
 @when("a request using it supplies a person's identifier")

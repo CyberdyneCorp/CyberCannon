@@ -75,18 +75,56 @@ ACCESS = "access"
 SERVICE = "service"
 """`type` on a client-credentials token. Its `sub` is `client:<id>`.
 
-What team-cyberauth verified about this shape is exactly three things: the
-`type`, the `sub`, and that there is **no `roles` claim**. Whether such a token
-carries `orgs` was not verified, and this fixture mints none — a client stands
-for no person and so is a member of nothing. It is the one guess in this module
-and it is written down here rather than buried, because a fixture that guesses
-silently is what this branch exists to undo.
+The claims such a token carries were read off the live issuer and are exactly
+these: `iss`, `sub`, `jti`, `type`, `client_id`, `scope`, `iat`, `exp`, and
+`aud` when one was requested. **No `roles`, no `orgs`, no `org`** — a client
+stands for no person, so there is no membership for it to hold and nothing for
+the entitlement rule to read.
+
+That last sentence used to be this module's one guess, minted and flagged as
+such. It is now a recorded fact, and the fact matters more than the tidiness:
+entitlement for automation cannot come from membership claims, because there are
+none. It comes from the list of client ids the deployment was told
+(`CANON_AUTH_SERVICE_CLIENTS`) and from nothing the token asserts.
 """
 
 SERVICE_SUBJECT_PREFIX = "client:"
 
 SCOPE = "email offline_access openid profile roles"
 """What a real sign-in comes back with — recorded because it is not `groups`."""
+
+SERVICE_SCOPE = "canon:read canon:write"
+"""What a client-credentials token's `scope` looks like. **Invented.**
+
+The claim is a space-separated string on the real shape and nothing in this
+repository reads it, so the value is this fixture's own: a suite that wrote a
+production scope down would be recording somebody's configuration in a test.
+
+It is here so that :meth:`FakeIssuer.mint_service` can carry every claim
+team-cyberauth recorded, rather than only the ones the adapter happens to look
+at — a fixture that mints less than the issuer sends is how a token from an
+unexpected client became a case nobody could express.
+"""
+
+WORKER_CLIENT_ID = "cyb_Fixture0Worker01"
+"""The service client *this* deployment runs its background work as. **Invented.**
+
+The one client id a deployment would put on `CANON_AUTH_SERVICE_CLIENTS`. It is
+deliberately not :data:`CLIENT_ID`: the client a person signs in through and the
+client a worker authenticates as are two registrations, and an adapter that
+conflated them would admit either wherever it meant one.
+"""
+
+OTHER_SERVICE_CLIENT_ID = "cyb_Fixture0Other003"
+"""Another service client on the same issuer, and nothing to do with this one.
+
+**Invented**, like every identifier here, and it stands for a real situation:
+CyberdyneAuth lets a client-credentials client with no `allowed_audiences`
+request *any* audience, so a service registered for something else entirely can
+mint a token that names us and verifies perfectly. That token is not a forgery
+and no signature, issuer or audience check will ever separate it from ours —
+only a list of the clients this deployment accepts can.
+"""
 
 ORG_ID = "org_F1xture0Studio"
 ORG_SHORT_NAME = "fixture-studio"
@@ -116,6 +154,20 @@ def an_org(identifier: str, short_name: str, github_login: str | None = None) ->
     untrustworthy as they are.
     """
     return {"id": identifier, "short_name": short_name, "github_login": github_login}
+
+
+def primary_org(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """One `orgs` entry as the **`org`** claim carries it: `id` and `short_name`.
+
+    Two fields, not three. team-cyberauth read both claims off the live issuer
+    and settled it: `github_login` rides on `orgs` entries and on nothing else,
+    so an `org` claim carrying one is a shape the issuer never sends. A fixture
+    that mints a key the issuer does not is precisely how this branch's first
+    bug survived — every suite agreed with the adapter about a claim neither of
+    them had ever seen — so the correction deletes a field rather than adding
+    one.
+    """
+    return {"id": entry["id"], "short_name": entry["short_name"]}
 
 
 HOME_ORG = an_org(ORG_ID, ORG_SHORT_NAME)
@@ -296,7 +348,11 @@ class FakeIssuer:
           prefix rather than take the claim as given;
         * **a service** — `type` is `service`, `sub` is `client:<id>`, and there
           is **no `roles` claim**, because a client-credentials token carries
-          none.
+          none. This is the *claim-light* service shape: it carries no
+          `client_id` claim either, so a reader has to find the client in `sub`.
+          :meth:`mint_service` is the recorded shape and the one a suite should
+          reach for; `service=True` stays because a token naming its client only
+          in `sub` is a real case and this is the only way to mint one.
 
         `roles=None` mints a person's token with the claim **absent**, which is
         what CyberdyneAuth does when IAM was unreachable. That is not "no
@@ -368,6 +424,72 @@ class FakeIssuer:
             return {}
         return {"roles": [self.qualified(role) for role in roles]}
 
+    def mint_service(
+        self,
+        client_id: str,
+        *,
+        subject: str | None = None,
+        named: bool = True,
+        scope: str = SERVICE_SCOPE,
+        audience: str | None = None,
+        issuer: str | None = None,
+        issued_at: int | None = None,
+        lifetime_s: int = 3600,
+        kid: str | None = None,
+    ) -> Credential:
+        """A client-credentials token **from the client named**, and nothing else.
+
+        The claims are exactly the ones team-cyberauth read off the live issuer:
+        `iss`, `sub` (`client:<client_id>`), `jti`, `type`, `client_id`, `scope`,
+        `iat`, `exp`, and `aud` because this caller always requests one. There is
+        **no `roles` claim, no `orgs` and no `org`** — a client stands for no
+        person, so there is no membership for it to hold and nothing for the
+        entitlement rule to read. Entitlement for automation is a list of client
+        ids the deployment was told, and never anything the token asserts.
+
+        It exists beside :meth:`mint` rather than inside it because of the claim
+        :meth:`mint` cannot write: `client_id`, and with it the ability to mint a
+        token from a client that is **not** the one this fixture stands for. Every
+        service token these suites had minted was our own worker, so a token from
+        a different client was a shape the fixtures could not express — which is
+        the whole reason nobody checked what the adapter did with one.
+
+        `audience` is the escape hatch that makes the danger reproducible: a
+        client-credentials client with no `allowed_audiences` may request any
+        audience it likes, so the default here is *our* audience. A token from a
+        stranger that names us is the ordinary case, not the exotic one.
+
+        `subject` and `named` exist for the shapes the **real** issuer never
+        mints, which is exactly why a suite has to be able to mint them. `sub`
+        and `client_id` always agree here because one authenticated client
+        produced both; an adapter that read the two as interchangeable sources
+        would never find that out from a fixture which could only write them the
+        same. `subject` writes `sub` verbatim — a different client than the
+        claim names, a `client:` with nothing after it, a padded id — and
+        `named=False` drops the `client_id` claim, which is the claim-light
+        shape :meth:`mint` produces with `service=True`.
+
+        Nothing about them is a *forgery*: every one of these is signed by this
+        issuer's real key and carries this issuer and this audience, because the
+        question being asked is what the adapter does with a credential that
+        verified.
+        """
+        minted_at = self.now if issued_at is None else issued_at
+        signer = signing_key(kid or self.current)
+        claims: dict[str, Any] = {
+            "iss": self.issuer if issuer is None else issuer,
+            "sub": f"{SERVICE_SUBJECT_PREFIX}{client_id}" if subject is None else subject,
+            "aud": self.audience if audience is None else audience,
+            "type": SERVICE,
+            "scope": scope,
+            "iat": minted_at,
+            "exp": minted_at + lifetime_s,
+            "jti": secrets.token_urlsafe(16),
+            **({"client_id": client_id} if named else {}),
+        }
+        header = {"alg": "RS256", "kid": signer.kid}
+        return Credential(jwt.encode(header, claims, signer))
+
     # -- the OAuth endpoints ---------------------------------------------
 
     def authorize(self, url: str, *, subject: str = "auth|rafa") -> tuple[str, str]:
@@ -426,7 +548,7 @@ class FakeIssuer:
         if grant == "authorization_code":
             return self._code_token(form)
         if grant == "client_credentials":
-            return self._issued(self.mint(form.get("client_id", "cybercanon-worker"), service=True))
+            return self._issued(self.mint_service(form.get("client_id") or WORKER_CLIENT_ID))
         return _error(INVALID_GRANT, f"unsupported grant {grant!r}")
 
     def _device_token(self, form: Mapping[str, str]) -> Mapping[str, Any]:
@@ -477,20 +599,24 @@ def _membership(
     a fixture has to be able to spell, because the rule refuses both and only a
     suite that can mint both knows that it refuses both.
 
+    The two claims are **not the same object**. An `orgs` entry has three fields
+    and `org` has two: the primary organisation goes through :func:`primary_org`,
+    which drops `github_login`, because that is the shape team-cyberauth read
+    off the live issuer.
+
     Left alone, a person belongs to this fixture's own organisation and a
-    service belongs to none: a client-credentials token stands for no person, so
-    there is nobody for it to be a member as. That is the one claim on the
-    service shape this fixture is *assuming* rather than reproducing — see the
-    note on :data:`SERVICE`.
+    service belongs to none — a client-credentials token stands for no person,
+    so there is nobody for it to be a member as, and the issuer sends it no
+    `orgs` and no `org`.
     """
     if isinstance(orgs, _AsIssued):
         orgs = None if service else (HOME_ORG,)
     if orgs is None:
-        return {"org": dict(org)} if org else {}
-    primary = org if org is not None else (orgs[0] if orgs else None)
+        return {"org": primary_org(org)} if org else {}
+    first = org if org is not None else (orgs[0] if orgs else None)
     claims: dict[str, Any] = {"orgs": [dict(entry) for entry in orgs]}
-    if primary is not None:
-        claims["org"] = dict(primary)
+    if first is not None:
+        claims["org"] = primary_org(first)
     return claims
 
 
@@ -514,15 +640,19 @@ __all__ = [
     "OTHER_ORG",
     "OTHER_ORG_ID",
     "OTHER_ORG_SHORT_NAME",
+    "OTHER_SERVICE_CLIENT_ID",
     "PRO_MONTHLY",
     "SCOPE",
     "SERVICE",
+    "SERVICE_SCOPE",
     "SERVICE_SUBJECT_PREFIX",
     "TOKEN_PATH",
+    "WORKER_CLIENT_ID",
     "CodeState",
     "DeviceState",
     "FakeIssuer",
     "an_org",
     "impostor_key",
+    "primary_org",
     "signing_key",
 ]

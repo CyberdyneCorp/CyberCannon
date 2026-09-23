@@ -397,11 +397,12 @@ surprise on the day.
 | `CANON_WRITE_BACK_TIMEOUT_S` | | `30` |
 | `CANON_DRAIN_WINDOW_S` | | `60` — **must be greater than the line above**, or the service refuses to start naming both |
 
-### `api` — the seventeen whose absence is a feature being off
+### `api` — the eighteen whose absence is a feature being off
 
 | Variable | | Default | Value for pre-production |
 |---|:--:|---|---|
 | `CANON_AUTH_KEY_CACHE_TTL_S` | | 900 | leave unset. An identity-service outage then costs new sign-ins and nothing else |
+| `CANON_AUTH_SERVICE_CLIENTS` | | — | leave unset unless background work presents a service credential; set it to the same client id as `CANON_WORKER_CLIENT_ID` when it does. **Unset admits no automation at all** — every `type: service` credential is refused with a reason naming this variable — because the issuer will mint a service token for any client it knows and a client with no `allowed_audiences` may request ours |
 | `CANON_WORKER_CLIENT_ID` | | — | leave unset unless a client-credentials client exists for background work. With it, the scheduled validation pass obtains a service credential of its own and is recorded as the subject it resolves to; without it the pass runs and is recorded as `automation`, exactly as it does today |
 | `CANON_WORKER_CLIENT_SECRET` | 🔒 | — | that client's secret. Set it **with** the id or not at all: half the pair behaves like the absence |
 | `CANON_WORKING_COPIES` | | `/data/worktrees` | leave unset; the manifest mounts the volume there |
