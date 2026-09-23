@@ -27,6 +27,7 @@ export const WRITE_PATHS = [
 	'write-spec',
 	'annotate',
 	'promote-annotation',
+	'link-document',
 	'raise-request',
 	'assign-request',
 	'transition-request',
@@ -66,6 +67,12 @@ export interface WriteTarget {
  *   project's triage queue. The preview *descriptor* stays: none of those
  *   changes an export, a count or a clip. The asset's *specification* stays, because none of
  *   those changes a declared field, and the project listing stays with it.
+ * * **link-document** — linking, unlinking and create-and-link all write a
+ *   reference into the specification, so they drop the asset's link list, the
+ *   asset's own specification and its compiled briefing (a link is rendered in
+ *   it as a bare address). The project listing and the searches stay: a link is
+ *   not a status, an owner, a name or an alias, and dropping them would make
+ *   every link a reason to re-read the repository.
  * * **promote-annotation** — everything `annotate` drops **and** everything a
  *   specification write drops, because a promotion is one: it writes a durable
  *   rule into `constraints` or `concept.silhouette_rules`, which changes what
@@ -79,6 +86,8 @@ export function invalidatedBy(path: WritePath, target: WriteTarget): readonly Re
 			return annotationWrite(target);
 		case 'promote-annotation':
 			return [...annotationWrite(target), ...specWrite(target)];
+		case 'link-document':
+			return documentWrite(target);
 		case 'raise-request':
 			return [scopeOf('requests', target.project), scopeOf('unread', target.project)];
 		case 'assign-request':
@@ -92,6 +101,17 @@ export function invalidatedBy(path: WritePath, target: WriteTarget): readonly Re
 			return [scopeOf('unread', target.project)];
 	}
 }
+
+function documentWrite(target: WriteTarget): readonly ResourceKey[] {
+	const { project, asset } = target;
+	const links = asset
+		? [resources.documents(project, asset)]
+		: [scopeOf('documents', project)];
+	const spec = asset ? [key('asset', project, asset)] : [scopeOf('asset', project)];
+	const briefing = asset ? [resources.briefing(project, asset)] : [scopeOf('briefing', project)];
+	return [...links, ...spec, ...briefing];
+}
+
 
 function annotationWrite(target: WriteTarget): readonly ResourceKey[] {
 	const { project, asset } = target;

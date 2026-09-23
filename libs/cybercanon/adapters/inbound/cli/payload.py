@@ -23,6 +23,11 @@ from typing import Any
 from cybercanon.application.ports.search_index import RecordedMiss
 from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.compile_spec import CompiledSpec
+from cybercanon.application.use_cases.derived_metadata import (
+    AcceptedAlias,
+    DescribedAsset,
+    RejectedSuggestion,
+)
 from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.ingest_views import IngestedView, IngestionOutcome
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
@@ -30,6 +35,7 @@ from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
 from cybercanon.application.use_cases.sign_in import SignedIn, SignedOut, SignInStatus
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.application.use_cases.view_mirror import ViewMirrorReport
+from cybercanon.domain.derived import GENERATED, Generation
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import SpecViolation, Violation
 
@@ -202,6 +208,71 @@ def view_mirror_payload(report: ViewMirrorReport) -> dict[str, Any]:
         already_stored=len(report.already_stored),
         thumbnails=report.thumbnails,
         keys=report.keys,
+    )
+
+
+def derived_payload(command: str, described: DescribedAsset) -> dict[str, Any]:
+    """What `canon describe` produced, with every proposal labelled as generated.
+
+    `available` is a field rather than an absence: a deployment with no model is
+    a normal, supported state, and a document that simply had no `records` key
+    would be indistinguishable from an asset nobody has described.
+    """
+    return _document(
+        command,
+        passed=True,
+        asset=described.asset_id,
+        spec=described.path,
+        available=described.is_available,
+        reason=described.reason,
+        records=[_derived(generation) for generation in described.generations],
+    )
+
+
+def _derived(generation: Generation) -> dict[str, Any]:
+    """One derived record: its provenance, its content, and what it is."""
+    record = generation.record
+    return {
+        "source_hash": record.source_hash,
+        "source_path": record.source_path,
+        "model": record.model,
+        "generated_at": record.generated_at.isoformat(),
+        "label": GENERATED,
+        "reused": generation.reused,
+        "description": record.description,
+        "tags": list(record.tags),
+        "suggestions": [
+            {"value": entry.value, "state": str(entry.state), "label": entry.label}
+            for entry in generation.suggestions
+        ],
+    }
+
+
+def acceptance_payload(accepted: AcceptedAlias) -> dict[str, Any]:
+    """One accepted alias: what was written, by whom, and in which commit."""
+    return _document(
+        "accept-alias",
+        passed=True,
+        asset=accepted.asset_id,
+        spec=accepted.path,
+        suggested=accepted.value,
+        written=accepted.written,
+        accepted_by=accepted.actor,
+        revision=accepted.revision,
+        committed=accepted.committed,
+        aliases=list(accepted.aliases),
+    )
+
+
+def rejection_payload(rejected: RejectedSuggestion) -> dict[str, Any]:
+    """One refused suggestion, and the image it is refused for."""
+    return _document(
+        "reject-alias",
+        passed=True,
+        asset=rejected.asset_id,
+        source_hash=rejected.source_hash,
+        value=rejected.value,
+        rejected_by=rejected.actor,
     )
 
 

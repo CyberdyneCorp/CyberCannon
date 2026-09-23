@@ -75,6 +75,11 @@ def postgres_dsn(migrated_dsn: str, repo_root: Path) -> str:
     deliberately *drop the schema* and a session-scoped database has to survive
     one: re-applying is idempotent, so it costs a query on every other test and
     it makes "drop everything" a thing a test may really do.
+
+    Every table a shared suite writes is named here. A table left out is rows
+    leaking from one test into the next, which is how a suite starts passing —
+    or failing — because of the test before it; `add-derived-metadata`'s two
+    tables joined the list with it.
     """
     import psycopg
 
@@ -82,5 +87,8 @@ def postgres_dsn(migrated_dsn: str, repo_root: Path) -> str:
 
     apply_migrations(migrated_dsn, repo_root / "db" / "migrations")
     with psycopg.connect(migrated_dsn, autocommit=True) as connection:
-        connection.execute("TRUNCATE assets, search_misses, idempotency_keys, dismissals")
+        connection.execute(
+            "TRUNCATE assets, search_misses, idempotency_keys, dismissals, "
+            "derived_records, suggestion_decisions"
+        )
     return migrated_dsn

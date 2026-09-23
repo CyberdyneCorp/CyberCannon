@@ -24,6 +24,11 @@ from collections.abc import Iterable, Sequence
 from cybercanon.application.ports.interactive_sign_in import DeviceGrant
 from cybercanon.application.ports.search_index import RecordedMiss
 from cybercanon.application.results import Refusal
+from cybercanon.application.use_cases.derived_metadata import (
+    AcceptedAlias,
+    DescribedAsset,
+    RejectedSuggestion,
+)
 from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.ingest_views import IngestionOutcome
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
@@ -31,6 +36,7 @@ from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
 from cybercanon.application.use_cases.sign_in import SignedIn, SignedOut, SignInStatus
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.application.use_cases.view_mirror import ViewMirrorReport
+from cybercanon.domain.derived import GENERATED, GENERATED_NOTICE, Generation
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import SpecViolation, Violation
 
@@ -161,6 +167,60 @@ def render_view_mirror(report: ViewMirrorReport) -> str:
     return (
         f"{report.project}: {len(report.mirrored)} view(s) mirrored at "
         f"{report.revision}, {report.thumbnails} thumbnail(s) derived"
+    )
+
+
+def render_derived(described: DescribedAsset) -> str:
+    """What `canon describe` and `canon suggest-aliases` tell a person.
+
+    Every proposal is labelled `generated` and none is attributed to anybody,
+    which `derived-metadata` requires of *anywhere* generated metadata is
+    presented — and each line carries its image's hash, because that is what an
+    acceptance is addressed to.
+    """
+    if not described.is_available:
+        return f"{described.asset_id}: {described.reason}"
+    if not described.generations:
+        return f"{described.asset_id}: nothing derived"
+    lines = [
+        f"{described.asset_id}: {len(described.generations)} image(s) described",
+        f"{INDENT}{GENERATED_NOTICE}",
+    ]
+    for generation in described.generations:
+        lines.extend(_generation(generation))
+    return "\n".join(lines)
+
+
+def _generation(generation: Generation) -> tuple[str, ...]:
+    """One image: where it came from, what was said, and what is proposed."""
+    record = generation.record
+    lines = [
+        f"{INDENT}{record.source_path}  {record.provenance.short}"
+        f"{'  (reused)' if generation.reused else ''}",
+        f"{INDENT}{INDENT}{GENERATED}: {record.description}" if record.description else "",
+        f"{INDENT}{INDENT}{record.provenance.described}",
+    ]
+    lines.extend(
+        f"{INDENT}{INDENT}alias {entry.value} — {entry.label}" for entry in generation.suggestions
+    )
+    return tuple(line for line in lines if line)
+
+
+def render_acceptance(accepted: AcceptedAlias) -> str:
+    """One accepted alias, and the commit it became. Never a model's name."""
+    if not accepted.committed:
+        return f"{accepted.asset_id}: {accepted.written} was already an alias — nothing committed"
+    return (
+        f"{accepted.asset_id}: alias {accepted.written} accepted by {accepted.actor} "
+        f"and committed as {accepted.revision}"
+    )
+
+
+def render_rejection(rejected: RejectedSuggestion) -> str:
+    """One refused suggestion. It does not come back for that image."""
+    return (
+        f"{rejected.asset_id}: suggestion {rejected.value} rejected for image "
+        f"{rejected.source_hash[:12]} and will not be offered again"
     )
 
 

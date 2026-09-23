@@ -59,6 +59,7 @@ from cybercanon.application.ports.spec_store import (
 from cybercanon.domain.actor_checks import mapping_unparseable
 from cybercanon.domain.actors import ACTORS_PATH
 from cybercanon.domain.asset import Asset
+from cybercanon.domain.documents import DocumentRef
 from cybercanon.domain.violations import SpecViolation
 
 Parser = Callable[[Mapping[str, Any]], tuple[Any, tuple[SpecViolation, ...]]]
@@ -173,6 +174,7 @@ class GitSpecStore:
             return ProjectConfig(root=self._posix_root())
         parsed, warnings = self._read(discovery.PROJECT_CONFIG, schema.parse_project_file)
         severities, severity_warnings = schema.to_severities(parsed.severity)
+        documents, document_warnings = schema.to_documents(parsed.documents, "documents")
         return ProjectConfig(
             root=self._posix_root(),
             name=parsed.name,
@@ -182,7 +184,8 @@ class GitSpecStore:
             severities=severities,
             preview=schema.to_preview(parsed.preview),
             ingestion=schema.to_ingestion(parsed.ingestion),
-            warnings=(*warnings, *severity_warnings),
+            documents=documents,
+            warnings=(*warnings, *severity_warnings, *document_warnings),
         )
 
     def specs_under(self, start: str) -> tuple[str, ...]:
@@ -283,6 +286,11 @@ class GitSpecStore:
         """The document with this asset's edits applied, comments intact (D4)."""
         text = _decoded(document.content, document.path)
         return writer.render(text, asset, document.asset).encode("utf-8")
+
+    def edited_project(self, content: bytes, documents: tuple[DocumentRef, ...]) -> bytes:
+        """The project configuration carrying these links, every other line intact."""
+        text = _decoded(content, discovery.PROJECT_CONFIG) if content else ""
+        return writer.render_project(text, documents).encode("utf-8")
 
     def _document(self, relative: str, text: str, revision: str) -> SpecDocument:
         """One already-read file as an editable document."""

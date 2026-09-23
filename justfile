@@ -36,13 +36,13 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~350 s on a warm checkout — three timed runs of the same
-# tree gave 319 s, 345 s and 397 s, which is the spread a laptop gives and the
-# reason this is a record rather than a budget — 3775 Python tests (3765 passed,
-# 10 skipped, 0 xfailed, 122 e2e deselected) plus 728 frontend tests across 35
-# files, 657 scenarios (446 executing, 211 pending), 0 absent — of which the
-# frontend's own suites (`web-check`) are ~6 s including the build the
-# code-splitting assertion reads. The skips are the
+# Measured runtime: ~423 s on a warm checkout — earlier timed runs of a smaller
+# tree gave 319 s, 345 s, 375 s and 397 s, which is the spread a laptop gives
+# and the reason this is a record rather than a budget — 4538 Python tests
+# (4507 passed, 31 skipped, 0 xfailed, 122 e2e deselected) plus 757 frontend
+# tests across 37 files, 657 scenarios (536 executing, 121 pending), 0 absent —
+# of which the frontend's own suites (`web-check`) are ~5 s including the build
+# the code-splitting assertion reads. The skips are the
 # opt-in Blender cross-check, which runs only with `CANON_BLENDER` set; the
 # xfail is gone because the defect it recorded — a multi-object OBJ losing every
 # part name but one — is fixed rather than tolerated.
@@ -124,6 +124,39 @@ setup:
 # back, so it costs milliseconds — and, outside `check`, 84 e2e assertions over
 # the viewport matrix. It also added the route-module export rule to
 # tests/tooling/test_web_structure.py, which reads four files.
+# add-derived-metadata added the model half, and it is deliberately cheap where
+# it can be: the domain's normalisation, exclusion and defensive parsing are
+# pure (instant), and the OpenAI-compatible adapter is exercised over a recorder
+# standing in for the HTTP client, so no suite in `check` opens a socket to a
+# gateway — which is what `llm-integration` asks for in so many words, since
+# *"model-backed features SHALL be testable with no endpoint reachable"*. Its
+# real cost is the `SearchIndex` conformance suite, which gained the derived
+# rows and therefore runs thirteen more tests three times over, once against a
+# real PostgreSQL; and the acceptance path, which writes a real `asset.yaml`
+# through the comment-preserving round trip into a real repository and reads
+# back what landed, because *"the difference SHALL show only the added alias"*
+# is a claim about a file. The suite that does need a gateway
+# (tests/integration/test_model_endpoint.py) is **outside** this measurement: it
+# is opt-in and skips with `CANON_LLM_ENABLED` unset, which is the default
+# everywhere, and it says so per test rather than reporting green over nothing.
+# M4 closed add-cyberarche-integration's surfaces and its acceptance run, and it
+# is the cheapest large addition so far because almost none of it opens a
+# socket: the linked-document HTTP surface and its refusals are in memory
+# (instant), and the two suites that cost anything are the ones that must —
+# `tests/integration/test_document_links_write_path.py`, which writes links into
+# a **real git repository** and then destroys every rebuildable store and
+# rebuilds the index to prove the references were only ever in the repository
+# (task 3.9); and `tests/integration/test_cyberarche_acceptance.py`, which
+# stands up **two deployments over one repository** — one with a document
+# platform wired and one with none — and compares every unrelated answer, status
+# and body, because *"behave identically"* is not a claim one layer can check.
+# About fifteen seconds between them, nearly all of it real git.
+# The suite that needs the live CyberArche
+# (tests/integration/test_arche_live.py) is **outside** this measurement for the
+# same reason the model endpoint's is: it is opt-in, it skips with
+# `CANON_ARCHE_BASE_URL` and its three companions unset — 15 of the 31 skips
+# above — and no credential for it exists anywhere in this repository. It was
+# run against the live deployment while M4 was closed, and it passed 15/15.
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
 #

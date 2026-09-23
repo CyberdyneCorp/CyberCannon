@@ -34,6 +34,8 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from cybercanon.adapters.outbound.arche.config import ArcheSettings, settings_from
+from cybercanon.adapters.outbound.arche.platform import ArcheDocumentPlatform
 from cybercanon.adapters.outbound.auth.flows import DeviceAuthorization, Endpoints
 from cybercanon.adapters.outbound.auth.keychain import KeychainCredentialStore
 from cybercanon.adapters.outbound.fs.blob_store import FsBlobStore
@@ -44,10 +46,21 @@ from cybercanon.adapters.outbound.image.inspector import PillowImageInspector
 from cybercanon.adapters.outbound.image.thumbnails import PillowThumbnailRenderer
 from cybercanon.adapters.outbound.mesh.gltf_preview import PreviewSettings
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
+from cybercanon.adapters.outbound.openai_compatible.config import ModelSettings
+from cybercanon.adapters.outbound.openai_compatible.config import (
+    settings_from as model_settings_from,
+)
+from cybercanon.adapters.outbound.openai_compatible.models import OpenAICompatibleModels
 from cybercanon.adapters.outbound.sqlite.search_index import SqliteSearchIndex
 from cybercanon.adapters.wiring.container import Container
+from cybercanon.application.ports.document_platform import (
+    DocumentPlatform,
+    NullDocumentPlatform,
+)
+from cybercanon.application.ports.llm import DisabledLLM, LLMPort
 from cybercanon.application.ports.search_index import FileFingerprint
 from cybercanon.application.ports.spec_store import PreviewDefaults
+from cybercanon.application.ports.vision import DisabledVision, VisionPort
 from cybercanon.application.use_cases.index_assets import Fingerprinter
 from cybercanon.application.use_cases.resolve_actor import ActorResolver, AuthorSource
 
@@ -97,7 +110,67 @@ def build_container(root: str | Path, environment: Mapping[str, str] | None = No
         repository_host=LocalRepositoryHost(spec_store.root, project.name or ""),
         image_inspector=PillowImageInspector(),
         thumbnail_renderer=PillowThumbnailRenderer(),
+        document_platform=document_platform(environment),
+        document_workspace=arche_settings(environment).default_workspace,
+        document_budget=arche_settings(environment).timeout,
+        llm=language_model(environment),
+        vision=vision_model(environment),
     )
+
+
+def arche_settings(environment: Mapping[str, str] | None = None) -> ArcheSettings:
+    """What this deployment was told about the document platform, if anything."""
+    return settings_from(environment)
+
+
+def document_platform(environment: Mapping[str, str] | None = None) -> DocumentPlatform:
+    """CyberArche when it is configured, and the null adapter whenever it is not (D4).
+
+    The *whole* of the degradation decision, taken once, here. Incomplete
+    configuration — the switch on with no address, or an address with no
+    workspace — selects the null adapter too: half a configuration that made
+    requests would fail once per page view instead of behaving like the absence
+    it is. Nothing above this line ever asks whether the platform is
+    configured.
+    """
+    settings = arche_settings(environment)
+    if not settings.is_complete:
+        return NullDocumentPlatform()
+    return ArcheDocumentPlatform(settings=settings)
+
+
+def model_settings(environment: Mapping[str, str] | None = None) -> ModelSettings:
+    """What this machine was told about a model, if anything. Off by default."""
+    return model_settings_from(environment)
+
+
+def language_model(environment: Mapping[str, str] | None = None) -> LLMPort:
+    """The configured endpoint, or the disabled port whenever it is not configured.
+
+    The whole degradation decision for text, taken once, here. Incomplete
+    configuration — the switch on with no address, or an address with no model
+    identifier — selects the disabled port too: half a configuration that made
+    requests would fail once per command instead of behaving like the absence it
+    is. Nothing above this line ever asks whether a model is configured.
+    """
+    settings = model_settings(environment)
+    if not settings.is_complete:
+        return DisabledLLM()
+    return OpenAICompatibleModels(settings=settings)
+
+
+def vision_model(environment: Mapping[str, str] | None = None) -> VisionPort:
+    """The same, for image description, which needs one more identifier.
+
+    Separately decided, because `CANON_LLM_VISION_MODEL` is separately
+    configured: a deployment with a text model and no vision model gets a
+    working :class:`LLMPort` beside a disabled :class:`VisionPort`, which is the
+    state two ports exist to make representable.
+    """
+    settings = model_settings(environment)
+    if not settings.vision_is_complete:
+        return DisabledVision()
+    return OpenAICompatibleModels(settings=settings)
 
 
 def device_sign_in(environment: Mapping[str, str] | None = None) -> DeviceAuthorization | None:
@@ -178,9 +251,14 @@ __all__ = [
     "ISSUER",
     "TOKEN_PATH",
     "TOKEN_URL",
+    "arche_settings",
     "build_container",
     "commit_authors",
     "device_sign_in",
+    "document_platform",
     "file_fingerprints",
+    "language_model",
+    "model_settings",
     "preview_settings",
+    "vision_model",
 ]

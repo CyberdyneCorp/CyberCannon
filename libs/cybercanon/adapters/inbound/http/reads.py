@@ -33,7 +33,8 @@ from cybercanon.adapters.inbound.http.versioning import PREFIX
 from cybercanon.application.results import Ok, Result
 from cybercanon.application.use_cases.compile_spec import CompiledSpec
 from cybercanon.application.use_cases.deployment_status import IndexRead
-from cybercanon.application.use_cases.lookup_assets import AssetListing, SearchAnswer
+from cybercanon.application.use_cases.lookup_assets import AssetListing
+from cybercanon.application.use_cases.search_delegation import DelegatedSearch
 from cybercanon.domain.policy import Operation
 
 ASSETS_TAG = "assets"
@@ -116,14 +117,27 @@ def _router(surface: wiring.Surface) -> APIRouter:
         page: str | None = None,
         page_size: int | None = None,
     ) -> JSONResponse:
-        """The ranked cascade, in the order the use case produced it."""
+        """The ranked cascade, plus the delegated half when the gate opens.
+
+        The page carries the exact group, in the order the local cascade
+        produced it and in no other: this surface applies no ranking of its
+        own, and a semantic passage is never one of its items. The approximate
+        group travels beside the page, labelled, with the reason when it is not
+        there — and a request carrying no bearer credential gets the local
+        answer with the semantic half reported unavailable for lack of
+        authority, because the alternative is asking the document platform a
+        question under somebody else's name.
+        """
         return routing.answered(
             surface,
             request,
             project,
             Operation.SEARCH_ASSETS,
-            lambda container: container.search_assets(q),
+            lambda container: container.search_assets_and_docs(
+                q, credential=wiring.forwarded(request)
+            ),
             paging=routing.paged(_hits, _hit, token=page, size=page_size),
+            beside=payloads.semantic_group,
             index=IndexRead.EXHAUSTIVE,
         )
 
@@ -180,14 +194,19 @@ def _rows(listing: AssetListing) -> tuple:
     return tuple(sorted(listing.rows, key=lambda row: row.asset_id))
 
 
-def _hits(answer: SearchAnswer) -> tuple:
-    """Search results stay in the cascade's order: that ordering *is* the ranking."""
-    return tuple(answer.hits)
+def _hits(answer: DelegatedSearch) -> tuple:
+    """The exact group, in the cascade's order: that ordering *is* the ranking."""
+    return answer.exact
 
 
 def _hit(hit) -> dict:
-    """One result, and the pass that found it — so a ranking stays inspectable."""
-    return {"asset": hit.asset_id, "name": hit.entry.name, "matched": hit.kind.value}
+    """One exact result — the pass that found it, and where it came from (D6)."""
+    return {
+        "asset": hit.asset_id,
+        "name": hit.name,
+        "matched": hit.matched.value,
+        "provenance": str(hit.provenance),
+    }
 
 
 __all__ = ["ASSETS_TAG", "PROJECT_TAG", "register"]

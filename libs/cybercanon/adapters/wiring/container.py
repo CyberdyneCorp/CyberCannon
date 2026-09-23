@@ -24,18 +24,28 @@ Two properties this module is shaped by:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import timedelta
 
 from cybercanon.application.ports.blob_store import BlobStore
 from cybercanon.application.ports.credential_store import CredentialStore
+from cybercanon.application.ports.document_platform import (
+    DEFAULT_BUDGET,
+    NO_CREDENTIAL,
+    Credential,
+    DocumentPlatform,
+    NullDocumentPlatform,
+)
 from cybercanon.application.ports.image_inspector import ImageInspector
 from cybercanon.application.ports.interactive_sign_in import InteractiveSignIn
+from cybercanon.application.ports.llm import DisabledLLM, LLMPort
 from cybercanon.application.ports.mesh_inspector import MeshInspector
 from cybercanon.application.ports.repository_host import RepositoryHost
 from cybercanon.application.ports.search_index import RecordedMiss, SearchIndex
 from cybercanon.application.ports.spec_store import ProjectConfig, SpecStore
 from cybercanon.application.ports.thumbnail_renderer import ThumbnailRenderer
 from cybercanon.application.ports.view_index import ViewIndex
+from cybercanon.application.ports.vision import DisabledVision, VisionPort
 from cybercanon.application.results import Result, Unavailable
 from cybercanon.application.use_cases.compile_spec import (
     CompiledBriefing,
@@ -43,7 +53,29 @@ from cybercanon.application.use_cases.compile_spec import (
     compile_project_briefing,
     compile_spec,
 )
+from cybercanon.application.use_cases.derived_metadata import (
+    AcceptedAlias,
+    Derivation,
+    DescribedAsset,
+    RejectedSuggestion,
+    accept_suggestion,
+    describe_view,
+    list_derived,
+    reject_suggestion,
+    suggest_aliases,
+)
 from cybercanon.application.use_cases.diff_spec import SpecDifference, diff_asset_spec
+from cybercanon.application.use_cases.documents import (
+    CardCache,
+    DocumentListing,
+    DocumentWorkspace,
+    RecordedLink,
+    create_document_for_asset,
+    link_document,
+    list_document_revisions,
+    list_linked_documents,
+    unlink_document,
+)
 from cybercanon.application.use_cases.index_assets import (
     Fingerprinter,
     RebuildReport,
@@ -84,6 +116,10 @@ from cybercanon.application.use_cases.resolve_actor import (
     list_unmapped_people,
     no_authors,
 )
+from cybercanon.application.use_cases.search_delegation import (
+    DelegatedSearch,
+    search_assets_and_docs,
+)
 from cybercanon.application.use_cases.sign_in import (
     Announce,
     SignedIn,
@@ -107,6 +143,8 @@ from cybercanon.application.use_cases.view_revisions import (
     list_view_revisions,
 )
 from cybercanon.domain.actors import GitAuthor
+from cybercanon.domain.documents import DocumentHistory, DocumentRef, DocumentScope
+from cybercanon.domain.identity import Actor
 
 NO_INDEX = (
     "this container was built without a search index; lookup, search and "
@@ -173,10 +211,21 @@ USE_CASES: tuple[str, ...] = (
     "where_is",
     "list_assets",
     "search_assets",
+    "search_assets_and_docs",
     "nearest_assets",
     "asset_spec",
     "open_annotations",
     "diff_spec",
+    "link_document",
+    "unlink_document",
+    "list_linked_documents",
+    "list_document_revisions",
+    "create_document_for_asset",
+    "describe_views",
+    "suggest_aliases",
+    "list_derived_metadata",
+    "accept_suggested_alias",
+    "reject_suggested_alias",
     "rebuild_index",
     "recorded_misses",
     "resolve_actor",
@@ -231,6 +280,44 @@ class Container:
     without a thumbnail renderer nothing is derived, without a view index
     nothing is recorded, and both are rebuildable from the repository by
     specification.
+    """
+
+    document_platform: DocumentPlatform = field(default_factory=NullDocumentPlatform)
+    """The document platform, which is the null one unless configured (D4).
+
+    A default rather than an optional, and that is the whole of the degradation
+    idiom: there is no `None` to check, so no use case can branch on whether
+    linked-document features are available, and *"every other capability works"*
+    is a property of the wiring instead of fifteen scattered conditionals.
+    """
+
+    document_workspace: str = ""
+    """The platform workspace a document created from this deployment is made in."""
+
+    document_budget: timedelta = DEFAULT_BUDGET
+    """How long one delegated search may take before the answer is *not this time* (D5).
+
+    Configuration rather than a constant, because it is the deployment's
+    patience and not the product's: it is `CANON_ARCHE_TIMEOUT_S`, read once at
+    composition, and the local half of a search has already finished by the time
+    it starts counting.
+    """
+
+    card_cache: CardCache = field(default_factory=CardCache)
+    """The per-(reference, actor) display cache (D3). Rebuildable; never durable."""
+
+    llm: LLMPort = field(default_factory=DisabledLLM)
+    vision: VisionPort = field(default_factory=DisabledVision)
+    """The two model ports, which are the disabled ones unless configured.
+
+    Defaults rather than optionals, exactly as `document_platform` is: there is
+    no ``None`` to check, so no use case branches on whether a model is
+    available, and *"the system SHALL be fully usable with it off"* is a
+    property of the wiring rather than of fifteen scattered conditionals.
+
+    Two ports and not one, because the vision identifier is configured
+    separately — a deployment with text and no vision is a state this pair can
+    hold.
     """
 
     project_id: str = ""
@@ -417,6 +504,31 @@ class Container:
             lambda index: search_assets(term, search_index=index, project=self.project_name or None)
         )
 
+    def search_assets_and_docs(
+        self,
+        term: str,
+        *,
+        credential: Credential = NO_CREDENTIAL,
+    ) -> Result[DelegatedSearch]:
+        """The local cascade, plus the delegated half when the gate opens (D5, D7).
+
+        The credential is the **caller's own** and travels as an argument, so no
+        surface can delegate a question without having decided whose authority
+        it is asking with. With none, the local half still answers and the
+        semantic half reports itself unavailable for lack of authority.
+        """
+        return self.over_index(
+            lambda index: search_assets_and_docs(
+                term,
+                search_index=index,
+                platform=self.document_platform,
+                credential=credential,
+                project=self.project_name or None,
+                budget=self.document_budget,
+                workspace=self.document_workspace,
+            )
+        )
+
     def nearest_assets(self, asset_id: str) -> Result[tuple[str, ...]]:
         """The indexed identifiers closest to one nobody recognised."""
         return self.over_index(
@@ -578,7 +690,233 @@ class Container:
             )
         )
 
+    # -- derived metadata (add-derived-metadata) -------------------------
+
+    def derivation_for(
+        self,
+        asset_id: str,
+        *,
+        actor: Actor | None = None,
+        author: GitAuthor | None = None,
+        agent: str = "",
+    ) -> Derivation | None:
+        """Everything one generation or acceptance needs, or ``None`` with no working copy.
+
+        The index is required as well as the repository: derived content lives
+        in the index by specification, so a container built for validation alone
+        — no index, no checkout — cannot generate and says so rather than
+        quietly producing records nowhere.
+        """
+        if self.repository_host is None or self.search_index is None:
+            return None
+        return Derivation(
+            project=self.project_name,
+            asset_id=asset_id,
+            repository_host=self.repository_host,
+            spec_store=self.spec_store,
+            search_index=self.search_index,
+            vision=self.vision,
+            actor=actor,
+            author=author,
+            agent=agent,
+        )
+
+    def describe_views(
+        self,
+        asset_id: str,
+        *,
+        slot: str = "",
+        actor: Actor | None = None,
+    ) -> Result[DescribedAsset]:
+        """Generate a description, tags and suggested aliases for an asset's views."""
+        return self.over_derivation(
+            asset_id, actor, lambda derivation: describe_view(derivation, slot)
+        )
+
+    def suggest_aliases(
+        self,
+        asset_id: str,
+        *,
+        slot: str = "",
+        actor: Actor | None = None,
+    ) -> Result[DescribedAsset]:
+        """The alias proposals for an asset — generated if they are not there yet."""
+        return self.over_derivation(
+            asset_id, actor, lambda derivation: suggest_aliases(derivation, slot)
+        )
+
+    def list_derived_metadata(
+        self, asset_id: str, *, actor: Actor | None = None
+    ) -> Result[DescribedAsset]:
+        """What is already derived for this asset. Never calls a model."""
+        return self.over_derivation(asset_id, actor, list_derived)
+
+    def accept_suggested_alias(
+        self,
+        asset_id: str,
+        source_hash: str,
+        value: str,
+        *,
+        written: str = "",
+        actor: Actor | None = None,
+        author: GitAuthor | None = None,
+        agent: str = "",
+    ) -> Result[AcceptedAlias]:
+        """Write one accepted alias into `asset.yaml`, attributed to this person."""
+        return self.over_derivation(
+            asset_id,
+            actor,
+            lambda derivation: accept_suggestion(derivation, source_hash, value, written),
+            author=author,
+            agent=agent,
+        )
+
+    def reject_suggested_alias(
+        self,
+        asset_id: str,
+        source_hash: str,
+        value: str,
+        *,
+        actor: Actor | None = None,
+        author: GitAuthor | None = None,
+    ) -> Result[RejectedSuggestion]:
+        """Refuse one suggested value for one image, permanently."""
+        return self.over_derivation(
+            asset_id,
+            actor,
+            lambda derivation: reject_suggestion(derivation, source_hash, value),
+            author=author,
+        )
+
+    def over_derivation[T](
+        self,
+        asset_id: str,
+        actor: Actor | None,
+        operation: Callable[[Derivation], Result[T]],
+        *,
+        author: GitAuthor | None = None,
+        agent: str = "",
+    ) -> Result[T]:
+        """Run a derived-metadata use case, or say this container cannot.
+
+        The same shape as :meth:`over_index` and :meth:`over_working_copy`, and
+        about wiring rather than about an asset.
+        """
+        derivation = self.derivation_for(asset_id, actor=actor, author=author, agent=agent)
+        if derivation is None:
+            return WORKING_COPY_UNAVAILABLE
+        return operation(derivation)
+
     # -- history (D10) ---------------------------------------------------
+
+    # -- linked documents (add-cyberarche-integration) -------------------
+
+    def document_workspace_for(
+        self,
+        asset_id: str,
+        *,
+        credential: Credential = NO_CREDENTIAL,
+        actor: Actor | None = None,
+        author: GitAuthor | None = None,
+        agent: str = "",
+    ) -> DocumentWorkspace:
+        """Everything one document-link operation needs, assembled once.
+
+        The credential is the **caller's own** and travels as an argument, so
+        no surface can reach the platform without having decided whose
+        authority it is acting with (D2).
+        """
+        return DocumentWorkspace(
+            project=self.project_name,
+            asset_id=asset_id,
+            spec_store=self.spec_store,
+            repository_host=self.repository_host,
+            platform=self.document_platform,
+            credential=credential,
+            actor=actor,
+            author=author,
+            agent=agent,
+            default_workspace=self.document_workspace,
+            cache=self.card_cache,
+        )
+
+    def list_linked_documents(
+        self,
+        asset_id: str,
+        *,
+        credential: Credential = NO_CREDENTIAL,
+        actor: Actor | None = None,
+    ) -> Result[DocumentListing]:
+        """Every document linked to this asset and to its project, as this viewer sees it."""
+        return list_linked_documents(
+            self.document_workspace_for(asset_id, credential=credential, actor=actor)
+        )
+
+    def list_document_revisions(
+        self,
+        asset_id: str,
+        document_id: str,
+        *,
+        credential: Credential = NO_CREDENTIAL,
+        actor: Actor | None = None,
+    ) -> Result[DocumentHistory]:
+        """A linked document's own version history, read through the platform."""
+        return list_document_revisions(
+            self.document_workspace_for(asset_id, credential=credential, actor=actor),
+            document_id,
+        )
+
+    def link_document(
+        self,
+        asset_id: str,
+        ref: DocumentRef,
+        *,
+        scope: DocumentScope = DocumentScope.ASSET,
+        actor: Actor | None = None,
+        author: GitAuthor | None = None,
+        agent: str = "",
+    ) -> Result[RecordedLink]:
+        """Record one reference as authored content, attributed to the acting person."""
+        return link_document(
+            self.document_workspace_for(asset_id, actor=actor, author=author, agent=agent),
+            ref,
+            scope,
+        )
+
+    def unlink_document(
+        self,
+        asset_id: str,
+        document_id: str,
+        *,
+        scope: DocumentScope = DocumentScope.ASSET,
+        actor: Actor | None = None,
+        author: GitAuthor | None = None,
+        agent: str = "",
+    ) -> Result[RecordedLink]:
+        """Remove one reference. The document at the platform is never touched."""
+        return unlink_document(
+            self.document_workspace_for(asset_id, actor=actor, author=author, agent=agent),
+            document_id,
+            scope,
+        )
+
+    def create_document_for_asset(
+        self,
+        asset_id: str,
+        title: str = "",
+        *,
+        credential: Credential = NO_CREDENTIAL,
+        actor: Actor | None = None,
+        author: GitAuthor | None = None,
+        agent: str = "",
+    ) -> Result[RecordedLink]:
+        """Create an empty pre-titled document for this asset and link it (D8)."""
+        return create_document_for_asset(
+            self.document_workspace_for(
+                asset_id, credential=credential, actor=actor, author=author, agent=agent
+            ),
+            title,
+        )
 
     def diff_spec(self, asset_id: str, revision: str) -> Result[SpecDifference]:
         """How one asset's specification has moved since a revision."""

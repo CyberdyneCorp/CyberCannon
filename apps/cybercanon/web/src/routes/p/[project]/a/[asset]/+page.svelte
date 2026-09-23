@@ -29,6 +29,7 @@
 			surface={data.address.surface}
 			{page}
 			annotations={data.annotations ?? null}
+			documents={data.documents ?? null}
 			model={annotationViewModel}
 			annotation={data.address.annotation ?? null}
 			viewer={data.viewer ?? null}

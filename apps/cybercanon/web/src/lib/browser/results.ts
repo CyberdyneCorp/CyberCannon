@@ -23,9 +23,13 @@
  * as recorded.
  */
 
-import type { AssetRow, Owner, Page, SearchHit } from '$lib/api';
+import type { AssetRow, Owner, Page, SearchHit, SemanticGroup } from '$lib/api';
 import type { Disclosure } from './disclosure';
 import { disclosureOf } from './disclosure';
+import { NOTHING_DELEGATED } from './semantic';
+
+/** What the exact group is called on screen, beside the approximate one. */
+export const EXACT_LABEL = 'exact matches';
 
 /** One line of the browser, whether it came from a listing or from a search. */
 export interface BrowserRow {
@@ -49,6 +53,16 @@ export interface BrowserView {
 	readonly excluded: number;
 	/** Whether more results exist beyond this page, as the surface reported it. */
 	readonly more: boolean;
+	/**
+	 * The approximate half, as the surface stated it — a second labelled group
+	 * and never a continuation of `rows`.
+	 *
+	 * It is a separate member rather than more rows on purpose: merging the two
+	 * is the one thing `semantic-search-delegation` rules out, and a shape with
+	 * nowhere to merge them makes that a property of this type instead of a
+	 * rule a renderer has to remember.
+	 */
+	readonly semantic: SemanticGroup;
 }
 
 export function rowOf(row: AssetRow): BrowserRow {
@@ -69,7 +83,8 @@ export function viewOfListing(listing: Page<AssetRow>): BrowserView {
 		searched: false,
 		query: '',
 		excluded: 0,
-		more: listing.next_token !== null
+		more: listing.next_token !== null,
+		semantic: NOTHING_DELEGATED
 	};
 }
 
@@ -97,6 +112,8 @@ export interface SearchInput {
 	/** Whether any filter is active; with none, nothing is excluded. */
 	readonly filtered: boolean;
 	readonly query: string;
+	/** The approximate group the surface answered with, when it answered one. */
+	readonly semantic?: SemanticGroup;
 }
 
 /**
@@ -120,18 +137,35 @@ export function viewOfSearch(input: SearchInput): BrowserView {
 		searched: true,
 		query: input.query,
 		excluded: input.hits.items.length - shown.length,
-		more: input.hits.next_token !== null
+		more: input.hits.next_token !== null,
+		semantic: input.semantic ?? NOTHING_DELEGATED
 	};
 }
 
 /** A single row that was derivable without the index — the degraded search's answer. */
 export function viewOfOne(row: BrowserRow, query: string): BrowserView {
-	return { rows: [row], total: 1, searched: true, query, excluded: 0, more: false };
+	return {
+		rows: [row],
+		total: 1,
+		searched: true,
+		query,
+		excluded: 0,
+		more: false,
+		semantic: NOTHING_DELEGATED
+	};
 }
 
 /** Nothing at all, with the query the person asked, for a screen that must still speak. */
 export function viewOfNothing(query: string): BrowserView {
-	return { rows: [], total: 0, searched: Boolean(query), query, excluded: 0, more: false };
+	return {
+		rows: [],
+		total: 0,
+		searched: Boolean(query),
+		query,
+		excluded: 0,
+		more: false,
+		semantic: NOTHING_DELEGATED
+	};
 }
 
 function byAsset(listing: Page<AssetRow> | null): ReadonlyMap<string, AssetRow> {

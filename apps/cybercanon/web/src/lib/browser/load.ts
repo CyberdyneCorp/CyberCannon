@@ -49,6 +49,7 @@ import {
 import type { BrowserRow, BrowserView } from './results';
 import { viewOfListing, viewOfNothing, viewOfOne, viewOfSearch } from './results';
 import { emptinessFor, type Evidence } from './screens';
+import { noteOf, semanticOf } from './semantic';
 
 /** The surface's maximum page size — what a caller asking for everything gets. */
 export const MEMBERSHIP_PAGE_SIZE = 100;
@@ -119,14 +120,21 @@ async function searched(
 	const wanted = activeFilters(address).length > 0;
 	const admitted = await api.assets(address.project, membership(address));
 	const listing = admitted.ok ? admitted.data : null;
+	const semantic = semanticOf(hits);
 	const view = viewOfSearch({
 		hits: hits.data,
 		admitted: listing,
 		filtered: wanted && listing !== null,
-		query: address.query
+		query: address.query,
+		semantic
 	});
 	const answer = { ok: true as const, data: view, freshness: hits.freshness };
-	const notes = filterNotes(wanted, admitted, listing);
+	// A delegated half that could not answer is a disclosure, not a failure:
+	// `asset-browser` asks for the exact results to still be shown *and* for
+	// the screen to say the semantic ones are unavailable. Both, in the
+	// surface's own sentence.
+	const unavailableSemantic = semantic.available ? [] : [noteOf(semantic)];
+	const notes = [...filterNotes(wanted, admitted, listing), ...unavailableSemantic];
 	const nothing = emptinessFor(view, address, { anyAssets: null });
 	// An empty screen that had something to disclose says both. The empty screens
 	// are a closed set and carry no disclosure of their own, so a screen that

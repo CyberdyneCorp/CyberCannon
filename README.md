@@ -56,6 +56,55 @@ Four more maintain the derived index and the people behind the names:
 | `canon actors unmapped [PATH]` | The git authors and recorded owners `.canon/actors.yaml` does not bind yet. |
 | `canon mcp serve [PATH]` | The MCP read server, over standard input and output. |
 
+Four more propose search terms for an asset and let a person take them. They are
+**optional by construction**: with `CANON_LLM_ENABLED` unset — the default —
+they exit `0` saying the feature is unavailable, and nothing else changes.
+
+| Command | What it does |
+|---|---|
+| `canon describe ASSET [--slot NAME]` | Generate a description, tags and suggested aliases for an asset's concept views. An unchanged image is reused and costs no model call. |
+| `canon suggest-aliases ASSET` | The same generation, shown as the proposals waiting for a person. Nothing is written. |
+| `canon accept-alias ASSET VALUE --image HASH [--as EDITED]` | Write one accepted alias into `asset.yaml`, committed in your name. The file carries no marker of where it came from, because the value is yours now. |
+| `canon reject-alias ASSET VALUE --image HASH` | Refuse one suggestion for one image. It is never offered again for that image, and nothing is written. |
+
+Generated content lives only in the rebuildable index, keyed by the content hash
+of the image it was generated from. It never reaches `asset.yaml` and never
+reaches the compiled `art-spec.md` — the briefing people and agents read stays
+human-authored, and a search rescued by an unaccepted suggestion says so.
+
+## Long-form documents live in CyberArche, and are linked
+
+The prose an asset needs — rationale, exploration, the argument that led to a
+constraint — belongs in a document, not in `asset.yaml`. CyberCanon does not
+rebuild an editor for it: a document lives in **CyberArche**, and an asset (or
+the project) carries a **reference** to it. The reference is five fields in the
+specification file, versioned by git like everything else authored there, and
+the body, the history and the comments stay where they are.
+
+The web application shows each asset's links with the title resolved under the
+**viewer's own credential**, so a document somebody may not read is shown as
+inaccessible carrying no title and no summary, and a platform that is down is a
+different line from a document that is gone. Over HTTP:
+
+| Request | What it does |
+|---|---|
+| `GET /v1/projects/{project}/assets/{asset}/documents` | This asset's links and its project's, each with its scope, its state and its resolved title. |
+| `POST /v1/projects/{project}/assets/{asset}/documents` | Create an empty pre-titled document for this asset at the platform and link it, in one action. |
+| `PUT /v1/projects/{project}/assets/{asset}/documents/{document}` | Link a document that already exists. Nothing is fetched. |
+| `DELETE /v1/projects/{project}/assets/{asset}/documents/{document}` | Remove the reference. The document is never modified or deleted. |
+| `GET /v1/projects/{project}/assets/{asset}/documents/{document}/revisions` | The document's own version history, read from the platform and never copied. |
+
+A search over a project answers in two labelled groups: the **exact** matches
+the local cascade found, and — when the query is prose and nothing matched
+exactly — the **approximate** passages CyberArche's per-workspace retrieval
+returned, each naming its source document. Exact results always come first and
+nothing ranks one kind against the other.
+
+**The whole integration degrades to absent.** With `CANON_ARCHE_ENABLED` unset —
+the default — every other capability answers byte-identically, stored references
+are still listed and openable as plain addresses, and the linked-document
+features report themselves unavailable and name the reason.
+
 You never name the specification: given any path, `canon` walks upward to the
 governing `asset.yaml`, bounded by the repository root.
 

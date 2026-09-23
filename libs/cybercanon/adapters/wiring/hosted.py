@@ -56,7 +56,14 @@ from cybercanon.adapters.outbound.postgres.dismissals import PostgresDismissals
 from cybercanon.adapters.outbound.postgres.idempotency import PostgresIdempotencyStore
 from cybercanon.adapters.outbound.postgres.search_index import PostgresSearchIndex
 from cybercanon.adapters.wiring.background import BackgroundWork, Ticker, validation_job
-from cybercanon.adapters.wiring.build import file_fingerprints, preview_settings
+from cybercanon.adapters.wiring.build import (
+    arche_settings,
+    document_platform,
+    file_fingerprints,
+    language_model,
+    preview_settings,
+    vision_model,
+)
 from cybercanon.adapters.wiring.configuration import ServiceConfiguration
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.adapters.wiring.identity import WiredIdentity
@@ -325,7 +332,7 @@ def build_deployment(
     blobs = Deferred(
         lambda: blob_store(object_store(configuration.storage.object_store_url)), OBJECT_STORE
     )
-    container = _container(root, index=index, blobs=blobs, project=project)
+    container = _container(root, index=index, blobs=blobs, project=project, environment=environment)
     journal = DeploymentJournal()
     work = BackgroundWork(validation_job(container, host))
     sync = _sync(host, journal, work)
@@ -361,13 +368,32 @@ def build_deployment(
     )
 
 
-def _container(root: Path, *, index: Deferred, blobs: Deferred, project: str) -> Container:
+def _container(
+    root: Path,
+    *,
+    index: Deferred,
+    blobs: Deferred,
+    project: str,
+    environment: Mapping[str, str] | None = None,
+) -> Container:
     """The container every surface of this deployment runs against.
 
     The mesh inspector is deferred with the rest: its decimation settings come
     from the project's own `.canon/project.yaml` (D7), which is repository
     content on a volume that may not have been cloned yet. Reading it at boot
     would make the process depend on the clone having finished.
+
+    The document platform is chosen here exactly as it is for `canon` — one
+    call, and the null adapter whenever configuration is absent or incomplete
+    (add-cyberarche-integration D4). It is *not* deferred: choosing it opens
+    nothing, and a deployment that never configured it must behave as though
+    this change had never been made.
+
+    The two model ports are chosen the same way and for the same reason
+    (`add-derived-metadata`). `CANON_LLM_ENABLED` defaults to off, and a
+    deployment that leaves it off gets the disabled ports — which answer every
+    call with *disabled* rather than failing, so readiness, validation,
+    compilation and lookup are untouched by whether a gateway is reachable.
     """
     spec_store = GitSpecStore(root)
     return Container(
@@ -377,6 +403,11 @@ def _container(root: Path, *, index: Deferred, blobs: Deferred, project: str) ->
         search_index=index,
         fingerprints=file_fingerprints(root),
         project_id=project,
+        document_platform=document_platform(environment),
+        document_workspace=arche_settings(environment).default_workspace,
+        document_budget=arche_settings(environment).timeout,
+        llm=language_model(environment),
+        vision=vision_model(environment),
     )
 
 

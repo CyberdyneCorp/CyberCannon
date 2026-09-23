@@ -29,7 +29,8 @@ substring a token index cannot express — a name *prefix* and a description
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
+from datetime import datetime
 from pathlib import Path
 
 from cybercanon.application.ports.search_index import (
@@ -38,11 +39,19 @@ from cybercanon.application.ports.search_index import (
     RecordedMiss,
     SearchHit,
     joined,
+    pending_suggestions,
     rank,
     searchable_text,
+    suggesting,
     tag_needle,
     tags_key,
     unjoined,
+)
+from cybercanon.domain.derived import (
+    DerivedRecord,
+    Provenance,
+    SuggestionDecision,
+    SuggestionState,
 )
 
 CANON_DIRECTORY = ".canon"
@@ -128,10 +137,73 @@ SCHEMA = (
         tokenize = 'unicode61'
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS derived_records (
+        project TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        asset_id TEXT NOT NULL DEFAULT '',
+        source_path TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        generated_at TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '',
+        suggested_aliases TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (project, source_hash)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS suggestion_decisions (
+        project TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        value TEXT NOT NULL,
+        state TEXT NOT NULL,
+        actor TEXT NOT NULL DEFAULT '',
+        decided_at TEXT NOT NULL DEFAULT '',
+        written TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (project, source_hash, value)
+    )
+    """,
 )
+"""The rows, the token index, and the two derived tables.
+
+`derived_records` is keyed by `(project, source_hash)` and **not** by asset (D5),
+and `suggestion_decisions` by `(project, source_hash, value)` and not by asset
+either (D6) — the primary keys are the two decisions, written down where the
+database enforces them rather than where a query has to remember them.
+
+Neither table is indexed for full text and neither feeds `searchable`. A
+suggestion is not content of the row: it reaches the ranked cascade only through
+the sixth pass, which is a join at query time, so there is no path by which a
+generated term could quietly start matching as though a person had written it.
+"""
 
 SELECT_ROW = f"SELECT {', '.join(COLUMNS)} FROM assets"
 """Every statement selects the same columns, so one row shape reads back."""
+
+DERIVED_COLUMNS = (
+    "project",
+    "source_hash",
+    "asset_id",
+    "source_path",
+    "model",
+    "generated_at",
+    "description",
+    "tags",
+    "suggested_aliases",
+)
+
+DECISION_COLUMNS = (
+    "project",
+    "source_hash",
+    "value",
+    "state",
+    "actor",
+    "decided_at",
+    "written",
+)
+
+SELECT_DERIVED = f"SELECT {', '.join(DERIVED_COLUMNS)} FROM derived_records"
+SELECT_DECISION = f"SELECT {', '.join(DECISION_COLUMNS)} FROM suggestion_decisions"
 
 
 class SqliteSearchIndex:
@@ -202,7 +274,7 @@ class SqliteSearchIndex:
         )
 
     def clear(self) -> None:
-        """Drop everything, rows and recorded misses alike.
+        """Drop everything, rows, derived records and recorded misses alike.
 
         The index is disposable by specification, and a `clear` that left the
         query log behind would make "deleting the index loses nothing" true in
@@ -210,6 +282,8 @@ class SqliteSearchIndex:
         """
         self._connection.execute("DELETE FROM assets")
         self._connection.execute("DELETE FROM assets_fts")
+        self._connection.execute("DELETE FROM derived_records")
+        self._connection.execute("DELETE FROM suggestion_decisions")
         self._query_log.unlink(missing_ok=True)
 
     # -- reading ---------------------------------------------------------
@@ -246,7 +320,8 @@ class SqliteSearchIndex:
         """
         if not term.strip():
             return ()
-        return rank(self._candidates(term, project), term)
+        suggestions = self._suggestions(project)
+        return rank(self._candidates(term, project, suggestions), term, suggestions)
 
     def is_stale(self, asset_id: str, current: FileFingerprint | None) -> bool:
         """Whether the row for that asset no longer matches the file on disk (D8)."""
@@ -282,7 +357,77 @@ class SqliteSearchIndex:
             )
         return tuple(sorted(counted.values(), key=lambda miss: (miss.project, miss.term)))
 
+    # -- derived metadata (add-derived-metadata, D5 and D6) ---------------
+
+    def put_derived(self, record: DerivedRecord, project: str = "") -> None:
+        """One derived record, keyed by the content hash of the image it saw."""
+        self._connection.execute(
+            "INSERT OR REPLACE INTO derived_records (project, source_hash, asset_id, "
+            "source_path, model, generated_at, description, tags, suggested_aliases) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                project,
+                record.source_hash,
+                record.asset_id,
+                record.source_path,
+                record.model,
+                record.generated_at.isoformat(),
+                record.description,
+                joined(record.tags),
+                joined(record.suggested_aliases),
+            ],
+        )
+
+    def derived(self, source_hash: str, project: str | None = None) -> DerivedRecord | None:
+        clause, parameters = _scope(project)
+        found = self._connection.execute(
+            f"{SELECT_DERIVED} WHERE source_hash = ?{clause} ORDER BY project LIMIT 1",
+            [source_hash, *parameters],
+        ).fetchone()
+        return _record(found) if found is not None else None
+
+    def derived_records(
+        self, project: str | None = None, asset_id: str | None = None
+    ) -> tuple[DerivedRecord, ...]:
+        clauses, parameters = _derived_filters(project, asset_id)
+        statement = f"{SELECT_DERIVED}{_where(clauses)} ORDER BY project, source_hash"
+        return tuple(_record(row) for row in self._connection.execute(statement, parameters))
+
+    def record_decision(self, decision: SuggestionDecision, project: str = "") -> None:
+        """A person's answer about one suggested value, for one image (D6)."""
+        self._connection.execute(
+            "INSERT OR REPLACE INTO suggestion_decisions (project, source_hash, value, "
+            "state, actor, decided_at, written) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                project,
+                decision.source_hash,
+                decision.value,
+                str(decision.state),
+                decision.actor,
+                decision.at.isoformat() if decision.at else "",
+                decision.written,
+            ],
+        )
+
+    def decisions(
+        self, source_hash: str | None = None, project: str | None = None
+    ) -> tuple[SuggestionDecision, ...]:
+        clauses, parameters = _decision_filters(project, source_hash)
+        statement = f"{SELECT_DECISION}{_where(clauses)} ORDER BY project, source_hash, value"
+        return tuple(_decision(row) for row in self._connection.execute(statement, parameters))
+
+    def clear_derived(self, project: str | None = None) -> None:
+        """Drop the generated half and every decision about it, and nothing else."""
+        clause, parameters = _scope(project)
+        where = f" WHERE 1 = 1{clause}"
+        self._connection.execute(f"DELETE FROM derived_records{where}", parameters)
+        self._connection.execute(f"DELETE FROM suggestion_decisions{where}", parameters)
+
     # -- internals -------------------------------------------------------
+
+    def _suggestions(self, project: str | None) -> Mapping[str, tuple[str, ...]]:
+        """The sixth pass's input, joined by the domain rather than by SQL (D9)."""
+        return pending_suggestions(self.derived_records(project), self.decisions(project=project))
 
     def _rows(self, statement: str, parameters: list[object]) -> Iterator[IndexedAsset]:
         for row in self._connection.execute(statement, parameters):
@@ -307,12 +452,38 @@ class SqliteSearchIndex:
             ],
         )
 
-    def _candidates(self, term: str, project: str | None) -> tuple[IndexedAsset, ...]:
-        """Everything that could match, from the token index and the substring scan."""
+    def _candidates(
+        self,
+        term: str,
+        project: str | None,
+        suggestions: Mapping[str, tuple[str, ...]],
+    ) -> tuple[IndexedAsset, ...]:
+        """Everything that could match: the token index, the scan, and the sixth pass.
+
+        The third source is not optional. A suggested alias is stored beside the
+        row rather than in it, so a candidate set built only from `searchable`
+        would never contain the asset the sixth pass exists to rescue — and the
+        one query that is supposed to stop returning nothing would go on
+        returning nothing.
+        """
         found: dict[tuple[str, str], IndexedAsset] = {}
-        for entry in (*self._matching(term, project), *self._containing(term, project)):
+        narrowed = (
+            *self._matching(term, project),
+            *self._containing(term, project),
+            *self._named(suggesting(suggestions, term), project),
+        )
+        for entry in narrowed:
             found[(entry.project, entry.asset_id)] = entry
         return tuple(found.values())
+
+    def _named(self, asset_ids: tuple[str, ...], project: str | None) -> tuple[IndexedAsset, ...]:
+        """The rows for these identifiers — what the sixth pass has to rank."""
+        if not asset_ids:
+            return ()
+        clause, parameters = _scope(project)
+        placeholders = ", ".join("?" * len(asset_ids))
+        statement = f"{SELECT_ROW} WHERE asset_id IN ({placeholders}){clause}"
+        return tuple(self._rows(statement, [*asset_ids, *parameters]))
 
     def _matching(self, term: str, project: str | None) -> tuple[IndexedAsset, ...]:
         """The FTS5 pass: whole tokens of an identifier, name, alias, tag or description."""
@@ -417,6 +588,56 @@ def _fingerprint(row: sqlite3.Row) -> FileFingerprint | None:
 # --------------------------------------------------------------------------
 # Clauses
 # --------------------------------------------------------------------------
+
+
+def _record(row: sqlite3.Row) -> DerivedRecord:
+    """One stored derived record back as the domain value it was written from."""
+    return DerivedRecord(
+        provenance=Provenance(
+            model=row["model"],
+            generated_at=datetime.fromisoformat(row["generated_at"]),
+            source_hash=row["source_hash"],
+        ),
+        asset_id=row["asset_id"],
+        source_path=row["source_path"],
+        description=row["description"],
+        tags=unjoined(row["tags"]),
+        suggested_aliases=unjoined(row["suggested_aliases"]),
+    )
+
+
+def _decision(row: sqlite3.Row) -> SuggestionDecision:
+    """One stored decision back as the domain value. A state it cannot read raises."""
+    return SuggestionDecision(
+        source_hash=row["source_hash"],
+        value=row["value"],
+        state=SuggestionState(row["state"]),
+        actor=row["actor"],
+        at=datetime.fromisoformat(row["decided_at"]) if row["decided_at"] else None,
+        written=row["written"],
+    )
+
+
+def _derived_filters(project: str | None, asset_id: str | None) -> tuple[list[str], list[object]]:
+    clauses: list[str] = []
+    parameters: list[object] = []
+    for column, value in (("project", project), ("asset_id", asset_id)):
+        if value is not None:
+            clauses.append(f"{column} = ?")
+            parameters.append(value)
+    return clauses, parameters
+
+
+def _decision_filters(
+    project: str | None, source_hash: str | None
+) -> tuple[list[str], list[object]]:
+    clauses: list[str] = []
+    parameters: list[object] = []
+    for column, value in (("project", project), ("source_hash", source_hash)):
+        if value is not None:
+            clauses.append(f"{column} = ?")
+            parameters.append(value)
+    return clauses, parameters
 
 
 def _scope(project: str | None) -> tuple[str, list[object]]:

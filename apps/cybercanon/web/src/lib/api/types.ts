@@ -41,8 +41,47 @@ export type ApiResult<T> =
 			readonly ok: true;
 			readonly data: T;
 			readonly freshness: Freshness | null;
+			/**
+			 * Envelope fields this client has no named type for.
+			 *
+			 * The surface's envelope is an open map that evolves additively within
+			 * a version, so a field arriving beside `data` is not an error and is
+			 * not silently the truth either: it is kept here, and a caller that
+			 * knows what one means reads it through its own typed reader. The
+			 * delegated search's approximate group is the first of them.
+			 */
+			readonly beside?: Readonly<Record<string, unknown>>;
 	  }
 	| { readonly ok: false; readonly failure: Failure };
+
+/** One approximately retrieved passage, and the document it came from. */
+export interface Passage {
+	readonly document: string;
+	readonly workspace: string;
+	readonly title: string;
+	readonly source: string;
+	readonly url: string;
+	readonly text: string;
+	readonly provenance: string;
+}
+
+/**
+ * The approximate half of a search, as the surface states it.
+ *
+ * Always present in a search response, empty or not, because a group that came
+ * back empty, one the routing gate never asked for and one the platform could
+ * not answer are three different things and a missing field renders all three
+ * as the same blank space.
+ */
+export interface SemanticGroup {
+	readonly label: string;
+	readonly approximate: boolean;
+	readonly delegated: boolean;
+	readonly available: boolean;
+	readonly reason: string | null;
+	readonly notice: string;
+	readonly results: readonly Passage[];
+}
 
 export interface Page<T> {
 	readonly items: readonly T[];
@@ -477,4 +516,86 @@ export interface AnchorResolutions {
 	readonly revision: string;
 	readonly orphaned: number;
 	readonly resolutions: readonly AnchorResolutionRow[];
+}
+
+/**
+ * One document linked to an asset or to its project, as this viewer sees it.
+ *
+ * There is no `body` here and there cannot be one: `document-platform` keeps
+ * the document's contents, its history and its comments at the platform, and a
+ * field able to hold prose would be the mirror D1 refuses. `title` and
+ * `summary` are empty for a document the viewer may not read — the surface
+ * empties them, so nothing here has to remember to.
+ */
+export interface LinkedDocument {
+	readonly document: string;
+	readonly workspace: string;
+	readonly url: string;
+	readonly linked_by: string;
+	readonly linked_at: string;
+	readonly scope: 'asset' | 'project';
+	readonly state: 'readable' | 'unreachable' | 'missing' | 'forbidden';
+	readonly resolved: boolean;
+	readonly title: string;
+	readonly summary: string;
+	readonly display_title: string;
+	readonly resolved_at: string;
+	readonly actions: readonly string[];
+}
+
+/**
+ * An asset's links, its project's, and why none of them carries a title.
+ *
+ * `available` and `reason` are the distinguishing half of *"reports itself
+ * unavailable and names the reason"*; `guidance` is the sentence shown where a
+ * person chooses whether a statement belongs in the specification or in the
+ * document.
+ */
+export interface DocumentListing {
+	readonly project: string;
+	readonly asset: string;
+	readonly path: string;
+	readonly available: boolean;
+	readonly reason: string | null;
+	readonly guidance: string;
+	readonly links: readonly LinkedDocument[];
+}
+
+/** One entry of a linked document's history, as the platform reports it. */
+export interface DocumentRevision {
+	readonly id: string;
+	readonly seq: number;
+	readonly created_at: string;
+	readonly label: string;
+	readonly name: string;
+}
+
+/** A linked document's own version history — read, never copied. */
+export interface DocumentHistory {
+	readonly reference: {
+		readonly document: string;
+		readonly workspace: string;
+		readonly url: string;
+		readonly linked_by: string;
+		readonly linked_at: string;
+	};
+	readonly state: string;
+	readonly readable: boolean;
+	readonly revisions: readonly DocumentRevision[];
+}
+
+/** A link as it now stands, and the commit that recorded it. */
+export interface RecordedLink {
+	readonly project: string;
+	readonly scope: 'asset' | 'project';
+	readonly path: string;
+	readonly revision: string;
+	readonly committed: boolean;
+	readonly reference: DocumentHistory['reference'];
+	readonly created: {
+		readonly document: string;
+		readonly workspace: string;
+		readonly url: string;
+		readonly title: string;
+	} | null;
 }

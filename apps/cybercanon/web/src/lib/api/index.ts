@@ -22,6 +22,7 @@ import type {
 	AnnotationListing,
 	ApiResult,
 	AssetRow,
+	DocumentListing,
 	LensedSpec,
 	LocationAnswer,
 	Page,
@@ -131,6 +132,19 @@ export class CanonApi {
 	 * that states provenance opens, and the preview's bytes are the expensive
 	 * thing a person should download once per session.
 	 */
+	/**
+	 * One asset's linked documents, as this person's own credential resolves them.
+	 *
+	 * Cached like every other read, so the asset page and anything else that
+	 * wants the link list ask once between them — and dropped by the one write
+	 * path that can change it (`link-document`).
+	 */
+	documents(project: string, asset: string): Promise<ApiResult<DocumentListing>> {
+		return this.cache.read(resources.documents(project, asset), () =>
+			this.client.listDocuments(project, asset)
+		);
+	}
+
 	preview(project: string, asset: string): Promise<ApiResult<PreviewDescriptor>> {
 		return this.cache.read(resources.preview(project, asset), () =>
 			this.client.readPreview(project, asset)

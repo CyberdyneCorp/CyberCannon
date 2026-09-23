@@ -56,6 +56,10 @@ CLI_COMMANDS = frozenset(
         "check",
         "changed",
         "add-view",
+        "describe",
+        "suggest-aliases",
+        "accept-alias",
+        "reject-alias",
         "views",
         "index",
         "actors",
@@ -69,7 +73,13 @@ CLI_COMMANDS = frozenset(
 needs a network. Everything else in this set still completes on a machine that
 has never signed in, which is the property `canon validate` is built around —
 `add-view` included: it commits into the working copy the person is standing in
-and pushes nothing, so it needs no network either."""
+and pushes nothing, so it needs no network either.
+
+The four `add-derived-metadata` brings are the only ones that *may* reach a
+model, and they still complete without one: `describe` and `suggest-aliases`
+exit `0` reporting the feature unavailable, and `accept-alias` and
+`reject-alias` never touch a model at all — they act on records that are
+already in the index."""
 
 
 def an_asset(asset_id: str = ASSET_ID, name: str = "Scout Mech") -> Asset:

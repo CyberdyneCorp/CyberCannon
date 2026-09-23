@@ -23,6 +23,7 @@ from __future__ import annotations
 from base64 import b64encode
 from typing import Any
 
+from cybercanon.application.ports.document_platform import CreatedDocument
 from cybercanon.application.ports.preview import StoredPreview
 from cybercanon.application.use_cases.annotations import (
     AnnotationListing,
@@ -30,6 +31,11 @@ from cybercanon.application.use_cases.annotations import (
     TriageQueue,
 )
 from cybercanon.application.use_cases.compile_spec import CompiledBriefing, CompiledSpec
+from cybercanon.application.use_cases.documents import (
+    DocumentListing,
+    RecordedLink,
+    actions_for,
+)
 from cybercanon.application.use_cases.hosted_repository import WriteOutcome
 from cybercanon.application.use_cases.ingest_views import IngestedView, IngestionOutcome
 from cybercanon.application.use_cases.lookup_assets import (
@@ -45,6 +51,11 @@ from cybercanon.application.use_cases.requests import (
     RequestListing,
     UnreadItems,
 )
+from cybercanon.application.use_cases.search_delegation import (
+    EXACT_LABEL,
+    DelegatedSearch,
+    SemanticResult,
+)
 from cybercanon.application.use_cases.spec_lens import LensedSpec
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
 from cybercanon.application.use_cases.view_revisions import (
@@ -59,6 +70,12 @@ from cybercanon.application.use_cases.viewer import (
     ResolutionListing,
 )
 from cybercanon.domain.annotations import Annotation, Orphan, Reply, Stroke
+from cybercanon.domain.documents import (
+    DocumentHistory,
+    DocumentRef,
+    DocumentRevision,
+    LinkedDocument,
+)
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.requests import AssetRequest, RequestEvent
 from cybercanon.domain.triage import TriageEntry, exits_for
@@ -115,6 +132,48 @@ def search(answer: SearchAnswer) -> dict[str, Any]:
         "project": answer.project,
         "assets": list(answer.asset_ids),
         "recorded_as_miss": answer.recorded_as_miss,
+    }
+
+
+def semantic_group(answer: DelegatedSearch) -> dict[str, Any]:
+    """The approximate half of a search, beside the page carrying the exact half.
+
+    It is always present, and that is the point: a group that was asked for and
+    came back empty, a group the routing gate never asked for, and a group the
+    platform could not answer are three different things, and a response that
+    omitted the field when there was nothing in it would render all three as
+    the same blank space. `available` plus `reason` distinguishes them, and
+    `notice` is the sentence a person reads.
+
+    Every passage names its document and carries the address it is opened at,
+    and none of them carries an asset identifier: a semantic hit is not an
+    asset record, so there is no field here a client could mistake for one.
+    """
+    group = answer.semantic
+    return {
+        "semantic": {
+            "label": group.label,
+            "approximate": group.is_approximate,
+            "delegated": group.delegated,
+            "available": group.is_available,
+            "reason": str(group.reason) if group.reason is not None else None,
+            "notice": group.notice,
+            "results": [passage(found) for found in group.results],
+        },
+        "exact_label": EXACT_LABEL,
+    }
+
+
+def passage(found: SemanticResult) -> dict[str, Any]:
+    """One approximate passage: its text, the document it came from, and its address."""
+    return {
+        "document": found.document_id,
+        "workspace": found.workspace,
+        "title": found.document_title,
+        "source": found.source,
+        "url": found.url,
+        "text": found.text,
+        "provenance": str(found.provenance),
     }
 
 
@@ -711,4 +770,117 @@ def anchor_resolutions(listing: ResolutionListing) -> dict[str, Any]:
             }
             for entry in listing.entries
         ],
+    }
+
+
+# --------------------------------------------------------------------------
+# Linked documents (`document-platform`)
+# --------------------------------------------------------------------------
+
+
+def document_reference(ref: DocumentRef) -> dict[str, Any]:
+    """A link exactly as the repository holds it — five members, and no title.
+
+    A resolved title is cache and lives on the card beside this, never here, so
+    a client that stored a reference cannot end up holding a name the platform
+    has since changed (D1).
+    """
+    return {
+        "document": ref.document_id,
+        "workspace": ref.workspace,
+        "url": ref.url,
+        "linked_by": ref.linked_by,
+        "linked_at": ref.linked_at,
+    }
+
+
+def linked_document(entry: LinkedDocument) -> dict[str, Any]:
+    """One entry of an asset's link list: the reference, its scope, its state.
+
+    `title` and `summary` come off the card, which the domain has already
+    emptied for a forbidden document — so there is no rule here about what a
+    viewer may see, and there cannot be one that disagrees with the domain's.
+    """
+    return {
+        **document_reference(entry.ref),
+        "scope": str(entry.scope),
+        "state": str(entry.state),
+        "resolved": entry.is_resolved,
+        "title": entry.card.title,
+        "summary": entry.card.summary,
+        "display_title": entry.card.display_title,
+        "resolved_at": entry.card.resolved_at,
+        "actions": list(actions_for(entry)),
+    }
+
+
+def document_listing(listing: DocumentListing) -> dict[str, Any]:
+    """Every link an asset carries, its own and its project's, as this viewer sees it.
+
+    `available` and `reason` are the distinguishing half of *"the feature
+    reports itself unavailable and names the reason"*: the entries are present
+    and openable whatever the platform is doing, and this says why none of them
+    carries a title. `guidance` is the sentence the authoring surface shows at
+    the point somebody chooses where to write a statement, and it travels with
+    the listing so that every surface shows the same one.
+    """
+    return {
+        "project": listing.project,
+        "asset": listing.asset_id,
+        "path": listing.path,
+        "available": listing.is_available,
+        "reason": str(listing.unavailable_reason)
+        if listing.unavailable_reason is not None
+        else None,
+        "guidance": listing.guidance,
+        "links": [linked_document(entry) for entry in listing.entries],
+    }
+
+
+def created_document(created: CreatedDocument) -> dict[str, Any]:
+    """The document that now exists at the platform, named so it is never lost."""
+    return {
+        "document": created.document_id,
+        "workspace": created.workspace,
+        "url": created.url,
+        "title": created.title,
+    }
+
+
+def recorded_link(recorded: RecordedLink) -> dict[str, Any]:
+    """A link as it now stands, and the commit that recorded it."""
+    return {
+        "project": recorded.project,
+        "scope": str(recorded.scope),
+        "path": recorded.path,
+        "revision": recorded.revision,
+        "committed": recorded.committed,
+        "reference": document_reference(recorded.ref),
+        "created": created_document(recorded.created) if recorded.created is not None else None,
+    }
+
+
+def document_revision(revision: DocumentRevision) -> dict[str, Any]:
+    """One entry of a linked document's history. Metadata only — never a body."""
+    return {
+        "id": revision.id,
+        "seq": revision.seq,
+        "created_at": revision.created_at,
+        "label": revision.label,
+        "name": revision.name,
+    }
+
+
+def document_history(history: DocumentHistory) -> dict[str, Any]:
+    """The platform's own version history, read and not copied.
+
+    An unreadable document answers with its state and an empty series rather
+    than with a refusal, because *one* link the viewer may not see is not a
+    reason for the asset's page to fail.
+    """
+    return {
+        "reference": document_reference(history.ref),
+        "state": str(history.state),
+        "readable": history.is_readable,
+        "revisions": [document_revision(revision) for revision in history.revisions],
     }

@@ -401,6 +401,8 @@ def test_the_drop_removes_every_table_the_migration_set_creates(repo_root: Path)
         "idempotency_keys",
         "dismissals",
         "concept_views",
+        "derived_records",
+        "suggestion_decisions",
         LEDGER_TABLE,
     }
 

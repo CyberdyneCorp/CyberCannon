@@ -46,7 +46,8 @@ from cybercanon.domain.asset import Asset, AssetId, Links
 from cybercanon.domain.concept import Concept
 from cybercanon.domain.constraints import AnimationDefaults, Constraints, Rig, Texture
 from cybercanon.domain.design import Design, Socket, State
-from cybercanon.domain.spec_checks import check_declared_status
+from cybercanon.domain.documents import DocumentRef
+from cybercanon.domain.spec_checks import check_declared_status, check_document_reference
 from cybercanon.domain.status import Status
 from cybercanon.domain.violations import Severity, SpecViolation
 
@@ -147,6 +148,23 @@ class LinksFile(_Block):
     engine: str | None = None
     discussion: str | None = None
     design_doc: str | None = None
+
+
+class DocumentFile(_Block):
+    """One linked long-form document, as `asset.yaml` and `.canon/project.yaml` write it.
+
+    Three members identify and open it and two attribute the link. There is
+    deliberately no `title`, no `summary` and no `body`: a title resolved from
+    the platform is display cache (D1), and a format that could hold one would
+    make *"resolved content never reaches authored artifacts"* a rule somebody
+    enforces rather than a shape nothing can express.
+    """
+
+    workspace: str = ""
+    id: str = ""
+    url: str = ""
+    linked_by: str = ""
+    linked_at: str = ""
 
 
 class CameraFile(_Block):
@@ -260,6 +278,7 @@ class AssetFile(_Block):
     design: DesignFile | None = None
     constraints: ConstraintsFile | None = None
     links: LinksFile | None = None
+    documents: tuple[DocumentFile, ...] = ()
     annotations: tuple[AnnotationFile, ...] = ()
 
 
@@ -306,6 +325,7 @@ class ProjectFile(_Block):
     severity: dict[str, str] = {}
     preview: PreviewFile | None = None
     ingestion: IngestionFile | None = None
+    documents: tuple[DocumentFile, ...] = ()
 
 
 class ActorEntryFile(_Block):
@@ -542,6 +562,7 @@ def to_asset(parsed: AssetFile) -> tuple[Asset, tuple[SpecViolation, ...]]:
     """Turn a parsed file into the domain object, reporting what would not map."""
     status, violations = _status(parsed.status)
     annotations, annotation_violations = _annotations(parsed.annotations)
+    documents, document_violations = to_documents(parsed.documents, "documents")
     asset = Asset(
         id=AssetId(parsed.id),
         name=parsed.name or parsed.id,
@@ -554,9 +575,10 @@ def to_asset(parsed: AssetFile) -> tuple[Asset, tuple[SpecViolation, ...]]:
         design=_design(parsed.design),
         constraints=to_constraints(parsed.constraints),
         links=_links(parsed.links),
+        documents=documents,
         annotations=annotations,
     )
-    return asset, (*violations, *annotation_violations)
+    return asset, (*violations, *annotation_violations, *document_violations)
 
 
 def _status(declared: str) -> tuple[Status, tuple[SpecViolation, ...]]:
@@ -619,6 +641,37 @@ def to_constraints(parsed: ConstraintsFile | None) -> Constraints | None:
         unit_scale=parsed.unit_scale,
         naming=parsed.naming,
     )
+
+
+def to_documents(
+    parsed: Sequence[DocumentFile], location: str
+) -> tuple[tuple[DocumentRef, ...], tuple[SpecViolation, ...]]:
+    """`documents:` as references, with every malformed entry reported by name.
+
+    A broken reference is dropped and named rather than raised over, exactly as
+    a field of the wrong type is: *"specification linting SHALL report it and
+    the report SHALL name the offending reference"*, and one bad link must not
+    deny the artist every other finding in the same run.
+    """
+    refs: list[DocumentRef] = []
+    violations: list[SpecViolation] = []
+    for index, entry in enumerate(parsed):
+        reported = check_document_reference(
+            f"{location}[{index}]", entry.workspace, entry.id, entry.url
+        )
+        violations.extend(reported)
+        if reported:
+            continue
+        refs.append(
+            DocumentRef(
+                workspace=entry.workspace,
+                document_id=entry.id,
+                url=entry.url,
+                linked_by=entry.linked_by,
+                linked_at=entry.linked_at,
+            )
+        )
+    return tuple(refs), tuple(violations)
 
 
 def to_severities(
@@ -855,6 +908,7 @@ __all__ = [
     "ActorEntryFile",
     "ActorsFile",
     "AssetFile",
+    "DocumentFile",
     "PreviewFile",
     "ProjectFile",
     "ReplyFile",
@@ -866,6 +920,7 @@ __all__ = [
     "to_actor_mapping",
     "to_asset",
     "to_constraints",
+    "to_documents",
     "to_preview",
     "to_severities",
     "unknown_fields",

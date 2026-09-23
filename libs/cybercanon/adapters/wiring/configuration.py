@@ -298,6 +298,12 @@ DRAIN_WINDOW = "CANON_DRAIN_WINDOW_S"
 WORKING_COPIES = "CANON_WORKING_COPIES"
 WEB_ORIGINS = "CANON_WEB_ORIGINS"
 
+ARCHE_ENABLED = "CANON_ARCHE_ENABLED"
+ARCHE_BASE_URL = "CANON_ARCHE_BASE_URL"
+ARCHE_WORKSPACE = "CANON_ARCHE_DEFAULT_WORKSPACE"
+ARCHE_TIMEOUT = "CANON_ARCHE_TIMEOUT_S"
+ARCHE_WEB_URL = "CANON_ARCHE_WEB_URL"
+
 MODEL_ENABLED = "CANON_LLM_ENABLED"
 MODEL_BASE_URL = "CANON_LLM_BASE_URL"
 MODEL_API_KEY = "CANON_LLM_API_KEY"
@@ -343,6 +349,21 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(MODEL_VISION_NAME, "a multimodal model identifier", required=False, default=""),
     Setting(MODEL_TIMEOUT, "a whole number of seconds", read=seconds, required=False),
     Setting(MODEL_MAX_RETRIES, "a whole number of attempts", read=count, required=False, default=2),
+    Setting(ARCHE_ENABLED, "a switch", read=flag, required=False, default=False),
+    Setting(
+        ARCHE_BASE_URL, "the document platform's API root", read=url, required=False, default=""
+    ),
+    Setting(
+        ARCHE_WORKSPACE, "the workspace new documents are created in", required=False, default=""
+    ),
+    Setting(ARCHE_TIMEOUT, "a whole number of seconds", read=seconds, required=False),
+    Setting(
+        ARCHE_WEB_URL,
+        "where a document is opened in a browser",
+        read=url,
+        required=False,
+        default="",
+    ),
 )
 """Every variable this service reads, required and optional, in one table.
 
@@ -357,7 +378,14 @@ nothing" a property of two configured numbers in a known order, so they are
 read together and checked against each other (:class:`RolloverConfig`).
 
 The seven model variables are optional by `project.md`'s rule that *"the
-system SHALL be fully usable with it off"*; the working-copy volume is optional
+system SHALL be fully usable with it off"*, and the five document-platform
+variables are optional for the same reason and are **declared here but read by
+`adapters/outbound/arche`**: the composition root chooses the null adapter
+whenever they are absent or incomplete (add-cyberarche-integration D4), and
+`canon` — which has no `ServiceConfiguration` at all — reads the same five from
+its own environment. They are named in this table because this table is what
+`deploy/README.md` and `deploy/coolify.yaml` are checked against, and a variable
+an operator cannot find written down is a variable nobody sets; the working-copy volume is optional
 because the deployment manifest declares where it is mounted; the browser
 origins are optional because a deployment reached only by the command line and
 the agent surface grants none; and the key-cache window is optional

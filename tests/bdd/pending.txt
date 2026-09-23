@@ -65,65 +65,6 @@ asset-validation :: Reporting a result is separable and non-blocking
 deployment-operations :: Promotion preserves the digest
 deployment-operations :: Rollback selects a previously built artifact
 deployment-operations :: The web application does not require the API to become ready
-derived-metadata :: Accepted alias outranks a suggestion
-derived-metadata :: Agent cannot accept a suggestion
-derived-metadata :: Changed image produces a new record
-derived-metadata :: Compiled output identical with and without generation
-derived-metadata :: Derived records deleted
-derived-metadata :: Existing aliases are not re-suggested
-derived-metadata :: Generated content is labelled
-derived-metadata :: Lensed read excludes generated content
-derived-metadata :: Mesh is not described
-derived-metadata :: Provenance retrievable
-derived-metadata :: Reads never generate
-derived-metadata :: Specification file untouched by generation
-derived-metadata :: Suggestion match is disclosed
-derived-metadata :: Suggestions are search-usable
-derived-metadata :: Unchanged image is not regenerated
-document-platform :: Asset link is versioned with the asset
-document-platform :: Compilation is not blocked by the platform
-document-platform :: Compiled output does not vary with platform reachability
-document-platform :: Creating a link reports unavailability
-document-platform :: Creation refused leaves no link
-document-platform :: Deleted document
-document-platform :: Deterministic ordering
-document-platform :: Document contents are not constraints
-document-platform :: Editing happens elsewhere
-document-platform :: Existing references survive
-document-platform :: Guidance at the point of authoring
-document-platform :: Link list reads as documents
-document-platform :: Link write failure names the created document
-document-platform :: Malformed reference is a specification violation
-document-platform :: No field is generated from a document
-document-platform :: No prose is compiled in
-document-platform :: Offline validation is unaffected
-document-platform :: One action produces a linked document
-document-platform :: One broken link does not break the list
-document-platform :: Only the reference is authored
-document-platform :: Project link is visible from every asset
-document-platform :: Removing a link leaves the document untouched
-document-platform :: Resolved content never reaches authored or compiled artifacts
-document-platform :: Resolved display data is disposable
-document-platform :: Scope is visible
-document-platform :: Service unavailable
-document-platform :: Title follows a rename at the source
-document-platform :: Unconfigured deployment works
-document-platform :: Unresolved link is still usable
-document-platform :: Viewer not permitted
-llm-integration :: Authentication failure is not retried
-llm-integration :: Cause is reported
-llm-integration :: Compiled specification unaffected
-llm-integration :: Disabled by default
-llm-integration :: Enabled by configuration alone
-llm-integration :: Endpoint substituted without code change
-llm-integration :: Features tested without an endpoint
-llm-integration :: Image description sends only the image
-llm-integration :: No behavioural branching on model name
-llm-integration :: No vendor-specific feature is required
-llm-integration :: Retry budget respected
-llm-integration :: Timeout does not fail the surrounding operation
-llm-integration :: Unrecognised model accepted
-llm-integration :: Validation unaffected by model availability
 mcp-write-surface :: A claimed author in the payload is ignored
 mcp-write-surface :: A looping agent is throttled
 mcp-write-surface :: A pre-commit run is unaffected
@@ -164,17 +105,6 @@ mcp-write-surface :: Unknown kind is refused with the permitted values
 mcp-write-surface :: Unreachable budget is recorded and the budget stands
 mcp-write-surface :: Unresolvable target is preserved, not guessed
 mcp-write-surface :: Write to an unknown asset is refused
-metadata-acceptance :: Acceptance requires an identified actor
-metadata-acceptance :: Accepted alias is a normal alias
-metadata-acceptance :: Accepted alias ranks as an alias
-metadata-acceptance :: Accepting person recorded
-metadata-acceptance :: Edited before acceptance
-metadata-acceptance :: Image replaced after acceptance
-metadata-acceptance :: Interrupted write
-metadata-acceptance :: Nothing is accepted without a person
-metadata-acceptance :: Only the intended change appears
-metadata-acceptance :: Rejected suggestion does not return
-metadata-acceptance :: Subset accepted
 model-sheet-2d :: Asset with no views
 model-sheet-2d :: Combined filter
 model-sheet-2d :: Failed write removes the pin
@@ -189,26 +119,6 @@ model-sheet-2d :: Thread to pin across views
 model-sheet-2d :: Two pins at nearly the same coordinate
 model-sheet-2d :: Views listed by anchor name
 model-sheet-2d :: Zoom does not move a pin
-semantic-search-delegation :: A semantic hit does not hide an exact miss
-semantic-search-delegation :: A semantic hit is not an asset record
-semantic-search-delegation :: Exact lookup needs no remote service
-semantic-search-delegation :: Groups are labelled and ordered
-semantic-search-delegation :: Identifier query is never answered only semantically
-semantic-search-delegation :: Identifier-shaped query is not delegated
-semantic-search-delegation :: Local results are produced either way
-semantic-search-delegation :: Misses stay local
-semantic-search-delegation :: Natural-language question reaches the document platform
-semantic-search-delegation :: No combined score
-semantic-search-delegation :: No forwardable credential means local only
-semantic-search-delegation :: No indexing path exists
-semantic-search-delegation :: Only the query is sent
-semantic-search-delegation :: Reason is distinguishable
-semantic-search-delegation :: Repeated query is stable
-semantic-search-delegation :: Semantic results name their source
-semantic-search-delegation :: Service credential is never end-user authority
-semantic-search-delegation :: Slow service does not hold the response
-semantic-search-delegation :: Two people get different results
-semantic-search-delegation :: Unreachable service degrades the response, not the search
 viewer-3d :: Frame restores a known view
 viewer-3d :: Framing a part
 viewer-3d :: Isolation is reversible
