@@ -13,8 +13,6 @@
 # `python scripts/gen_features.py --bootstrap-pending`, which is a one-time
 # bootstrap, never part of `just check`.
 
-agent-identity :: Scheduled run cannot act as a person
-agent-identity :: Unattainable budget is reported, not changed
 anchor-resolution :: Hint lands on the named part, not the nearest surface
 anchor-resolution :: Large displacement is flagged
 anchor-resolution :: No saved camera falls back to framing the part
@@ -65,46 +63,7 @@ asset-validation :: Reporting a result is separable and non-blocking
 deployment-operations :: Promotion preserves the digest
 deployment-operations :: Rollback selects a previously built artifact
 deployment-operations :: The web application does not require the API to become ready
-mcp-write-surface :: A claimed author in the payload is ignored
-mcp-write-surface :: A looping agent is throttled
-mcp-write-surface :: A pre-commit run is unaffected
-mcp-write-surface :: A re-export is a new outcome
-mcp-write-surface :: A resolved observation may be raised again
-mcp-write-surface :: An agent cannot close its own observation
-mcp-write-surface :: Art director's agent cannot promote
-mcp-write-surface :: Both fields are carried
-mcp-write-surface :: Both parties are recorded and displayed
-mcp-write-surface :: Destination unreachable
-mcp-write-surface :: Expired identity refuses the write, not the read
-mcp-write-surface :: Marked in a reading of open annotations
-mcp-write-surface :: Marked in the compiled briefing
-mcp-write-surface :: Named target resolves
-mcp-write-surface :: No configured agent identifier
-mcp-write-surface :: No other repository content is touched by a write
-mcp-write-surface :: No resolvable person
-mcp-write-surface :: No secret appears in configuration
-mcp-write-surface :: No verdict is produced by reporting
-mcp-write-surface :: One sign-in serves both surfaces
-mcp-write-surface :: Only two write tools are advertised
-mcp-write-surface :: Pending reports are delivered later
-mcp-write-surface :: Promotion is not reachable through the observation tool
-mcp-write-surface :: Promotion is recorded as the person's authorship
-mcp-write-surface :: Refusal leaves the session usable
-mcp-write-surface :: Reporting does not change the verdict
-mcp-write-surface :: Reporting does not consume the annotation allowance
-mcp-write-surface :: Resolved observation leaves the briefing
-mcp-write-surface :: Restarted agent does not duplicate its observation
-mcp-write-surface :: Retry does not duplicate
-mcp-write-surface :: Sign-in never asks for a pasted secret
-mcp-write-surface :: Signing out disables writes and leaves reads working
-mcp-write-surface :: The annotation kind set is not extended
-mcp-write-surface :: Throttling is scoped and does not stop other work
-mcp-write-surface :: Unauthenticated caller keeps every read
-mcp-write-surface :: Unauthenticated write is refused with a remedy
-mcp-write-surface :: Unknown kind is refused with the permitted values
-mcp-write-surface :: Unreachable budget is recorded and the budget stands
-mcp-write-surface :: Unresolvable target is preserved, not guessed
-mcp-write-surface :: Write to an unknown asset is refused
+
 model-sheet-2d :: Asset with no views
 model-sheet-2d :: Combined filter
 model-sheet-2d :: Failed write removes the pin

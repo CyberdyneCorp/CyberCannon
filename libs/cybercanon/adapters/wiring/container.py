@@ -27,6 +27,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from cybercanon.application.ports.annotation_writer import AnnotationWriter
 from cybercanon.application.ports.blob_store import BlobStore
 from cybercanon.application.ports.credential_store import CredentialStore
 from cybercanon.application.ports.document_platform import (
@@ -40,13 +41,14 @@ from cybercanon.application.ports.image_inspector import ImageInspector
 from cybercanon.application.ports.interactive_sign_in import InteractiveSignIn
 from cybercanon.application.ports.llm import DisabledLLM, LLMPort
 from cybercanon.application.ports.mesh_inspector import MeshInspector
+from cybercanon.application.ports.outcome_reporter import Delivery, OutcomeReporter
 from cybercanon.application.ports.repository_host import RepositoryHost
 from cybercanon.application.ports.search_index import RecordedMiss, SearchIndex
 from cybercanon.application.ports.spec_store import ProjectConfig, SpecStore
 from cybercanon.application.ports.thumbnail_renderer import ThumbnailRenderer
 from cybercanon.application.ports.view_index import ViewIndex
 from cybercanon.application.ports.vision import DisabledVision, VisionPort
-from cybercanon.application.results import Result, Unavailable
+from cybercanon.application.results import Result, Unavailable, attempt
 from cybercanon.application.use_cases.compile_spec import (
     CompiledBriefing,
     CompiledSpec,
@@ -107,6 +109,21 @@ from cybercanon.application.use_cases.lookup_assets import (
     spec_path_for,
     where_is,
 )
+from cybercanon.application.use_cases.observations import (
+    ExportDigest,
+    Identity,
+    ObservationRequest,
+    RecordedObservation,
+    ReportedRun,
+    Subjects,
+    WriteSession,
+    flush_reports,
+    no_export_digest,
+    record_observation,
+    report_validation_outcome,
+    show_identity,
+    writing_as,
+)
 from cybercanon.application.use_cases.resolve_actor import (
     ActorResolver,
     AuthorSource,
@@ -144,7 +161,7 @@ from cybercanon.application.use_cases.view_revisions import (
 )
 from cybercanon.domain.actors import GitAuthor
 from cybercanon.domain.documents import DocumentHistory, DocumentRef, DocumentScope
-from cybercanon.domain.identity import Actor
+from cybercanon.domain.identity import Actor, AgentId
 
 NO_INDEX = (
     "this container was built without a search index; lookup, search and "
@@ -193,6 +210,32 @@ from the repository"* — so asking an unmirrored project to re-mirror is a
 request that cannot apply rather than one that went wrong.
 """
 
+NO_WRITE_DESTINATION = (
+    "this container was built with no write destination, so an observation "
+    "cannot be recorded through it; reads are unaffected"
+)
+
+WRITE_UNAVAILABLE = Unavailable(identifier="write.unconfigured", message=NO_WRITE_DESTINATION)
+"""What a read-only container answers to the observation tool.
+
+Unavailable rather than forbidden, and the distinction is the caller's next
+move: nothing about the request is wrong, and the fix is a surface wired with a
+writer rather than a different call.
+"""
+
+NO_REPORT_DESTINATION = (
+    "this container was built with nowhere to keep a reported outcome; the "
+    "verdict stands locally either way"
+)
+
+REPORTING_UNAVAILABLE = Unavailable(identifier="report.unconfigured", message=NO_REPORT_DESTINATION)
+"""What a container with no outbox answers to the reporting tool.
+
+It still says *the verdict stands*, because that is the invariant the whole
+reporting path exists to protect: a report that could not be kept has changed
+nothing about what the validator decided.
+"""
+
 INDEX_UNAVAILABLE = Unavailable(identifier="index.unavailable", message=NO_INDEX)
 """What a container built for validation alone answers to a lookup (D10).
 
@@ -234,6 +277,10 @@ USE_CASES: tuple[str, ...] = (
     "sign_in",
     "sign_out",
     "sign_in_status",
+    "record_observation",
+    "report_validation_outcome",
+    "flush_reports",
+    "show_identity",
 )
 """Every use case this change ships, by the name the container resolves it under.
 
@@ -318,6 +365,23 @@ class Container:
     Two ports and not one, because the vision identifier is configured
     separately — a deployment with text and no vision is a state this pair can
     hold.
+    """
+
+    annotation_writer: AnnotationWriter | None = None
+    outcome_reporter: OutcomeReporter | None = None
+    agent: AgentId | None = None
+    subjects: Subjects | None = None
+    export_digests: ExportDigest = no_export_digest
+    """The write surface's ports, and the two callables that feed them (D1, D4).
+
+    All absent by default, and the absences are different states rather than one
+    broken wiring. No `annotation_writer` is a container that reads and cannot
+    record; no `agent` is a server launched without an agent identifier, which
+    `mcp-write-surface` requires to keep every read and be refused every write;
+    no `outcome_reporter` is a machine with nowhere to report to. The composition
+    root chooses the destination — *"the tool must behave identically whether the
+    person is working locally or through the hosted surface"* — and nothing below
+    this line ever asks where it is writing.
     """
 
     project_id: str = ""
@@ -807,6 +871,87 @@ class Container:
             return WORKING_COPY_UNAVAILABLE
         return operation(derivation)
 
+    # -- the write surface (add-mcp-writes, D1) --------------------------
+
+    def over_writer[T](self, operation: Callable[[AnnotationWriter], Result[T]]) -> Result[T]:
+        """Run a use case that records an observation, or say there is nowhere to.
+
+        The same shape as :meth:`over_index` and :meth:`over_working_copy`, and
+        about wiring rather than about an asset: a container built for reads
+        alone has no write destination, and that is one sentence in one place
+        instead of one per tool.
+        """
+        if self.annotation_writer is None:
+            return WRITE_UNAVAILABLE
+        return operation(self.annotation_writer)
+
+    def over_reporter[T](self, operation: Callable[[OutcomeReporter], Result[T]]) -> Result[T]:
+        """Run a use case that delivers an outcome, or say there is nowhere to keep it."""
+        if self.outcome_reporter is None:
+            return REPORTING_UNAVAILABLE
+        return operation(self.outcome_reporter)
+
+    def write_session(self, writer: AnnotationWriter) -> WriteSession:
+        """Everything a write needs, assembled here and nowhere else (D1, D4).
+
+        The agent identifier comes from this container — which the composition
+        root built from the process's launch configuration — and never from a
+        tool argument, which is what makes *"identity is never a parameter"* a
+        property of the wiring rather than a rule every surface remembers.
+        """
+        return WriteSession(
+            project=self.project_name,
+            resolver=self.actor_resolver or ActorResolver(project=self.project_name),
+            writer=writer,
+            agent=self.agent,
+            search_index=self.search_index,
+            subjects=self.subjects,
+        )
+
+    def record_observation(self, request: ObservationRequest) -> Result[RecordedObservation]:
+        """One agent-authored observation against an asset that already exists."""
+        return self.over_writer(
+            lambda writer: record_observation(self.write_session(writer), request)
+        )
+
+    def report_validation_outcome(
+        self, outcome: ValidationOutcome, *, export: str
+    ) -> Result[ReportedRun]:
+        """Deliver a verdict this container already produced. It produces none here.
+
+        The attribution is resolved through the same gate the observation tool
+        goes through, so reporting is a *write* in the sense the specification
+        means it: identity required, agent required, and refused rather than
+        recorded anonymously when either is missing.
+        """
+        return self.over_reporter(
+            lambda reporter: attempt(
+                lambda: report_validation_outcome.raising(
+                    outcome.report,
+                    reporter=reporter,
+                    export=export,
+                    export_hash=self.export_digests(export),
+                    attribution=writing_as.raising(
+                        resolver=self.actor_resolver or ActorResolver(project=self.project_name),
+                        agent=self.agent,
+                    ),
+                )
+            )
+        )
+
+    def flush_reports(self) -> Result[Delivery]:
+        """Retry every outcome retained locally. Answers what is still waiting."""
+        return self.over_reporter(lambda reporter: flush_reports(reporter=reporter))
+
+    def show_identity(self) -> Result[Identity]:
+        """Who this machine writes as, whether it can, and what is undelivered."""
+        return show_identity(
+            resolver=self.actor_resolver or ActorResolver(project=self.project_name),
+            credential_store=self.credential_store,
+            reporter=self.outcome_reporter,
+            agent=self.agent,
+        )
+
     # -- history (D10) ---------------------------------------------------
 
     # -- linked documents (add-cyberarche-integration) -------------------
@@ -937,7 +1082,9 @@ __all__ = [
     "NO_INDEX",
     "NO_SIGN_IN",
     "NO_WORKING_COPY",
+    "REPORTING_UNAVAILABLE",
     "SIGN_IN_UNAVAILABLE",
     "USE_CASES",
+    "WRITE_UNAVAILABLE",
     "Container",
 ]

@@ -28,8 +28,12 @@ one would derive a third.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
+
+from cybercanon.domain.report import Report
+from cybercanon.domain.violations import Violation
 
 AUTOMATION = "automation"
 """Who an outcome is attributed to when no person reported it.
@@ -138,13 +142,76 @@ def needs_commit(recorded: ValidationRecord | None, current: ValidationRecord) -
     )
 
 
+# --------------------------------------------------------------------------
+# Reporting one outcome: what makes two of them the same one (D7)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OutcomeIdentity:
+    """What identifies a reported outcome: the asset, the export, the verdict.
+
+    `add-mcp-writes` D7 fixes the triple and the reason: *"retries are the
+    normal case in D6, so idempotency is a precondition rather than a
+    refinement, and keying on content means it holds without a client-generated
+    identifier that a restarted agent would lose."* Re-reporting the same run
+    therefore replaces one record; a re-export changes `export_hash` and is a
+    new, distinguishable outcome.
+
+    Deliberately **not** in the key: when the run happened, and who reported it.
+    Both move between two reports of one verdict, and including either would
+    make the deduplication vacuous — which is exactly the failure the outbox
+    accumulating copies of one report would be.
+    """
+
+    asset_id: str
+    export_hash: str
+    verdict_hash: str
+
+    def __post_init__(self) -> None:
+        if not self.asset_id.strip():
+            raise ValueError("an outcome identity names the asset it is about")
+        if not self.verdict_hash.strip():
+            raise ValueError("an outcome identity carries the verdict it reports")
+
+    @property
+    def key(self) -> str:
+        """The triple as one line — what an outbox file and a destination key on."""
+        return f"{self.asset_id}:{self.export_hash}:{self.verdict_hash}"
+
+    def __str__(self) -> str:
+        return self.key
+
+
+def verdict_hash(report: Report) -> str:
+    """A digest of what the verdict *says*, stable across two runs that agree.
+
+    Computed from the outcome and from every violation's identifying fields, in
+    a fixed order, so that two validations of the same export against the same
+    specification hash identically and a promoted constraint that changes the
+    findings does not. The rule identifiers are sorted rather than taken in
+    evaluation order: the registry's order is an implementation detail, and a
+    digest that moved when it was reordered would report a new outcome for a
+    run that found exactly the same things.
+    """
+    lines = [report.outcome, *sorted(_line(violation) for violation in report.violations)]
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _line(violation: Violation) -> str:
+    """One violation as the digest sees it — what it is, about what, and how bad."""
+    return f"{violation.rule_id}|{violation.severity}|{violation.subject}|{violation.message}"
+
+
 __all__ = [
     "AUTOMATION",
     "AUTOMATION_AUTHOR_EMAIL",
     "AUTOMATION_AUTHOR_NAME",
     "FAILED",
     "PASSED",
+    "OutcomeIdentity",
     "ValidationRecord",
     "needs_commit",
     "needs_validation",
+    "verdict_hash",
 ]

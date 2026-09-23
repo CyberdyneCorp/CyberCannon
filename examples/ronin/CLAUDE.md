@@ -25,9 +25,19 @@ searching the tree by hand:
 | Has the contract moved? | `diff_spec` |
 | Does my export pass? | `validate_export` |
 
+Two tools record something, and both are proposals rather than edits:
+
+| Situation | Tool |
+|---|---|
+| A constraint cannot be met, and you can say why | `add_annotation` |
+| You validated an export and the outcome should be reported | `report_export` |
+
 Without the server, `canon check` and `canon validate <export>` answer the
 technical half from the command line, and `art-spec.md` beside each `asset.yaml`
 is the readable contract.
 
 **Agents read constraints. Agents never write constraints.** If a constraint
-looks unattainable, say so — do not edit `asset.yaml` so your output passes.
+looks unattainable, say so with `add_annotation` — do not edit `asset.yaml` so
+your output passes. Your observation is recorded open, marked as
+agent-authored, and left for a person to promote into a rule or resolve as an
+issue; you can do neither, and there is no tool that could.

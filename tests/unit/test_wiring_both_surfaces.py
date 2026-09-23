@@ -64,16 +64,23 @@ CLI_COMMANDS = frozenset(
         "index",
         "actors",
         "auth",
+        "login",
+        "logout",
+        "whoami",
+        "report",
         "mcp",
     }
 )
-"""Every verb `canon` advertises once the read surface and the sign-in are wired in.
+"""Every verb `canon` advertises once the read surface and the writes are wired in.
 
-`auth` arrives with the CyberdyneAuth adapter and is the only one of these that
-needs a network. Everything else in this set still completes on a machine that
+`auth`, and the `login`/`logout`/`whoami` trio `add-mcp-writes` D5 names at the
+top level, arrive with the CyberdyneAuth adapter and are the only ones here that
+need a network. Everything else in this set still completes on a machine that
 has never signed in, which is the property `canon validate` is built around —
 `add-view` included: it commits into the working copy the person is standing in
-and pushes nothing, so it needs no network either.
+and pushes nothing, so it needs no network either. `report flush` is in the same
+class for the opposite reason: it *tries* the network and exits zero when there
+is none, because a report may never block the work that produced it.
 
 The four `add-derived-metadata` brings are the only ones that *may* reach a
 model, and they still complete without one: `describe` and `suggest-aliases`

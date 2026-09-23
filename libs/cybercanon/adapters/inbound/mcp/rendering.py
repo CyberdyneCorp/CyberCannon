@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
+from cybercanon.application.ports.outcome_reporter import VERDICT_STANDS
 from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.diff_spec import SpecDifference
 from cybercanon.application.use_cases.index_assets import UnreadableSpec
@@ -39,8 +40,10 @@ from cybercanon.application.use_cases.lookup_assets import (
     LocationAnswer,
     SearchAnswer,
 )
+from cybercanon.application.use_cases.observations import RecordedObservation, ReportedRun
 from cybercanon.application.use_cases.spec_lens import LensedSpec
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
+from cybercanon.domain.annotations import AGENT_AUTHORED, UNANCHORED
 from cybercanon.domain.report import NotEvaluated, Report
 from cybercanon.domain.violations import Violation
 
@@ -52,6 +55,18 @@ UNREADABLE_HEADING = "Specifications that could not be read"
 PASSING = "PASSING"
 FAILING = "FAILING"
 VERDICT = {True: PASSING, False: FAILING}
+
+AGENT_AUTHORED_NOTE = (
+    f"recorded as an {AGENT_AUTHORED} observation: a person promotes it into a rule or "
+    "resolves it as an issue, and this surface can do neither"
+)
+"""What every recorded observation says about its own standing.
+
+Two facts in one sentence, and the second is the prohibition: the write surface
+has no exit. *"An agent cannot close its own observation"*, and saying so in the
+response is cheaper than an agent discovering it by looking for a tool that does
+not exist.
+"""
 
 LOCATION_COLUMNS = ("location", "value")
 ASSET_COLUMNS = ("asset", "name", "status", "art owner", "design owner", "code owner")
@@ -180,6 +195,79 @@ def render_validation(outcome: ValidationOutcome) -> str:
 
 
 # --------------------------------------------------------------------------
+# The write surface (add-mcp-writes)
+# --------------------------------------------------------------------------
+
+
+def render_observation(recorded: RecordedObservation) -> str:
+    """What was recorded, who it is attributed to, and how durable it is.
+
+    Three things the caller has to be told and one of them is uncomfortable:
+    the entry is in the **working copy** and is not committed (D2), so an agent
+    that reported success and said nothing else would be describing something a
+    `git checkout .` can still destroy. The sentence comes from the port, so the
+    command line and this surface cannot phrase the risk two ways.
+
+    An observation that repeated an open one says so and names the existing
+    thread rather than pretending to have written a second (D10), and one whose
+    target the asset does not have is reported as unanchored with the target the
+    caller gave preserved — never quietly attached to something else.
+    """
+    return _document(
+        (
+            f"## Observation {recorded.id} recorded on {recorded.asset_id}",
+            _fields(
+                (
+                    ("Attributed to", recorded.attributed),
+                    ("Target", _target(recorded)),
+                    ("Kind", str(recorded.annotation.kind)),
+                    ("Observation", _observation_kind(recorded)),
+                    ("File", recorded.path),
+                )
+            ),
+            _note(recorded.note),
+            AGENT_AUTHORED_NOTE,
+        )
+    )
+
+
+def render_report(outcome: ValidationOutcome, run: ReportedRun) -> str:
+    """The verdict, unchanged, and what happened to the report of it.
+
+    The verdict is rendered first and in full, because it is the part that is
+    authoritative: *"the reported outcome SHALL be identical to the verdict the
+    same caller already received locally"*, and a response that led with a
+    delivery failure would invite a caller to treat the verdict as provisional.
+    """
+    return _document((render_validation(outcome), _delivery(run)))
+
+
+def render_undelivered(outcome: ValidationOutcome, refusal: Refusal) -> str:
+    """A verdict whose report could not even be kept. The verdict still stands.
+
+    This is the one reporting response that carries a refusal, and it carries it
+    *underneath* the verdict for the same reason as above: nothing about a
+    missing outbox changes what the validator decided.
+    """
+    return _document((render_validation(outcome), _note(f"{VERDICT_STANDS} ({refusal.message})")))
+
+
+def _delivery(run: ReportedRun) -> str:
+    """One line about the report: delivered, or standing and pending."""
+    return _note(run.note or f"reported: {run.delivery}")
+
+
+def _target(recorded: RecordedObservation) -> str:
+    """The target as the caller gave it, marked when the asset does not have it."""
+    given = recorded.annotation.durable_key
+    return f"{given} {UNANCHORED}" if recorded.unanchored else given
+
+
+def _observation_kind(recorded: RecordedObservation) -> str:
+    return str(recorded.annotation.observation_kind or "")
+
+
+# --------------------------------------------------------------------------
 # Failure
 # --------------------------------------------------------------------------
 
@@ -285,6 +373,7 @@ def _value(value: str | None) -> str:
 
 
 __all__ = [
+    "AGENT_AUTHORED_NOTE",
     "ASSET_COLUMNS",
     "FAILING",
     "LOCATION_COLUMNS",
@@ -300,7 +389,10 @@ __all__ = [
     "render_listing",
     "render_location",
     "render_nearest",
+    "render_observation",
+    "render_report",
     "render_search",
     "render_spec",
+    "render_undelivered",
     "render_validation",
 ]

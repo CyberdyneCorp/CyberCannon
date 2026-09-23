@@ -123,11 +123,14 @@ HUMAN_ONLY: frozenset[Operation] = frozenset(
         Operation.PROMOTE_TO_RULE,
         Operation.ACCEPT_SUGGESTED_ALIAS,
         Operation.DECIDE_REQUEST,
+        Operation.RESOLVE_ISSUE,
+        Operation.REOPEN_ISSUE,
+        Operation.TRANSITION_ASSET_STATUS,
     }
 )
 """The registry D13 requires: operations no automated caller may perform.
 
-Three, each from a stated requirement rather than from taste:
+Six, each from a stated requirement rather than from taste:
 
 * **promotion** — `project.md`: *"Promotion is never agent-callable, not even
   for an art director's agent"*, because promotion writes durable constraints;
@@ -136,7 +139,16 @@ Three, each from a stated requirement rather than from taste:
   a pipe;
 * **deciding a request** — `http-api` names it: *"including promoting an
   annotation to a durable rule, accepting a derived suggestion, and deciding an
-  asset request"*.
+  asset request"*;
+* **resolving and reopening an annotation** — `mcp-write-surface`: an
+  agent-authored annotation *"SHALL NOT resolve, promote, close or reopen any
+  annotation, including its own"*. The two exits are the mechanism that keeps
+  the compiled briefing from rotting, and an agent that could close its own
+  observation would be grading its own homework;
+* **transitioning an asset's status** — the same requirement's *"SHALL NOT
+  create, modify or delete any constraint, budget, rule, silhouette rule,
+  status or owner"*. A status is a claim about how finished something is, and
+  it is a person's claim.
 
 Membership is checked before roles, so a service credential holding every role
 is still refused. `tests/unit/test_domain_policy.py` asserts every member of

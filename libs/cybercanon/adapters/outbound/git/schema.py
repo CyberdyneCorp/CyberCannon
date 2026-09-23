@@ -37,7 +37,9 @@ from cybercanon.domain.annotations import (
     Annotation,
     AnnotationKind,
     AnnotationState,
+    AuthorKind,
     Camera,
+    ObservationKind,
     Point,
     Reply,
     Stroke,
@@ -233,6 +235,18 @@ class AnnotationFile(_Block):
     kind: str = "technical"
     text: str = ""
     state: str = "open"
+    author_kind: str = "human"
+    observation_kind: str = ""
+    """Who wrote it, and — for an agent's observation — what it found (D8).
+
+    Two optional members added by `add-mcp-writes`. `author_kind` defaults to
+    `human`, so a file written before the write surface existed parses as
+    exactly what it is, and `observation_kind` is absent for anything a person
+    wrote. An unrecognised value in either is reported and falls back, for the
+    same reason an unknown `kind` is: one bad enumeration must not deny a reader
+    the rest of the file.
+    """
+
     authored_against: str = ""
     target: AnchorFile | None = None
     via: str = ""
@@ -766,7 +780,11 @@ def _annotations(
             continue
         kind, kind_violations = _enum(AnnotationKind, entry.kind, f"{location}.kind")
         state, state_violations = _enum(AnnotationState, entry.state, f"{location}.state")
-        violations.extend((*kind_violations, *state_violations))
+        author_kind, author_violations = _author_kind(entry, location)
+        observation_kind, observation_violations = _observation_kind(entry, location)
+        violations.extend(
+            (*kind_violations, *state_violations, *author_violations, *observation_violations)
+        )
         annotations.append(
             Annotation(
                 id=entry.id,
@@ -775,6 +793,8 @@ def _annotations(
                 text=entry.text,
                 target=anchor,
                 state=state or AnnotationState.OPEN,
+                author_kind=author_kind,
+                observation_kind=observation_kind,
                 authored_against=entry.authored_against,
                 via=entry.via,
                 replies=_replies(entry.replies),
@@ -791,6 +811,32 @@ def _annotations(
             )
         )
     return tuple(annotations), tuple(violations)
+
+
+def _author_kind(
+    entry: AnnotationFile, location: str
+) -> tuple[AuthorKind, tuple[SpecViolation, ...]]:
+    """Whether a person or an agent wrote this, falling back to the ordinary case.
+
+    A value nobody recognises falls back to `human` rather than to `agent`: the
+    marking exists to make a machine's contribution visible, and guessing in the
+    other direction would mark somebody's own words as an agent's.
+    """
+    if not entry.author_kind:
+        return AuthorKind.HUMAN, ()
+    kind, violations = _enum(AuthorKind, entry.author_kind, f"{location}.author_kind")
+    return kind or AuthorKind.HUMAN, violations
+
+
+def _observation_kind(
+    entry: AnnotationFile, location: str
+) -> tuple[ObservationKind | None, tuple[SpecViolation, ...]]:
+    """What an agent found, when the entry declares it. Absent is the ordinary case."""
+    if not entry.observation_kind:
+        return None, ()
+    where = f"{location}.observation_kind"
+    kind, violations = _enum(ObservationKind, entry.observation_kind, where)
+    return kind, violations
 
 
 def _replies(parsed: Sequence[ReplyFile]) -> tuple[Reply, ...]:

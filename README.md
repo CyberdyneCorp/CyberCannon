@@ -321,7 +321,23 @@ Four more maintain the derived index and the people behind the names:
 | `canon index rebuild [PATH]` | Rescan the specifications, reporting how many assets were indexed and naming every file it could not read. |
 | `canon index misses` | The search terms that matched nothing, recorded locally and never transmitted. |
 | `canon actors unmapped [PATH]` | The git authors and recorded owners `.canon/actors.yaml` does not bind yet. |
-| `canon mcp serve [PATH]` | The MCP read server, over standard input and output. |
+| `canon mcp serve [PATH]` | The agent server, over standard input and output. |
+
+Four more exist only because **writes need an identity** — and nothing above
+does:
+
+| Command | What it does |
+|---|---|
+| `canon login` | Sign in by approving a device authorization in a browser. No secret is typed, and none is printed. |
+| `canon logout` | Remove the credential this machine stored. Twice is not an error. |
+| `canon whoami` | Who this machine writes as, whether it may write at all, and how many reported outcomes are still undelivered. |
+| `canon report flush` | Deliver the outcomes the local outbox is holding. Exits zero when the destination is unreachable. |
+
+The credential lives in the operating system's credential store — never in a
+file, never in the repository, never in an agent client's configuration — and
+`canon login` once per machine serves both the command line and the agent
+server. `canon auth login|logout|status` are the same operations under their
+original names.
 
 Four more propose search terms for an asset and let a person take them. They are
 **optional by construction**: with `CANON_LLM_ENABLED` unset — the default —
@@ -521,20 +537,21 @@ still applies.
 
 ## Read it from an agent (MCP)
 
-`canon mcp serve` starts a local read server over standard input and output. It
-opens no port, needs no credential and needs no network: reads degrade to a
+`canon mcp serve` starts a local server over standard input and output. It opens
+no port, and every read needs no credential and no network: reads degrade to a
 local unauthenticated actor, so an agent answers *where is the mech scout and
 what must it satisfy* on a laptop off the VPN.
 
-Point an agent client at the repository. The launch command is the whole
-configuration:
+Point an agent client at the repository. The launch entry is the whole
+configuration, and it holds **no credential**:
 
 ```json
 {
   "mcpServers": {
     "cybercanon": {
       "command": "canon",
-      "args": ["mcp", "serve", "."]
+      "args": ["mcp", "serve", "."],
+      "env": { "CANON_AGENT": "blender-agent" }
     }
   }
 }
@@ -542,6 +559,14 @@ configuration:
 
 The final argument is the project directory; `.` serves the repository the
 client spawned the process in. `just mcp` starts the same server by hand.
+
+`CANON_AGENT` names the agent at the other end, and it is a name rather than a
+secret: it is the second half of every attribution — *"rafa, via
+blender-agent"* — and it is read from this configuration and from nowhere else,
+never from a tool argument. A server started without it keeps every read and is
+refused both writes, naming the missing identifier. Identity is the other half:
+a person runs `canon login` once on the machine, and the server writes as that
+person.
 
 Eight read tools, and there are deliberately no others:
 
@@ -560,11 +585,26 @@ Eight read tools, and there are deliberately no others:
 credential the process was launched with, never from a tool argument, and a
 lensed answer says which lens produced it and that a full specification exists.
 
-**There is no write tool, and no promotion tool — in this version or any
-future one.** Promotion turns an annotation into a durable constraint; an agent
-that could raise a budget until its own output passed is how trust in the system
-dies in week two. An exact-match test over the advertised tool names fails the
-build when anything is added.
+And exactly two write tools, which are proposals rather than edits:
+
+| Tool | Records |
+|---|---|
+| `add_annotation` | An observation against an asset — typically that a declared constraint cannot be met, and why. It is appended to the asset's `asset.yaml` in the working copy and **not committed**, so a person reviews an ordinary diff. |
+| `report_export` | The outcome of a validation the local validator already produced. The verdict stands whether or not the report is ever delivered; an undeliverable one waits in `.canon/reports.ndjson` (git-ignored) for `canon report flush`. |
+
+**There is no promotion tool — in this version or any future one, and not for an
+art director's agent either.** Promotion turns an annotation into a durable
+constraint; an agent that could raise a budget until its own output passed is
+how trust in the system dies in week two. An agent records that the budget is
+unreachable and the budget does not move; a person promotes the observation into
+a rule, or resolves it as an issue, and the resulting rule is attributed to that
+person. An agent cannot close its own observation either.
+
+Every agent-authored annotation is marked as agent-authored wherever a human
+reads it — the open threads, the compiled `art-spec.md`, the specification diff
+— so nobody has to guess whether a machine wrote a line. An exact-match test
+over the advertised tool names fails the build when anything is added to either
+half of the surface.
 
 ## Tell repo-reading agents the specifications exist
 

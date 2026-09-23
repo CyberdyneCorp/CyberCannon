@@ -40,7 +40,13 @@ from typer.testing import CliRunner
 from canon_fixtures import mesh as fixtures
 from cybercanon.adapters.inbound.cli.app import build_app
 from cybercanon.adapters.inbound.mcp import rendering, tools
-from cybercanon.adapters.inbound.mcp.tools import TOOL_NAMES, advertised, build_server
+from cybercanon.adapters.inbound.mcp.tools import (
+    READ_TOOL_NAMES,
+    TOOL_NAMES,
+    WRITE_TOOL_NAMES,
+    advertised,
+    build_server,
+)
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
 from cybercanon.adapters.outbound.sqlite.search_index import SqliteSearchIndex
@@ -437,10 +443,23 @@ def _list_the_tools(mcp: dict[str, Any]) -> None:
 
 @then("no advertised tool SHALL modify repository content")
 def _nothing_advertised_writes(mcp: dict[str, Any]) -> None:
+    """Except the enumerated set, which is what the requirement itself says.
+
+    `mcp-server` anticipated this change in its own wording: the surface is
+    reads, index maintenance, *"plus — once a later change introduces them — the
+    explicitly enumerated proposal-shaped write tools of the
+    `mcp-write-surface` capability and nothing else."* So the check is sharper
+    now rather than looser: every advertised name that is **not** one of those
+    two is still held to naming no action that writes, and the two that are must
+    be exactly the enumerated pair.
+    """
     advertised_names = mcp["advertised"]
 
     assert advertised_names == tuple(sorted(TOOL_NAMES)), "the surface is exactly this list (D6)"
+    assert set(WRITE_TOOL_NAMES) == {"add_annotation", "report_export"}
     for name in advertised_names:
+        if name in WRITE_TOOL_NAMES:
+            continue
         assert not name.startswith(MUTATION_VERBS), f"{name} names an action that writes"
 
 
@@ -456,8 +475,19 @@ def _a_clean_repository(mcp: dict[str, Any], tmp_path: Path, repo_root: Path) ->
 
 @when("an agent calls every available read tool")
 def _call_every_tool(mcp: dict[str, Any]) -> None:
+    """Every read tool, which is what this scenario is about.
+
+    The write tools are exercised against a real repository by
+    `mcp-write-surface`'s own *"no other repository content is touched by a
+    write"*, where the assertion is the refined one (D3): one changed path, and
+    one changed block inside it. Calling them here would make this scenario
+    answer a question it did not ask.
+    """
     server = mcp["server"]
-    assert tuple(sorted(every_call())) == advertised(server), "every advertised tool is exercised"
+    assert tuple(sorted(every_call())) == tuple(sorted(READ_TOOL_NAMES)), (
+        "every advertised read tool is exercised"
+    )
+    assert set(every_call()) < set(advertised(server))
     mcp["answers"] = {
         tool: call(server, tool, **arguments) for tool, arguments in every_call().items()
     }

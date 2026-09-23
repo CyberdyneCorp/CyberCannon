@@ -162,6 +162,7 @@ def test_the_read_modules_are_the_ones_on_disk(repo_root: Path) -> None:
         "resolve_actor",
         "service_health",
         "ingest_views",
+        "observations",
         "sign_in",
         "validation_worker",
     }

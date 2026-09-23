@@ -219,6 +219,16 @@ create two threads; the rate limit bounds the damage.
 - **A write lands while the artist is mid-rebase and the file is in conflict** →
   The writer refuses on an unmergeable or conflicted file, reports the condition,
   and the outbox does not apply to annotations; the agent is told to retry.
+- **The conflict check itself cannot be made, and the writer proceeds anyway** →
+  The check **fails closed**. Asking `git` whether a path is unresolved has three
+  answers — yes, no, and *git did not answer* — and the third refuses the write
+  with a sentence of its own rather than being read as *no*. It was read as *no*,
+  which inverted the guarantee above: a `git` that is absent, times out, or
+  declines the repository (a CI runner's *"detected dubious ownership"* is the
+  ordinary way to meet one) turned the one condition the writer exists to refuse
+  into the one condition it silently permitted. The refusal names which of the
+  two sentences it is saying, because *"this file is in conflict"* and *"I could
+  not find out whether it is"* send a person to two different places.
 - **The keychain is unavailable on a locked-down machine** (D5) → Writes report as
   unavailable with the reason; reads are untouched, which is the degradation the
   spec already requires for a missing identity.

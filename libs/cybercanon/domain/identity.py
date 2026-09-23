@@ -341,6 +341,35 @@ class Attribution:
         return f"{self.actor}, via {self.via}" if self.via else str(self.actor)
 
 
+WRITE_NEEDS_BOTH = (
+    "a write names the person it was made on behalf of and the agent that "
+    "performed it; a write that cannot name both is refused rather than "
+    "recorded anonymously"
+)
+"""Why a write with one slot empty is refused (`mcp-write-surface`, D4)."""
+
+
+def write_attribution(actor: Any, via: AgentId | None) -> Attribution:
+    """The attribution a **write** carries: both slots, or no attribution at all (D4).
+
+    `Attribution` is reused rather than shadowed by a second shape — its actor
+    slot is already non-optional and validated, so half the work is done — and
+    this is the one constructor the write path uses. It refuses a missing agent
+    as flatly as :class:`Attribution` refuses a missing person, which is what
+    makes *"an unattributable write is refused, never recorded anonymously"* a
+    property of the code rather than a check each call site remembers.
+
+    There is deliberately no default for `via`. A default is how
+    `unknown-agent` gets invented: *"defaulting a missing agent identifier ...
+    is exactly the anonymous record the spec forbids, wearing a name."*
+    """
+    if not isinstance(via, AgentId):
+        raise ValueError(WRITE_NEEDS_BOTH)
+    if actor is None:
+        raise ValueError(WRITE_NEEDS_BOTH)
+    return attribute(actor, via)
+
+
 def attribute(actor: Any, via: AgentId | None = None) -> Attribution:
     """Build an attribution, refusing anything that is not a resolved actor.
 
@@ -360,6 +389,7 @@ __all__ = [
     "LOCAL_ACTOR_ID",
     "LOCAL_ACTOR_NAME",
     "UNMAPPED_MARK",
+    "WRITE_NEEDS_BOTH",
     "Actor",
     "ActorId",
     "ActorKind",
@@ -370,4 +400,5 @@ __all__ = [
     "automation_actor",
     "local_actor",
     "unmapped_actor",
+    "write_attribution",
 ]

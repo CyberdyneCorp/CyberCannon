@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from cybercanon.application.ports.outcome_reporter import Delivery
 from cybercanon.application.ports.search_index import RecordedMiss
 from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.compile_spec import CompiledSpec
@@ -31,6 +32,7 @@ from cybercanon.application.use_cases.derived_metadata import (
 from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.ingest_views import IngestedView, IngestionOutcome
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
+from cybercanon.application.use_cases.observations import Identity
 from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
 from cybercanon.application.use_cases.sign_in import SignedIn, SignedOut, SignInStatus
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
@@ -127,6 +129,45 @@ def sign_in_status_payload(status: SignInStatus) -> dict[str, Any]:
         passed=True,
         signed_in=status.signed_in,
         stored_in=status.stored_in,
+    )
+
+
+def identity_payload(identity: Identity) -> dict[str, Any]:
+    """Who this machine writes as. It carries no credential and no token.
+
+    `pending_reports` travels with the identity because that is where a person
+    already looks (D6): a reporting outage that showed up nowhere would be an
+    outage nobody notices.
+    """
+    return _document(
+        "whoami",
+        passed=True,
+        actor=identity.actor,
+        display=identity.display,
+        signed_in=identity.signed_in,
+        verified=identity.verified,
+        may_write=identity.may_write,
+        agent=identity.agent,
+        stored_in=identity.stored_in,
+        pending_reports=identity.pending_reports,
+        detail=identity.detail,
+    )
+
+
+def delivery_payload(delivery: Delivery) -> dict[str, Any]:
+    """What a flush delivered and what it kept. `passed` is never false here.
+
+    An undelivered report is not a failed command: *"a failure to deliver ...
+    SHALL NOT block or error"*, and a script that exited non-zero on a pending
+    outcome would be the blocking this whole path is built to avoid.
+    """
+    return _document(
+        "report flush",
+        passed=True,
+        delivered=delivery.delivered,
+        pending=delivery.pending,
+        complete=delivery.complete,
+        reason=delivery.reason,
     )
 
 
@@ -391,7 +432,9 @@ __all__ = [
     "SCHEMA",
     "changed_payload",
     "compile_payload",
+    "delivery_payload",
     "failure_payload",
+    "identity_payload",
     "lint_payload",
     "nothing_changed_payload",
     "report_payload",

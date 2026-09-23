@@ -35,12 +35,20 @@ not, the product has the bug it exists to prevent.
   the documented recovery rather than a repair.
 * `canon actors unmapped` — the git authors and recorded owners
   `.canon/actors.yaml` does not bind yet, listed so the file can be completed.
-* `canon auth login|logout|status` — the device-authorization sign-in, the
-  credential stored in the operating system's credential store rather than in
-  any file, and its removal. **Nothing else in `canon` needs it**: validation,
-  checking and compilation complete on a machine that has never signed in.
-* `canon mcp serve` — the FastMCP read server over standard input and output,
-  built from the same container every other command here runs against.
+* `canon login|logout|whoami`, and `canon auth login|logout|status` beside them
+  — the device-authorization sign-in, the credential stored in the operating
+  system's credential store rather than in any file, and its removal.
+  **Only a write needs it**: validation, checking and compilation complete on a
+  machine that has never signed in. `whoami` additionally answers what a person
+  asks when something did not happen — who this machine writes as, whether it
+  can write at all, and how many reported outcomes are still undelivered (D6).
+* `canon report flush` — deliver the outcomes the local outbox is holding.
+  Exits zero when the destination is unreachable, because a report that could
+  fail a command is a report that eventually blocks a commit.
+* `canon mcp serve` — the FastMCP server over standard input and output, built
+  from the same container every other command here runs against: eight read
+  tools, and the two proposal-shaped writes when the launch configuration names
+  an agent and a person has signed in.
 
 Two seams, each existing exactly once:
 
@@ -102,11 +110,23 @@ ACTORS_HELP = "The people a project's `.canon/actors.yaml` does or does not bind
 AUTH_HELP = """\
 Sign in to CyberdyneAuth, or sign out again.
 
+`canon login`, `canon logout` and `canon whoami` are the same operations at the
+top level, which is where D5 of `add-mcp-writes` names them; this group is the
+form `auth-integration` shipped and is kept so a documented command keeps
+working. Both reach the same use cases over the same credential store.
+
 The credential is kept in the operating system's credential store and never in
 a file inside the repository. Validation, checking and compilation need none of
 this and work on a machine that has never signed in.
 """
-MCP_HELP = "The local read server an agent client spawns over standard input and output."
+REPORT_HELP = """\
+The validation outcomes this machine reported and has not yet delivered.
+
+A report is telemetry and the verdict is authoritative locally, so nothing here
+can fail a run: an unreachable destination leaves the outcome retained and exits
+zero. `canon whoami` shows the same pending count.
+"""
+MCP_HELP = "The local agent server an agent client spawns over standard input and output."
 
 ContainerFor = Callable[[Path], Container]
 """How a command opens a *different* repository from the one the app was built for.
@@ -260,16 +280,38 @@ def build_app(container: Container, container_for: ContainerFor | None = None) -
         """Refuse one suggestion for one image. It is not offered again."""
         _run("reject-alias", json_output, lambda: _reject(container, asset, image, value))
 
+    @app.command()
+    def login(json_output: JsonOption = False) -> None:
+        """Sign in by approving a device authorization in a browser."""
+        _run("login", json_output, lambda: _login(container, json_output))
+
+    @app.command()
+    def logout(json_output: JsonOption = False) -> None:
+        """Remove the credential this machine stored. Twice is not an error."""
+        _run("logout", json_output, lambda: _logout(container))
+
+    @app.command()
+    def whoami(json_output: JsonOption = False) -> None:
+        """Who writes from this machine, whether it can, and what is undelivered."""
+        _run("whoami", json_output, lambda: _whoami(container))
+
     views_app = typer.Typer(add_completion=False, help=VIEWS_HELP, no_args_is_help=True)
     index_app = typer.Typer(add_completion=False, help=INDEX_HELP, no_args_is_help=True)
     actors_app = typer.Typer(add_completion=False, help=ACTORS_HELP, no_args_is_help=True)
     auth_app = typer.Typer(add_completion=False, help=AUTH_HELP, no_args_is_help=True)
+    report_app = typer.Typer(add_completion=False, help=REPORT_HELP, no_args_is_help=True)
     mcp_app = typer.Typer(add_completion=False, help=MCP_HELP, no_args_is_help=True)
     app.add_typer(views_app, name="views")
     app.add_typer(index_app, name="index")
     app.add_typer(actors_app, name="actors")
     app.add_typer(auth_app, name="auth")
+    app.add_typer(report_app, name="report")
     app.add_typer(mcp_app, name="mcp")
+
+    @report_app.command(name="flush")
+    def flush(json_output: JsonOption = False) -> None:
+        """Deliver the validation outcomes this machine is still holding."""
+        _run("report flush", json_output, lambda: _flush(container))
 
     @views_app.command(name="rebuild")
     def rebuild_views(json_output: JsonOption = False) -> None:
@@ -298,12 +340,12 @@ def build_app(container: Container, container_for: ContainerFor | None = None) -
         _run("actors unmapped", json_output, lambda: _unmapped(container, path))
 
     @auth_app.command(name="login")
-    def login(json_output: JsonOption = False) -> None:
+    def auth_login(json_output: JsonOption = False) -> None:
         """Sign in by approving a device authorization in a browser."""
         _run("auth login", json_output, lambda: _login(container, json_output))
 
     @auth_app.command(name="logout")
-    def logout(json_output: JsonOption = False) -> None:
+    def auth_logout(json_output: JsonOption = False) -> None:
         """Remove the credential this machine stored. Twice is not an error."""
         _run("auth logout", json_output, lambda: _logout(container))
 
@@ -636,6 +678,48 @@ def _logout(container: Container) -> Result[Produced]:
     )
 
 
+def _whoami(container: Container) -> Result[Produced]:
+    """Who this machine writes as, and how many reports are waiting (6.1).
+
+    One command answers both because a person asks the second question by
+    asking the first: D6's mitigation for *"reports silently stop arriving and
+    nobody notices"* is that the pending count is visible where somebody
+    already looks.
+    """
+    result = container.show_identity()
+    if not succeeded(result):
+        return result
+    identity = result.value
+    return Ok(
+        Produced(
+            payload=payloads.identity_payload(identity),
+            text=rendering.render_identity(identity),
+            passed=True,
+        )
+    )
+
+
+def _flush(container: Container) -> Result[Produced]:
+    """Retry every retained outcome, and exit zero whatever the destination did (6.2).
+
+    `passed` is unconditionally true: a pending report is the ordinary state of
+    a machine whose destination is unreachable, and a non-zero exit would put
+    the reporting path back in the way of the work — which is exactly what D6
+    forbids.
+    """
+    result = container.flush_reports()
+    if not succeeded(result):
+        return result
+    delivery = result.value
+    return Ok(
+        Produced(
+            payload=payloads.delivery_payload(delivery),
+            text=rendering.render_delivery(delivery),
+            passed=True,
+        )
+    )
+
+
 def _status(container: Container) -> Result[Produced]:
     result = container.sign_in_status()
     if not succeeded(result):
@@ -766,6 +850,7 @@ __all__ = [
     "INDEX_HELP",
     "MCP_HELP",
     "NOTHING_TO_DO",
+    "REPORT_HELP",
     "ContainerFor",
     "Produced",
     "build_app",

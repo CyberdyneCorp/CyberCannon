@@ -36,13 +36,9 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~420 s on a warm checkout — earlier timed runs of a smaller
-# tree gave 319 s, 345 s, 375 s, 397 s and 423 s, which is the spread a laptop
-# gives and the reason this is a record rather than a budget — 4553 Python tests
-# (4522 passed, 31 skipped, 0 xfailed, 122 e2e deselected) plus 757 frontend
-# tests across 37 files, 657 scenarios (536 executing, 121 pending), 0 absent —
-# of which the frontend's own suites (`web-check`) are ~5 s including the build
-# the code-splitting assertion reads. The skips are the
+# Measured runtime: ~390 s on a warm checkout — 4973 Python tests (4973 passed,
+# 31 skipped, 122 e2e deselected) plus 763 frontend tests across 38 files, 657
+# scenarios, 0 absent. The skips are the
 # opt-in Blender cross-check, which runs only with `CANON_BLENDER` set; the
 # xfail is gone because the defect it recorded — a multi-object OBJ losing every
 # part name but one — is fixed rather than tolerated.
@@ -157,6 +153,19 @@ setup:
 # `CANON_ARCHE_BASE_URL` and its three companions unset — 15 of the 31 skips
 # above — and no credential for it exists anywhere in this repository. It was
 # run against the live deployment while M4 was closed, and it passed 15/15.
+#
+# add-mcp-writes added the write surface and about 90 seconds with it, nearly
+# all of it in three process-level suites: the sign-in commands, which run the
+# real device-authorization exchange against an authorization server on a
+# socket (`tests/integration/machine.py`) with a keychain the child imports
+# instead of the developer's own; the offline guarantee, which denies the child
+# every socket and then calls all ten tools; and the acceptance run, which
+# spawns the agent server against a real repository, records an observation,
+# reports an export and then has a person take both triage exits over the same
+# files. The domain, policy, duplicate-suppression and rate-limit halves are
+# pure and instant, and the 42 scenarios this change moved out of
+# tests/bdd/pending.txt (37 of `mcp-write-surface`, 5 that were waiting on it)
+# cost milliseconds each.
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
 #

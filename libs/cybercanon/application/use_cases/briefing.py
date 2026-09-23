@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 from cybercanon.application.ports.spec_store import ProjectConfig
-from cybercanon.domain.annotations import Annotation
+from cybercanon.domain.annotations import Annotation, marked
 from cybercanon.domain.asset import Asset, Links
 from cybercanon.domain.constraints import Constraints
 from cybercanon.domain.design import State
@@ -237,9 +237,20 @@ def _open_issues(asset: Asset) -> str:
 
 
 def _issue(annotation: Annotation) -> str:
+    """One open issue, naming who said it and — when it matters — what they are.
+
+    `mcp-write-surface` requires agent authorship to be visible *"wherever an
+    annotation is presented to a person"*, the compiled briefing included, and
+    visible *"without the reader inspecting anything further"*. The attribution
+    (`rafa, via blender-agent`) and the marking both come from the domain, so
+    the briefing, the agent surface and the web application cannot end up
+    describing one annotation three ways. An unanchored observation is marked
+    here too, beside the target it named: a reader who cannot tell that a thread
+    no longer lands anywhere will act on it as though it does.
+    """
     return (
         f"- **[{annotation.kind}]** on `{annotation.durable_key}` "
-        f"({annotation.author}): {annotation.text}"
+        f"({annotation.attribution}){marked(annotation)}: {annotation.text}"
     )
 
 
