@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from cybercanon.adapters.inbound.http.app import build_app
 from cybercanon.adapters.inbound.http.surface import Dependency, HostedProject, Surface
 from cybercanon.adapters.wiring.container import Container
+from cybercanon.application.ports.document_platform import NullDocumentPlatform
 from cybercanon.application.ports.identity_provider import Credential
 from cybercanon.application.ports.search_index import IndexedAsset
 from cybercanon.application.ports.spec_store import ProjectConfig
@@ -39,6 +40,9 @@ OTHER_PROJECT = "cyberdyne-art"
 SCOUT = "mech_scout"
 SCOUT_SPEC = "characters/mech_scout/asset.yaml"
 SCOUT_CONTENT = b"id: mech_scout\n"
+
+DOCUMENT_WORKSPACE = "w_production"
+"""The workspace a deployment with a document platform configured points at."""
 
 TOKEN = "rafa-token"
 READER_TOKEN = "ana-token"
@@ -185,6 +189,7 @@ def a_surface(
     mapped: bool = True,
     declared: str = "",
     origins: tuple[str, ...] = (),
+    documents: bool = False,
 ) -> Wired:
     """A surface serving one project, with the assets a test asked for.
 
@@ -200,6 +205,12 @@ def a_surface(
     `origins` is the browser origins this deployment permits
     (:mod:`cybercanon.adapters.inbound.http.cors`). Empty means none, which is
     what a service nobody pointed a web application at grants.
+
+    `documents` is whether this deployment has a document platform configured
+    at all (D4). **Off by default**, because that is the deployment the rest of
+    the suite is about: with no platform wired the container holds the null one
+    and every linked-document and delegated-search feature reports itself
+    unavailable while everything else answers exactly as it did before.
     """
     fakes = build_fakes()
     spec_store, index, host = fakes["spec_store"], fakes["search_index"], fakes["repository_host"]
@@ -234,6 +245,8 @@ def a_surface(
         mesh_inspector=fakes["mesh_inspector"],
         blob_store=fakes["blob_store"],
         search_index=index,
+        document_platform=fakes["document_platform"] if documents else NullDocumentPlatform(),
+        document_workspace=DOCUMENT_WORKSPACE if documents else "",
     )
     surface = Surface(
         projects={PROJECT: HostedProject(name=PROJECT, container=container, repository_host=host)},

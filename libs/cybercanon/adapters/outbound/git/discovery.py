@@ -24,9 +24,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 
+from cybercanon.application.ports.spec_store import PROJECT_CONFIG_PATH
+
 GIT_DIR = ".git"
 SPEC_FILENAME = "asset.yaml"
-PROJECT_CONFIG = ".canon/project.yaml"
+PROJECT_CONFIG = PROJECT_CONFIG_PATH
 
 
 def find_repository_root(start: Path) -> Path | None:

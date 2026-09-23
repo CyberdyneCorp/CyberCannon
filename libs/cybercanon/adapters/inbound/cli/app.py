@@ -19,6 +19,15 @@ not, the product has the bug it exists to prevent.
   ingestion endpoint calls, which is what makes the two produce the same
   commit; what differs is only the working copy underneath — the person's own
   checkout here, the hosted volume there.
+* `canon describe ASSET` and `canon suggest-aliases ASSET` — generate a
+  description, tags and suggested aliases for an asset's concept views. Both
+  exit `0` and say so when no model is configured, because the feature is
+  optional by construction and a pre-commit hook must not start failing when a
+  gateway goes down.
+* `canon accept-alias ASSET VALUE --image HASH` and `canon reject-alias` — the
+  two exits a proposal has. Acceptance writes one alias into `asset.yaml` as a
+  commit in the accepting person's name; rejection writes nothing and records
+  that the term is not to be offered again for that image.
 * `canon index rebuild|misses` — maintenance of the derived index, and the
   zero-result search terms it recorded locally (D11).
 * `canon views rebuild` — re-mirror every concept view and re-derive its
@@ -197,6 +206,59 @@ def build_app(container: Container, container_for: ContainerFor | None = None) -
     ) -> None:
         """Ingest a concept view, committed to this working copy in your name."""
         _run("add-view", json_output, lambda: _add_view(container, asset, slot, image, name))
+
+    @app.command()
+    def describe(
+        asset: Annotated[str, typer.Argument(help="The asset to describe.")],
+        slot: Annotated[
+            str, typer.Option("--slot", help="Only this view, rather than every one.")
+        ] = "",
+        json_output: JsonOption = False,
+    ) -> None:
+        """Generate a description, tags and suggested aliases for an asset's views."""
+        _run("describe", json_output, lambda: _describe(container, asset, slot))
+
+    @app.command(name="suggest-aliases")
+    def suggest_aliases(
+        asset: Annotated[str, typer.Argument(help="The asset to propose aliases for.")],
+        slot: Annotated[
+            str, typer.Option("--slot", help="Only this view, rather than every one.")
+        ] = "",
+        json_output: JsonOption = False,
+    ) -> None:
+        """Propose search terms for an asset. Nothing is written until you accept one."""
+        _run("suggest-aliases", json_output, lambda: _suggest(container, asset, slot))
+
+    @app.command(name="accept-alias")
+    def accept_alias(
+        asset: Annotated[str, typer.Argument(help="The asset the alias belongs to.")],
+        value: Annotated[str, typer.Argument(help="The suggested alias to accept.")],
+        image: Annotated[
+            str, typer.Option("--image", help="The image hash the suggestion came from.")
+        ],
+        edited: Annotated[
+            str, typer.Option("--as", help="Accept this instead of the suggested wording.")
+        ] = "",
+        json_output: JsonOption = False,
+    ) -> None:
+        """Write one suggested alias into `asset.yaml`, committed in your name."""
+        _run(
+            "accept-alias",
+            json_output,
+            lambda: _accept(container, asset, image, value, edited),
+        )
+
+    @app.command(name="reject-alias")
+    def reject_alias(
+        asset: Annotated[str, typer.Argument(help="The asset the suggestion is about.")],
+        value: Annotated[str, typer.Argument(help="The suggested alias to refuse.")],
+        image: Annotated[
+            str, typer.Option("--image", help="The image hash the suggestion came from.")
+        ],
+        json_output: JsonOption = False,
+    ) -> None:
+        """Refuse one suggestion for one image. It is not offered again."""
+        _run("reject-alias", json_output, lambda: _reject(container, asset, image, value))
 
     views_app = typer.Typer(add_completion=False, help=VIEWS_HELP, no_args_is_help=True)
     index_app = typer.Typer(add_completion=False, help=INDEX_HELP, no_args_is_help=True)
@@ -391,6 +453,85 @@ def _add_view(
             passed=True,
         )
     )
+
+
+def _describe(container: Container, asset: str, slot: str) -> Result[Produced]:
+    """Generation, and an unavailable model is an ordinary successful answer.
+
+    `llm-integration` requires the feature to *report itself unavailable* with
+    everything else working, so a deployment with no model exits `0` with the
+    reason on standard output rather than exiting `2` — which would make an
+    optional feature look like a broken installation in somebody's pre-commit
+    hook.
+    """
+    return _derived("describe", container.describe_views(asset, slot=slot, actor=_actor(container)))
+
+
+def _suggest(container: Container, asset: str, slot: str) -> Result[Produced]:
+    return _derived(
+        "suggest-aliases", container.suggest_aliases(asset, slot=slot, actor=_actor(container))
+    )
+
+
+def _derived(command: str, result: Result[Any]) -> Result[Produced]:
+    if not succeeded(result):
+        return result
+    described = result.value
+    return Ok(
+        Produced(
+            payload=payloads.derived_payload(command, described),
+            text=rendering.render_derived(described),
+            passed=True,
+        )
+    )
+
+
+def _accept(
+    container: Container, asset: str, image: str, value: str, edited: str
+) -> Result[Produced]:
+    """The bridge: one proposal becomes one authored alias, committed as you.
+
+    The author is resolved exactly as every other write resolves one — the
+    acting person through `.canon/actors.yaml` — so a person with no entry is
+    refused naming the missing entry rather than committing under a shared
+    identity.
+    """
+    identity = author_for(container.resolve_actor(), container.spec_store)
+    result = container.accept_suggested_alias(
+        asset, image, value, written=edited, actor=identity.actor, author=identity.author
+    )
+    if not succeeded(result):
+        return result
+    accepted = result.value
+    return Ok(
+        Produced(
+            payload=payloads.acceptance_payload(accepted),
+            text=rendering.render_acceptance(accepted),
+            passed=True,
+        )
+    )
+
+
+def _reject(container: Container, asset: str, image: str, value: str) -> Result[Produced]:
+    identity = author_for(container.resolve_actor(), container.spec_store)
+    result = container.reject_suggested_alias(
+        asset, image, value, actor=identity.actor, author=identity.author
+    )
+    if not succeeded(result):
+        return result
+    rejected = result.value
+    return Ok(
+        Produced(
+            payload=payloads.rejection_payload(rejected),
+            text=rendering.render_rejection(rejected),
+            passed=True,
+        )
+    )
+
+
+def _actor(container: Container):
+    """Who is asking. Generation needs no permission, but a record needs a name."""
+    return container.resolve_actor().actor
 
 
 def _bytes(image: Path) -> bytes:

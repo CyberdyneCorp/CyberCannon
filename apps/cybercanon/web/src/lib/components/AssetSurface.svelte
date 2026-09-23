@@ -23,10 +23,11 @@
 	 */
 	import type { Surface } from '$lib/address';
 	import type { AssetPage, ViewerReads } from '$lib/asset';
-	import type { Anchor, AnnotationListing } from '$lib/api';
+	import type { Anchor, AnnotationListing, DocumentListing } from '$lib/api';
 	import type { AnnotationViewModel } from '$lib/annotation';
 	import type { SceneFactory } from '$lib/viewer/contract';
 	import AssetOverview from './AssetOverview.svelte';
+	import DocumentLinks from './DocumentLinks.svelte';
 	import ModelSheet from './ModelSheet.svelte';
 	import Viewer3D from './Viewer3D.svelte';
 
@@ -35,6 +36,15 @@
 		page: AssetPage;
 		/** The threads the route read, present on both annotating surfaces. */
 		annotations?: AnnotationListing | null;
+		/**
+		 * The documents linked to this asset, read by the route.
+		 *
+		 * `null` means the link list could not be read at all, which is
+		 * different from *no links* and different again from *the platform is
+		 * unavailable* — the listing says which of those two it is, and a
+		 * missing listing says neither and so shows nothing.
+		 */
+		documents?: DocumentListing | null;
 		/** The one ViewModel. Handed in so a test can drive a fresh instance. */
 		model?: AnnotationViewModel | null;
 		/** The thread the address opens on, when it names one. */
@@ -51,6 +61,7 @@
 		surface,
 		page,
 		annotations = null,
+		documents = null,
 		model = null,
 		annotation = null,
 		viewer = null,
@@ -74,6 +85,9 @@
 
 {#if surface === 'overview'}
 	<AssetOverview {page} />
+	{#if documents}
+		<DocumentLinks listing={documents} />
+	{/if}
 {:else if surface === 'sheet'}
 	{#if annotations && model}
 		<ModelSheet

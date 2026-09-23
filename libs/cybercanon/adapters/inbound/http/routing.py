@@ -22,7 +22,7 @@ is a pipeline nobody can read.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from fastapi import Request
@@ -47,6 +47,7 @@ def answered[T](
     render: outcomes.Rendering = outcomes.identity,
     *,
     paging: Callable[[Result[T]], Result[Any]] | None = None,
+    beside: Callable[[T], Mapping[str, Any]] | None = None,
     index: IndexRead = IndexRead.NONE,
 ) -> JSONResponse:
     """One read, from the address to the response, through the shared use case.
@@ -54,6 +55,14 @@ def answered[T](
     A paged endpoint hands in `paging` and leaves `render` alone: the page has
     already rendered its items by then, and rendering twice would wrap each one
     in the shape of the other.
+
+    `beside` adds fields to the envelope from the answer itself, which is how a
+    paged endpoint says something about an answer that its page cannot carry:
+    the semantic half of a delegated search is neither one of the page's items
+    nor a refusal, and dropping it when the page is full would make a group
+    that was asked for indistinguishable from one that never was. The envelope
+    is an open map by design (`http-api`), so an added field is additive within
+    the version.
 
     `index` says how much of the index this read needs to be complete, and it is
     consulted only while that project is being rebuilt (`deployment-operations`,
@@ -73,9 +82,10 @@ def answered[T](
     )
     answered_from = result if paging is None else paging(result)
     answer = served_from_index(answered_from, project=project, journal=surface.journal, read=index)
-    return outcomes.respond(
-        answer, render, version=VERSION, extra=wiring.freshness_fields(freshness)
-    )
+    extra = dict(wiring.freshness_fields(freshness))
+    if beside is not None and isinstance(result, Ok) and isinstance(answer, Ok):
+        extra.update(beside(result.value))
+    return outcomes.respond(answer, render, version=VERSION, extra=extra)
 
 
 def prepared_for(

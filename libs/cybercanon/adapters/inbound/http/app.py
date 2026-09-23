@@ -54,6 +54,7 @@ from fastapi import FastAPI
 from cybercanon.adapters.inbound.http import (
     annotations,
     cors,
+    documents,
     health,
     logs,
     outcomes,
@@ -134,6 +135,7 @@ def build_app(
     reads.register(app, wiring)
     writes.register(app, wiring)
     annotations.register(app, wiring)
+    documents.register(app, wiring)
     requests.register(app, wiring)
     views.register(app, wiring)
     viewer.register(app, wiring)

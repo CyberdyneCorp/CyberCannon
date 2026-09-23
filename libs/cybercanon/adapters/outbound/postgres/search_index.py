@@ -34,7 +34,8 @@ sentence into a test.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from datetime import datetime
 from typing import Any
 
 import psycopg
@@ -46,11 +47,19 @@ from cybercanon.application.ports.search_index import (
     RecordedMiss,
     SearchHit,
     joined,
+    pending_suggestions,
     rank,
     searchable_text,
+    suggesting,
     tag_needle,
     tags_key,
     unjoined,
+)
+from cybercanon.domain.derived import (
+    DerivedRecord,
+    Provenance,
+    SuggestionDecision,
+    SuggestionState,
 )
 
 COLUMNS = (
@@ -161,6 +170,8 @@ class PostgresSearchIndex:
         """
         self._connection.execute("DELETE FROM assets")
         self._connection.execute("DELETE FROM search_misses")
+        self._connection.execute("DELETE FROM derived_records")
+        self._connection.execute("DELETE FROM suggestion_decisions")
 
     # -- reading ---------------------------------------------------------
 
@@ -192,7 +203,8 @@ class PostgresSearchIndex:
         """The ranked cascade of D9 over everything that could possibly match."""
         if not term.strip():
             return ()
-        return rank(self._candidates(term, project), term)
+        suggestions = self._suggestions(project)
+        return rank(self._candidates(term, project, suggestions), term, suggestions)
 
     def is_stale(self, asset_id: str, current: FileFingerprint | None) -> bool:
         """Whether the row for that asset no longer matches the file on disk (D8)."""
@@ -225,19 +237,132 @@ class PostgresSearchIndex:
             for row in rows
         )
 
+    # -- derived metadata (add-derived-metadata, D5 and D6) ---------------
+
+    def put_derived(self, record: DerivedRecord, project: str = "") -> None:
+        """One derived record, keyed by the content hash of the image it saw (D5)."""
+        assignments = ", ".join(
+            f"{column} = EXCLUDED.{column}"
+            for column in DERIVED_COLUMNS
+            if column not in _DERIVED_KEY
+        )
+        placeholders = ", ".join(["%s"] * len(DERIVED_COLUMNS))
+        self._connection.execute(
+            f"INSERT INTO derived_records ({', '.join(DERIVED_COLUMNS)}) "
+            f"VALUES ({placeholders}) "
+            f"ON CONFLICT (project, source_hash) DO UPDATE SET {assignments}",
+            [
+                project,
+                record.source_hash,
+                record.asset_id,
+                record.source_path,
+                record.model,
+                record.generated_at.isoformat(),
+                record.description,
+                joined(record.tags),
+                joined(record.suggested_aliases),
+            ],
+        )
+
+    def derived(self, source_hash: str, project: str | None = None) -> DerivedRecord | None:
+        clause, parameters = _scope(project)
+        rows = self._derived_rows(
+            f"{SELECT_DERIVED} WHERE source_hash = %s{clause} ORDER BY project LIMIT 1",
+            [source_hash, *parameters],
+        )
+        return next(iter(rows), None)
+
+    def derived_records(
+        self, project: str | None = None, asset_id: str | None = None
+    ) -> tuple[DerivedRecord, ...]:
+        clauses, parameters = _named_filters(("project", project), ("asset_id", asset_id))
+        statement = f"{SELECT_DERIVED}{_where(clauses)} ORDER BY project, source_hash"
+        return tuple(self._derived_rows(statement, parameters))
+
+    def record_decision(self, decision: SuggestionDecision, project: str = "") -> None:
+        """A person's answer about one suggested value, for one image (D6)."""
+        assignments = ", ".join(
+            f"{column} = EXCLUDED.{column}"
+            for column in DECISION_COLUMNS
+            if column not in _DECISION_KEY
+        )
+        placeholders = ", ".join(["%s"] * len(DECISION_COLUMNS))
+        self._connection.execute(
+            f"INSERT INTO suggestion_decisions ({', '.join(DECISION_COLUMNS)}) "
+            f"VALUES ({placeholders}) "
+            f"ON CONFLICT (project, source_hash, value) DO UPDATE SET {assignments}",
+            [
+                project,
+                decision.source_hash,
+                decision.value,
+                str(decision.state),
+                decision.actor,
+                decision.at.isoformat() if decision.at else "",
+                decision.written,
+            ],
+        )
+
+    def decisions(
+        self, source_hash: str | None = None, project: str | None = None
+    ) -> tuple[SuggestionDecision, ...]:
+        clauses, parameters = _named_filters(("project", project), ("source_hash", source_hash))
+        statement = f"{SELECT_DECISION}{_where(clauses)} ORDER BY project, source_hash, value"
+        with self._connection.cursor(row_factory=dict_row) as cursor:
+            rows = cursor.execute(statement, list(parameters)).fetchall()
+        return tuple(_decision(row) for row in rows)
+
+    def clear_derived(self, project: str | None = None) -> None:
+        """Drop the generated half and every decision about it, and nothing else."""
+        clause, parameters = _scope(project)
+        where = f" WHERE true{clause}"
+        self._connection.execute(f"DELETE FROM derived_records{where}", parameters)
+        self._connection.execute(f"DELETE FROM suggestion_decisions{where}", parameters)
+
     # -- internals -------------------------------------------------------
+
+    def _suggestions(self, project: str | None) -> Mapping[str, tuple[str, ...]]:
+        """The sixth pass's input, joined by the domain rather than by SQL (D9)."""
+        return pending_suggestions(self.derived_records(project), self.decisions(project=project))
+
+    def _derived_rows(self, statement: str, parameters: Sequence[Any]) -> Iterator[DerivedRecord]:
+        with self._connection.cursor(row_factory=dict_row) as cursor:
+            for row in cursor.execute(statement, list(parameters)).fetchall():
+                yield _record(row)
 
     def _rows(self, statement: str, parameters: Sequence[Any]) -> Iterator[IndexedAsset]:
         with self._connection.cursor(row_factory=dict_row) as cursor:
             for row in cursor.execute(statement, list(parameters)).fetchall():
                 yield _entry(row)
 
-    def _candidates(self, term: str, project: str | None) -> tuple[IndexedAsset, ...]:
-        """Everything that could match, from the text index and the substring scan."""
+    def _candidates(
+        self,
+        term: str,
+        project: str | None,
+        suggestions: Mapping[str, tuple[str, ...]],
+    ) -> tuple[IndexedAsset, ...]:
+        """The text index, the substring scan, and the rows the sixth pass rescues.
+
+        The third source is not optional: a suggested alias is stored beside the
+        row rather than in it, so a candidate set built only from `searchable`
+        would never hold the asset the sixth pass exists to find.
+        """
         found: dict[tuple[str, str], IndexedAsset] = {}
-        for entry in (*self._matching(term, project), *self._containing(term, project)):
+        narrowed = (
+            *self._matching(term, project),
+            *self._containing(term, project),
+            *self._named(suggesting(suggestions, term), project),
+        )
+        for entry in narrowed:
             found[(entry.project, entry.asset_id)] = entry
         return tuple(found.values())
+
+    def _named(self, asset_ids: tuple[str, ...], project: str | None) -> tuple[IndexedAsset, ...]:
+        """The rows for these identifiers — what the sixth pass has to rank."""
+        if not asset_ids:
+            return ()
+        clause, parameters = _scope(project)
+        statement = f"{SELECT_ROW} WHERE asset_id = ANY(%s){clause}"
+        return tuple(self._rows(statement, [list(asset_ids), *parameters]))
 
     def _matching(self, term: str, project: str | None) -> tuple[IndexedAsset, ...]:
         """The full-text pass: whole tokens of an identifier, name, alias, tag or text."""
@@ -254,6 +379,73 @@ class PostgresSearchIndex:
 
 _KEY = ("project", "asset_id")
 """The primary key, which an upsert matches on rather than assigns."""
+
+DERIVED_COLUMNS = (
+    "project",
+    "source_hash",
+    "asset_id",
+    "source_path",
+    "model",
+    "generated_at",
+    "description",
+    "tags",
+    "suggested_aliases",
+)
+
+DECISION_COLUMNS = (
+    "project",
+    "source_hash",
+    "value",
+    "state",
+    "actor",
+    "decided_at",
+    "written",
+)
+
+SELECT_DERIVED = f"SELECT {', '.join(DERIVED_COLUMNS)} FROM derived_records"
+SELECT_DECISION = f"SELECT {', '.join(DECISION_COLUMNS)} FROM suggestion_decisions"
+
+_DERIVED_KEY = ("project", "source_hash")
+_DECISION_KEY = ("project", "source_hash", "value")
+
+
+def _record(row: dict[str, Any]) -> DerivedRecord:
+    """One stored derived record back as the domain value it was written from."""
+    return DerivedRecord(
+        provenance=Provenance(
+            model=row["model"],
+            generated_at=datetime.fromisoformat(row["generated_at"]),
+            source_hash=row["source_hash"],
+        ),
+        asset_id=row["asset_id"],
+        source_path=row["source_path"],
+        description=row["description"],
+        tags=unjoined(row["tags"]),
+        suggested_aliases=unjoined(row["suggested_aliases"]),
+    )
+
+
+def _decision(row: dict[str, Any]) -> SuggestionDecision:
+    """One stored decision back as the domain value. A state it cannot read raises."""
+    return SuggestionDecision(
+        source_hash=row["source_hash"],
+        value=row["value"],
+        state=SuggestionState(row["state"]),
+        actor=row["actor"],
+        at=datetime.fromisoformat(row["decided_at"]) if row["decided_at"] else None,
+        written=row["written"],
+    )
+
+
+def _named_filters(*pairs: tuple[str, str | None]) -> tuple[tuple[str, ...], list[object]]:
+    """Every `column = value` a caller gave, as clauses and their parameters."""
+    clauses: list[str] = []
+    parameters: list[object] = []
+    for column, value in pairs:
+        if value is not None:
+            clauses.append(f"{column} = %s")
+            parameters.append(value)
+    return tuple(clauses), parameters
 
 
 # --------------------------------------------------------------------------
@@ -391,4 +583,11 @@ def _where(clauses: Iterable[str]) -> str:
     return f" WHERE {joined_clauses}" if joined_clauses else ""
 
 
-__all__ = ["COLUMNS", "FTS_CONFIGURATION", "SELECT_ROW", "PostgresSearchIndex"]
+__all__ = [
+    "COLUMNS",
+    "DECISION_COLUMNS",
+    "DERIVED_COLUMNS",
+    "FTS_CONFIGURATION",
+    "SELECT_ROW",
+    "PostgresSearchIndex",
+]

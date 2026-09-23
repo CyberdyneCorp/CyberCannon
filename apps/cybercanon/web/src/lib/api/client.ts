@@ -22,6 +22,8 @@ import {
 	type AssetRow,
 	type CompiledSpec,
 	type Dismissal,
+	type DocumentHistory,
+	type DocumentListing,
 	type Failure,
 	type Freshness,
 	type LensedSpec,
@@ -31,6 +33,7 @@ import {
 	type PreviewContent,
 	type PreviewDescriptor,
 	type RecordedAnnotation,
+	type RecordedLink,
 	type RecordedRequest,
 	type RequestListing,
 	type SearchHit,
@@ -174,6 +177,28 @@ export class CanonClient {
 		return this.#get(`${preview(project, asset)}/resolutions`);
 	}
 
+	/**
+	 * Every document linked to this asset and to its project, as this viewer
+	 * sees them.
+	 *
+	 * The caller's own bearer token is what this client already sends, which is
+	 * the whole of D2 from the browser's side: the titles that come back are the
+	 * ones this person may see, and a document they may not read comes back
+	 * carrying its state and nothing else.
+	 */
+	listDocuments(project: string, asset: string): Promise<ApiResult<DocumentListing>> {
+		return this.#get(documents(project, asset));
+	}
+
+	/** One linked document's own version history, at the platform that keeps it. */
+	readDocumentRevisions(
+		project: string,
+		asset: string,
+		document: string
+	): Promise<ApiResult<DocumentHistory>> {
+		return this.#get(`${documents(project, asset)}/${enc(document)}/revisions`);
+	}
+
 	readTriage(project: string, options: TriageQuery = {}): Promise<ApiResult<TriageQueue>> {
 		return this.#get(`/projects/${enc(project)}/triage`, triageParameters(options));
 	}
@@ -243,6 +268,44 @@ export class CanonClient {
 		options: WriteOptions = {}
 	): Promise<ApiResult<RecordedAnnotation>> {
 		return this.#send('POST', annotations(project, asset), body, options);
+	}
+
+	/**
+	 * Record a reference to a document that already exists. Nothing is fetched.
+	 *
+	 * The identifier is in the address and the rest of the reference in the
+	 * body, because creating a document and linking one that exists are
+	 * different operations with different failures — so they are different
+	 * requests rather than one request with a mode.
+	 */
+	linkDocument(
+		project: string,
+		asset: string,
+		document: string,
+		body: unknown,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedLink>> {
+		return this.#send('PUT', `${documents(project, asset)}/${enc(document)}`, body, options);
+	}
+
+	/** Remove one reference. The document at the platform is never touched. */
+	unlinkDocument(
+		project: string,
+		asset: string,
+		document: string,
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedLink>> {
+		return this.#send('DELETE', `${documents(project, asset)}/${enc(document)}`, null, options);
+	}
+
+	/** Create an empty pre-titled document for this asset and link it, in one action. */
+	createDocument(
+		project: string,
+		asset: string,
+		body: unknown = {},
+		options: WriteOptions = {}
+	): Promise<ApiResult<RecordedLink>> {
+		return this.#send('POST', documents(project, asset), body, options);
 	}
 
 	replyToAnnotation(
@@ -414,6 +477,10 @@ function preview(project: string, asset: string): string {
 	return `/projects/${enc(project)}/assets/${enc(asset)}/preview`;
 }
 
+function documents(project: string, asset: string): string {
+	return `/projects/${enc(project)}/assets/${enc(asset)}/documents`;
+}
+
 function annotations(project: string, asset: string): string {
 	return `/projects/${enc(project)}/assets/${enc(asset)}/annotations`;
 }
@@ -483,7 +550,12 @@ export function readEnvelope<T>(
 	const correlationId =
 		response.headers.get(CORRELATION_HEADER) ?? asString(body.correlation_id) ?? null;
 	if (response.ok && !body.error) {
-		return { ok: true, data: body.data as T, freshness: readFreshness(body) };
+		return {
+			ok: true,
+			data: body.data as T,
+			freshness: readFreshness(body),
+			beside: besideTheData(body)
+		};
 	}
 	return { ok: false, failure: readFailure(response.status, body, correlationId) };
 }
@@ -502,6 +574,15 @@ function readFailure(
 		subject: asString(error.subject) ?? null,
 		correlationId
 	};
+}
+
+/** The envelope's own fields, so a caller can read one this client has no type for. */
+const ENVELOPE_FIELDS = ['data', 'error', 'version', 'correlation_id', 'revision', 'confirmed_at', 'may_be_stale'];
+
+function besideTheData(body: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(body).filter(([name]) => !ENVELOPE_FIELDS.includes(name))
+	);
 }
 
 function readFreshness(body: Record<string, unknown>): Freshness | null {

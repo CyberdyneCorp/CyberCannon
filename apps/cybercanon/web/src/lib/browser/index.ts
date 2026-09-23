@@ -12,4 +12,5 @@ export * from './disclosure';
 export * from './results';
 export * from './screens';
 export * from './degradation';
+export * from './semantic';
 export * from './load';

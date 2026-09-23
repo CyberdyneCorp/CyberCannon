@@ -31,9 +31,12 @@ from cybercanon.application.use_cases import (
     annotations,
     blob_mirror,
     compile_spec,
+    derived_metadata,
     diff_spec,
+    documents,
     hosted_repository,
     lookup_assets,
+    search_delegation,
     spec_lens,
     validate_export,
     validation_records,
@@ -50,8 +53,11 @@ READ_MODULES = (
     annotations,
     blob_mirror,
     compile_spec,
+    derived_metadata,
     diff_spec,
+    documents,
     lookup_assets,
+    search_delegation,
     spec_lens,
     validate_export,
     validation_records,
@@ -74,7 +80,20 @@ rebuild uses to restore a validated export (G2), and a reader that rebuilt would
 be a recursion rather than a kindness. `view_revisions` and `view_mirror` join
 them with concept ingestion: a view's history is a read over the repository, and
 the mirroring pass beside it is the same expensive operation a helpful read
-would reach for on finding an object missing. `viewer` is here because every
+would reach for on finding an object missing. `documents` is here because
+listing an asset's linked documents is a read over the repository whose display
+cache is rebuildable — precisely the shape that tempts a helpful repopulation.
+`search_delegation` is here because it is the read that meets an empty answer
+most often: a query that matched nothing is exactly where a helpful
+implementation would offer to rebuild before delegating, and a search that
+rewrote the index would make *"the same query returns the same results"* false
+for whoever else was reading it.
+`derived_metadata` is here because its reads are the ones most likely to meet
+an index with nothing in it: looking for a record keyed by an image's content
+hash and finding none is the ordinary case the first time anybody describes an
+asset, and a rebuild reached for at that moment would rewrite every row in the
+project on the way to generating one description.
+`viewer` is here because every
 function in it is a read — the preview descriptor, the preview's bytes and the
 anchor resolutions — and the descriptor is precisely the shape that tempts a
 rebuild: it asks which export validated most recently, and an empty index is
@@ -133,6 +152,7 @@ def test_the_read_modules_are_the_ones_on_disk(repo_root: Path) -> None:
     assert present - listed == {
         "authenticate",
         "briefing",
+        "prompts",
         "deployment_status",
         "hosted_repository",
         "idempotency",

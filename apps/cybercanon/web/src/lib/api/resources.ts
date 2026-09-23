@@ -25,6 +25,7 @@ export const SCOPES = [
 	'request',
 	'unread',
 	'annotations',
+	'documents',
 	'triage',
 	'preview',
 	'preview-content',
@@ -110,6 +111,17 @@ export const resources = {
 	},
 	locations(project: string, asset: string): ResourceKey {
 		return key('locations', project, asset);
+	},
+	/**
+	 * One asset's link list — the references, and what each one resolved to.
+	 *
+	 * Keyed by the asset alone and not by the viewer, because the cache already
+	 * belongs to one signed-in person: the *per-actor* keying
+	 * `document-platform` requires is on the server, where a second person's
+	 * resolve must not be served from the first person's card (D3).
+	 */
+	documents(project: string, asset: string): ResourceKey {
+		return key('documents', project, asset);
 	},
 	search(project: string, term: string, page?: string | null): ResourceKey {
 		return key('search', project, `q=${term}`, `page=${page ?? ''}`);

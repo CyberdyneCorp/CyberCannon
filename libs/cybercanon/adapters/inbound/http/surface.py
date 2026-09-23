@@ -40,6 +40,8 @@ from fastapi import Request
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.clock import Clock, system_clock
 from cybercanon.application.ports.dismissals import Dismissals
+from cybercanon.application.ports.document_platform import NO_CREDENTIAL
+from cybercanon.application.ports.document_platform import Credential as ForwardedCredential
 from cybercanon.application.ports.idempotency import IdempotencyStore
 from cybercanon.application.ports.identity_provider import Credential, IdentityProvider
 from cybercanon.application.ports.image_inspector import ImageInspector
@@ -209,6 +211,25 @@ def presented(request: Request) -> Credential | None:
     return Credential(value.strip())
 
 
+def forwarded(request: Request) -> ForwardedCredential:
+    """The caller's own bearer token, as the document platform's credential (D2).
+
+    The same header, read again for a different purpose, and deliberately not
+    the same value object: `auth-integration`'s credential is what *this*
+    service verifies, and the document platform's is what gets sent *on*. Two
+    types make "whose authority is this, and where is it going" a thing a
+    signature says rather than a thing a reader has to trace.
+
+    A request with no bearer header forwards
+    :data:`~cybercanon.application.ports.document_platform.NO_CREDENTIAL` —
+    which carries nothing and says so — rather than anything of this
+    deployment's. A service credential standing in for a person is the one
+    thing `semantic-search-delegation` rules out by name.
+    """
+    offered = presented(request)
+    return ForwardedCredential(offered.value) if offered is not None else NO_CREDENTIAL
+
+
 def idempotency_key(request: Request) -> str:
     """The key this write may be repeated under, or an empty string."""
     return request.headers.get(IDEMPOTENCY_HEADER, "").strip()
@@ -344,6 +365,7 @@ __all__ = [
     "acting",
     "as_actor",
     "at_revision",
+    "forwarded",
     "freshness_fields",
     "idempotency_key",
     "observes_nothing",

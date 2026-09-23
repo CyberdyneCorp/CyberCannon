@@ -25,6 +25,7 @@ import type {
 	AnchorResolutions,
 	AnnotationListing,
 	ApiResult,
+	DocumentListing,
 	Failure,
 	LensedSpec,
 	LocationAnswer,
@@ -44,6 +45,7 @@ export interface AssetReads {
 	asset(project: string, asset: string, lens?: string): Promise<ApiResult<LensedSpec>>;
 	validate(project: string, exportPath: string): Promise<ApiResult<ValidationOutcome>>;
 	annotations?(project: string, asset: string): Promise<ApiResult<AnnotationListing>>;
+	documents?(project: string, asset: string): Promise<ApiResult<DocumentListing>>;
 	preview?(project: string, asset: string): Promise<ApiResult<PreviewDescriptor>>;
 	previewContent?(project: string, asset: string): Promise<ApiResult<PreviewContent>>;
 	anchorResolutions?(project: string, asset: string): Promise<ApiResult<AnchorResolutions>>;
@@ -91,6 +93,17 @@ export interface AssetScreen {
 	 * should not be paying for them.
 	 */
 	readonly annotations?: AnnotationListing | null;
+	/**
+	 * The documents linked to this asset and to its project, as this person
+	 * sees them.
+	 *
+	 * Read by the route like everything else, and **never fatal**: a platform
+	 * that is down changes what each link says about itself and nothing about
+	 * whether the asset has a page. A deployment with no document platform at
+	 * all still answers this — with every link unresolved and the reason named
+	 * — which is the degradation requirement, not a special case.
+	 */
+	readonly documents?: DocumentListing | null;
 	/** What the 3D viewer needs, read only when the viewer is what is being opened. */
 	readonly viewer?: ViewerReads;
 }
@@ -141,8 +154,28 @@ export async function assetScreen(
 		available,
 		state,
 		annotations: await threads(api, project, asset, address.surface),
+		documents: await links(api, project, asset),
 		viewer: await viewerReads(api, project, asset, address.surface, options)
 	};
+}
+
+
+/**
+ * The link list, read on every surface and fatal on none.
+ *
+ * A refusal degrades to `null` rather than to a failed page: *"no unresolvable
+ * link SHALL cause the asset, its specification or the remainder of its links
+ * to fail to display"*, and a read that could not be made at all is the
+ * strongest form of that.
+ */
+async function links(
+	api: AssetReads,
+	project: string,
+	asset: string
+): Promise<DocumentListing | null> {
+	if (!api.documents) return null;
+	const listing = await api.documents(project, asset);
+	return listing.ok ? listing.data : null;
 }
 
 /**

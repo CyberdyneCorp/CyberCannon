@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from cybercanon.adapters.outbound.git import commands
+from cybercanon.adapters.outbound.git import atomic, commands
 from cybercanon.application.ports.clock import Clock, system_clock
 from cybercanon.application.ports.repository_host import (
     Commit,
@@ -633,8 +633,7 @@ class GitRepositoryHost:
         if change.is_removal:
             target.unlink(missing_ok=True)
             return
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(change.content or b"")
+        atomic.write_atomically(target, change.content or b"")
 
     def _commit_arguments(self, author: GitAuthor, message: str) -> tuple[str, ...]:
         """One commit, authored by the person and committed by this service.

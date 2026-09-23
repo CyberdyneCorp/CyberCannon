@@ -26,7 +26,7 @@ from collections.abc import Iterable, Sequence
 
 from cybercanon.application.ports.spec_store import ProjectConfig
 from cybercanon.domain.annotations import Annotation
-from cybercanon.domain.asset import Asset
+from cybercanon.domain.asset import Asset, Links
 from cybercanon.domain.constraints import Constraints
 from cybercanon.domain.design import State
 from cybercanon.domain.effective_spec import EffectiveSpec, RequiredClip
@@ -244,20 +244,40 @@ def _issue(annotation: Annotation) -> str:
 
 
 def _links(asset: Asset) -> str:
+    """The Links section — addresses exactly as authored, and never a title.
+
+    A linked long-form document appears here as **its bare reference**: the
+    address the specification holds, with nothing resolved from the document
+    platform. That is what makes *"the two outputs SHALL be byte-identical"*
+    true whether the platform is reachable or not — there is no line here that
+    could differ, because nothing in this function has anything to ask.
+
+    Compilation contacts nothing, and it could not: this is a pure function of
+    the asset and the merged specification, with no port in its signature.
+    """
     links = asset.links
-    if links is None:
+    if links is None and not asset.documents:
         return ""
+    declared = links or Links()
     return _section(
         "Links",
-        _fields(
-            (
-                ("Source file", _code(links.source)),
-                ("Engine path", _code(links.engine)),
-                ("Design document", links.design_doc),
-                ("Discussion", links.discussion),
-            )
+        (
+            *_fields(
+                (
+                    ("Source file", _code(declared.source)),
+                    ("Engine path", _code(declared.engine)),
+                    ("Design document", declared.design_doc),
+                    ("Discussion", declared.discussion),
+                )
+            ),
+            *_documents(asset),
         ),
     )
+
+
+def _documents(asset: Asset) -> tuple[str, ...]:
+    """One line per linked document: its address, and nothing else it might say."""
+    return tuple(f"- **Linked document**: {ref.url}" for ref in asset.documents)
 
 
 def _golden_rules(project: ProjectConfig) -> str:

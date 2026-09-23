@@ -10,6 +10,12 @@ mechanical.
   that was read, block by block, and a block that did not change is not touched
   at all. An edit that only adds an annotation cannot rewrite the constraints,
   because nothing in this module looks at them on that path.
+* **An accepted alias is one term appended to one sequence.**
+  `add-derived-metadata`'s D7 asks for a writer that mutates *only the target
+  sequence*, and :func:`_set_aliases` mutates the node the document already has
+  rather than replacing it — so the file a person wrote comes back with one more
+  entry in the list they wrote, in the style they wrote it in, and with no
+  marker anywhere saying a model proposed it.
 * **An unchanged annotation keeps its own node.** The annotation list is rebuilt
   from the document's existing entries wherever the domain value is unchanged,
   so a comment somebody wrote beside a thread survives a reply to a different
@@ -34,10 +40,13 @@ from cybercanon.domain.annotations import Anchor2D, Anchor3D, Annotation, Camera
 from cybercanon.domain.asset import Asset
 from cybercanon.domain.concept import Concept
 from cybercanon.domain.constraints import Constraints
+from cybercanon.domain.documents import DocumentRef
 
+ALIASES = "aliases"
 ANNOTATIONS = "annotations"
 CONCEPT = "concept"
 CONSTRAINTS = "constraints"
+DOCUMENTS = "documents"
 SILHOUETTE_RULES = "silhouette_rules"
 
 
@@ -51,13 +60,95 @@ def render(text: str, asset: Asset, previous: Asset) -> str:
     document = yaml_io.load(text)
     if document is None:
         document = {}
+    if asset.aliases != previous.aliases:
+        _set_aliases(document, asset.aliases)
     if asset.annotations != previous.annotations:
         _set_annotations(document, asset.annotations)
     if asset.concept != previous.concept:
         _set_concept(document, asset.concept, previous.concept)
     if asset.constraints != previous.constraints:
         _set_constraints(document, asset.constraints, previous.constraints)
+    if asset.documents != previous.documents:
+        set_documents(document, asset.documents)
     return yaml_io.dump(document)
+
+
+def render_project(text: str, documents: Sequence[DocumentRef]) -> str:
+    """`.canon/project.yaml` with its `documents:` list replaced, nothing else touched.
+
+    The project configuration is a hand-authored file like `asset.yaml` — golden
+    rules, defaults, severities — so a link added to it goes through the same
+    comment-preserving round trip, and the only key this function can reach is
+    the one it names.
+    """
+    document = yaml_io.load(text)
+    if document is None:
+        document = {}
+    set_documents(document, documents)
+    return yaml_io.dump(document)
+
+
+def set_documents(document: Any, documents: Sequence[DocumentRef]) -> None:
+    """Replace the `documents:` list — references and their authorship, nothing else.
+
+    There is no branch here that could write a title or a summary, because
+    :func:`_document` has no line that reads one: *"a title or summary resolved
+    from the document platform SHALL NOT be written into a specification
+    file"* is a property of this function rather than a rule somebody remembers.
+    Its own name is public because `.canon/project.yaml` carries the same block
+    for project-scoped links and must write it the same way.
+    """
+    if not documents:
+        document.pop(DOCUMENTS, None)
+        return
+    document[DOCUMENTS] = [_document(ref) for ref in documents]
+
+
+def _document(ref: DocumentRef) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "workspace": ref.workspace,
+        "id": ref.document_id,
+        "url": ref.url,
+    }
+    _put(entry, "linked_by", ref.linked_by)
+    _put(entry, "linked_at", ref.linked_at)
+    return entry
+
+
+# --------------------------------------------------------------------------
+# Aliases — the one thing acceptance writes (add-derived-metadata, D7)
+# --------------------------------------------------------------------------
+
+
+def _set_aliases(document: Any, aliases: Sequence[str]) -> None:
+    """Bring the `aliases:` sequence to exactly these values, in place.
+
+    **Mutated rather than replaced** whenever the document already has one, and
+    that is the whole of the surgical half of D7: a list the artist wrote in
+    flow style (`aliases: [mech, walker]`) stays in flow style, its node keeps
+    its position among the keys, and a comment beside it survives — so the
+    difference an acceptance produces is the one added term and nothing else.
+    Assigning a fresh Python list would re-render the sequence in block style
+    and turn a one-word change into a rewritten block.
+
+    A document with no `aliases:` at all gains one, which is an added key rather
+    than a rewritten file — still *only the intended change*.
+    """
+    wanted = list(aliases)
+    existing = document.get(ALIASES)
+    if not isinstance(existing, list):
+        if wanted:
+            document[ALIASES] = wanted
+        else:
+            document.pop(ALIASES, None)
+        return
+    for value in wanted:
+        if value not in existing:
+            existing.append(value)
+    for value in [held for held in existing if held not in wanted]:
+        existing.remove(value)
+    if not existing:
+        document.pop(ALIASES, None)
 
 
 # --------------------------------------------------------------------------
@@ -251,4 +342,4 @@ def _block(document: Any, key: str) -> Any:
     return document[key]
 
 
-__all__ = ["render"]
+__all__ = ["render", "render_project", "set_documents"]

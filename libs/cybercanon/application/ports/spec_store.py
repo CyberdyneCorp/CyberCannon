@@ -53,8 +53,19 @@ from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.domain.actors import ACTORS_PATH, EMPTY_MAPPING, ActorMapping
 from cybercanon.domain.asset import Asset
 from cybercanon.domain.constraints import Constraints
+from cybercanon.domain.documents import DocumentRef
 from cybercanon.domain.revisions import ContentHash
 from cybercanon.domain.violations import Severity, SpecViolation
+
+PROJECT_CONFIG_PATH = ".canon/project.yaml"
+"""Where a project's configuration lives, as a repository-relative POSIX path.
+
+Named here rather than only in the git adapter for the same reason
+:data:`~cybercanon.domain.actors.ACTORS_PATH` is named in the domain: a use case
+that writes a project-scoped document link has to say *which file it is
+writing*, and a use case that had to import an adapter to learn the name would
+break the layering to learn a string.
+"""
 
 EMPTY_SEVERITIES: Mapping[str, Severity] = MappingProxyType({})
 """The default per-rule severity table: empty, so every rule keeps its own."""
@@ -151,6 +162,16 @@ class ProjectConfig:
     severities: Mapping[str, Severity] = EMPTY_SEVERITIES
     preview: PreviewDefaults | None = None
     ingestion: IngestionDefaults | None = None
+    documents: tuple[DocumentRef, ...] = ()
+    """Long-form documents linked at project scope — references, never mirrors.
+
+    `document-platform` puts an asset-scoped link in that asset's specification
+    and a project-scoped one here, "so that both are versioned by the repository
+    alongside everything else authored there". They are listed beside an asset's
+    own links and distinguished from them; nothing about them is resolved at
+    this layer.
+    """
+
     warnings: tuple[SpecViolation, ...] = ()
 
     def severity_for(self, rule_id: str, default: Severity) -> Severity:
@@ -336,6 +357,20 @@ class SpecStore(Protocol):
         """
         ...
 
+    def edited_project(self, content: bytes, documents: tuple[DocumentRef, ...]) -> bytes:
+        """`.canon/project.yaml` carrying these project-scoped document links.
+
+        The one edit the project configuration accepts, and the narrowest
+        signature that could express it: no asset, no constraints, no golden
+        rules — a caller cannot rewrite the project's defaults through the door
+        that exists to add a link. Comments and key order survive it exactly as
+        they survive :meth:`edited`, because it is the same round trip.
+
+        `content` of ``b""`` composes a new file, which is what a project that
+        has never had a `.canon/project.yaml` needs.
+        """
+        ...
+
     def edited(self, document: SpecDocument, asset: Asset) -> bytes:
         """The same file carrying this asset's edits — comments and order kept (D4).
 
@@ -352,6 +387,7 @@ class SpecStore(Protocol):
 
 __all__ = [
     "EMPTY_SEVERITIES",
+    "PROJECT_CONFIG_PATH",
     "HistoryUnavailable",
     "IngestionDefaults",
     "LoadedMapping",

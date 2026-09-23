@@ -135,6 +135,16 @@ const SPEC = envelope({
 	notice: ''
 });
 
+const DOCUMENTS = envelope({
+	project: PROJECT,
+	asset: ASSET,
+	path: `characters/${ASSET}/asset.yaml`,
+	available: false,
+	reason: 'unconfigured',
+	guidance: 'Checkable statements belong in the specification; rationale in the document.',
+	links: []
+});
+
 type Answer = { readonly status: number; readonly body: Record<string, unknown> };
 
 /** A surface that answers by path, so one route's reads cannot answer another's. */
@@ -165,6 +175,7 @@ function assetAnswers(over: Partial<Record<'locations' | 'spec', Answer>> = {}) 
 	return (path: string): Answer => {
 		if (path.includes('/locations')) return over.locations ?? ok(LOCATIONS);
 		if (path.includes('/validations')) return ok(envelope(null));
+		if (path.includes('/documents')) return ok(DOCUMENTS);
 		return over.spec ?? ok(SPEC);
 	};
 }

@@ -17,6 +17,7 @@ import {
 	DELEGATED_SEARCH,
 	HOW_AN_ASSET_BEGINS,
 	INDEX_REBUILDING,
+	NOTHING_DELEGATED,
 	REBUILDING_NOTE,
 	disclosureOf,
 	emptinessFor,
@@ -147,7 +148,7 @@ describe('search results keep the order the ranking produced', () => {
 });
 
 describe('an empty result is three different screens', () => {
-	const nothing = { rows: [], total: 0, more: false };
+	const nothing = { rows: [], total: 0, more: false, semantic: NOTHING_DELEGATED };
 
 	it('states the query when nothing matched it', () => {
 		const state = emptinessFor(

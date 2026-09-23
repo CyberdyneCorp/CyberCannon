@@ -23,6 +23,7 @@ from cybercanon.domain.annotations import Annotation, open_annotations
 from cybercanon.domain.concept import Concept
 from cybercanon.domain.constraints import Constraints
 from cybercanon.domain.design import Design
+from cybercanon.domain.documents import DocumentRef
 from cybercanon.domain.status import Status
 
 
@@ -76,6 +77,15 @@ class Asset:
     design: Design | None = None
     constraints: Constraints | None = None
     links: Links | None = None
+    documents: tuple[DocumentRef, ...] = ()
+    """Long-form documents linked to this asset — references, never mirrors (D1).
+
+    Authored content like every other member here: a reference is written by a
+    person, versioned with the file, and carries no title, no summary and no
+    word of the document's body. What a document *says* never becomes a field on
+    this object, which is why there is no member here that could hold one.
+    """
+
     annotations: tuple[Annotation, ...] = ()
 
     def renamed(self, name: str) -> Asset:

@@ -166,6 +166,22 @@ type = "forbidden"
 source_modules = ["cybercanon.adapters.inbound.http"]
 forbidden_modules = ["cybercanon.adapters.outbound"]
 
+# The model adapter, and the HTTP client it sends with, stay behind the two
+# ports (add-derived-metadata, task 2.6). The layers contract above already
+# forbids `application -> adapters`, and this one fails *by name* so the person
+# who added the import is told which boundary they crossed — and it additionally
+# names `httpx`, because the point of `LLMPort` is that a use case cannot
+# observe the endpoint, the credential, the request or the response, and an HTTP
+# client reachable from the application is that observation one import away.
+[[tool.importlinter.contracts]]
+name = "The model adapter and its HTTP client stay behind LLMPort and VisionPort"
+type = "forbidden"
+source_modules = ["cybercanon.application", "cybercanon.domain"]
+forbidden_modules = [
+    "cybercanon.adapters.outbound.openai_compatible",
+    "httpx",
+]
+
 [[tool.importlinter.contracts]]
 name = "The domain imports no third-party package"
 type = "stdlib_only"

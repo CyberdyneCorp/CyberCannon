@@ -105,11 +105,16 @@ def test_the_declared_contracts_cover_every_clause_of_d10(repo_root: Path) -> No
     assert [contract["source_modules"] for contract in by_type["forbidden"]] == [
         ["cybercanon.adapters.inbound"],
         ["cybercanon.adapters.inbound.http"],
+        ["cybercanon.application", "cybercanon.domain"],
     ]
     assert all(
         contract["forbidden_modules"] == ["cybercanon.adapters.outbound"]
-        for contract in by_type["forbidden"]
+        for contract in by_type["forbidden"][:2]
     )
+    assert by_type["forbidden"][2]["forbidden_modules"] == [
+        "cybercanon.adapters.outbound.openai_compatible",
+        "httpx",
+    ]
     assert stdlib_only["modules"] == ["cybercanon.domain"]
 
 
@@ -124,3 +129,16 @@ def test_the_http_adapter_is_named_by_a_contract_of_its_own(repo_root: Path) -> 
     named = {contract["name"] for contract in _by_type(repo_root)["forbidden"]}
 
     assert "The HTTP adapter must not import outbound adapters" in named
+
+
+def test_the_model_adapter_is_named_by_a_contract_of_its_own(repo_root: Path) -> None:
+    """Task 2.6 — the adapter *and* the HTTP client stay behind the two ports.
+
+    The layers contract already forbids `application -> adapters`; this one adds
+    `httpx` by name, because the whole point of `LLMPort` is that a use case
+    cannot observe the endpoint, the request or the response, and an HTTP client
+    reachable from the application is that observation one import away.
+    """
+    named = {contract["name"] for contract in _by_type(repo_root)["forbidden"]}
+
+    assert "The model adapter and its HTTP client stay behind LLMPort and VisionPort" in named

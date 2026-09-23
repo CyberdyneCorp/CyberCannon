@@ -30,6 +30,7 @@ Two later capabilities are modelled the same way, with no file and no git:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import PurePosixPath
 
 from cybercanon.application.ports.spec_store import (
@@ -44,6 +45,7 @@ from cybercanon.application.ports.spec_store import (
 from cybercanon.domain.actor_checks import mapping_unparseable
 from cybercanon.domain.actors import ACTORS_PATH, EMPTY_MAPPING, ActorMapping
 from cybercanon.domain.asset import Asset
+from cybercanon.domain.documents import DocumentRef
 from cybercanon.domain.violations import SpecViolation
 
 SPEC_FILENAME = "asset.yaml"
@@ -270,6 +272,21 @@ class InMemorySpecStore:
         return self._remember(
             LoadedSpec(asset=asset, path=document.path, warnings=document.warnings)
         )
+
+    def edited_project(self, content: bytes, documents: tuple[DocumentRef, ...]) -> bytes:
+        """New project-configuration bytes carrying these links, and nothing else.
+
+        The fake has no file, so it renders the one block the signature can
+        reach and registers what those bytes mean — which is exactly what
+        :meth:`load_project` reads back, so a scenario that writes a
+        project-scoped link then lists it sees its own write.
+        """
+        self._raise_if_configured()
+        self._project = replace(self._project, documents=tuple(documents))
+        rendered = "# in-memory project configuration\n" + "".join(
+            f"# document {ref.workspace}/{ref.document_id} {ref.url}\n" for ref in documents
+        )
+        return rendered.encode()
 
     def _remember(self, loaded: LoadedSpec) -> bytes:
         """A stable handle for this specification, registered so it reads back."""

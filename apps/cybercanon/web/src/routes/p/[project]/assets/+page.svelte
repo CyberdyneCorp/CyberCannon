@@ -12,6 +12,7 @@
 	import ActiveFilters from '$lib/components/ActiveFilters.svelte';
 	import AssetListing from '$lib/components/AssetListing.svelte';
 	import SearchForm from '$lib/components/SearchForm.svelte';
+	import SemanticResults from '$lib/components/SemanticResults.svelte';
 	import { activeFilters, browserAddress, withoutFilters } from '$lib/address';
 	import type { BrowserView } from '$lib/browser';
 	import type { PageData } from './$types';
@@ -31,11 +32,14 @@
 	{#snippet content(view: BrowserView)}
 		{#if view.searched}
 			<p class="searched">
-				{view.rows.length} of {view.total} result(s) for “{view.query}”, in the order the
-				canon ranks them.
+				<span class="group">exact matches</span>: {view.rows.length} of {view.total}
+				result(s) for “{view.query}”, in the order the canon ranks them.
 			</p>
 		{/if}
 		<AssetListing project={data.address.project} rows={view.rows} />
+		{#if view.searched}
+			<SemanticResults group={view.semantic} />
+		{/if}
 	{/snippet}
 	{#snippet actions()}
 		{#if filtered}
@@ -48,5 +52,10 @@
 	.searched {
 		margin: 0 0 0.75rem;
 		font-size: 0.875rem;
+	}
+
+	.group {
+		text-transform: lowercase;
+		font-weight: 600;
 	}
 </style>

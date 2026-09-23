@@ -57,6 +57,7 @@ PROJECT_PREFIX = f"{PREFIX}/projects/{{project}}"
 
 REQUEST = "req-0001"
 ANNOTATION = "an-0001"
+DOCUMENT = "d_rationale"
 FORBIDDEN = 403
 
 EDIT = {"revision": "abc123", "content": "id: mech_scout\n", "summary": "an edit"}
@@ -75,6 +76,9 @@ MOVED = {"anchor": {"view": "front", "u": 0.6, "v": 0.6}}
 PROMOTION = {"rule": "the lens glow is always emissive", "destination": "concept.silhouette_rules"}
 REANCHORED = {"anchor": {"part": "SM_MechScout_Pauldron_L"}}
 """Enough of each annotation write to reach its authorization decision."""
+
+LINK = {"workspace": "w_production", "url": f"https://documents.invalid/d/{DOCUMENT}"}
+"""Enough of a document link to reach its authorization decision."""
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,7 @@ class Call:
             .replace(f"/assets/{SCOUT}", "/assets/{asset}")
             .replace(f"/{REQUEST}", "/{request_id}")
             .replace(f"/{ANNOTATION}", "/{annotation}")
+            .replace(f"/documents/{DOCUMENT}", "/documents/{document}")
             .replace("/views/front/revisions/r1", "/views/{slot}/revisions/{revision}")
             .replace("/views/front", "/views/{slot}")
         )
@@ -139,6 +144,11 @@ CALLS: tuple[Call, ...] = (
     Call("GET", f"{BASE}/assets/{SCOUT}/preview/content"),
     Call("GET", f"{BASE}/assets/{SCOUT}/preview/resolutions"),
     Call("GET", f"{BASE}/triage"),
+    Call("GET", f"{BASE}/assets/{SCOUT}/documents"),
+    Call("POST", f"{BASE}/assets/{SCOUT}/documents", {}),
+    Call("PUT", f"{BASE}/assets/{SCOUT}/documents/{DOCUMENT}", LINK),
+    Call("DELETE", f"{BASE}/assets/{SCOUT}/documents/{DOCUMENT}"),
+    Call("GET", f"{BASE}/assets/{SCOUT}/documents/{DOCUMENT}/revisions"),
 )
 """Every project-scoped endpoint, as one call each. Kept complete by a test."""
 

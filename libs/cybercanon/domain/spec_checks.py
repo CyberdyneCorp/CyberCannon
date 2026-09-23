@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from cybercanon.domain.asset import Asset, AssetId
 from cybercanon.domain.constraints import Constraints
 from cybercanon.domain.design import Design
+from cybercanon.domain.documents import reference_problem
 from cybercanon.domain.status import Status
 from cybercanon.domain.violations import Severity, SpecViolation
 
@@ -34,6 +35,7 @@ RULE_LODS_NOT_DESCENDING = "spec.lods_not_descending"
 RULE_LOD0_OVER_TRI_BUDGET = "spec.lod0_exceeds_tri_budget"
 RULE_DUPLICATE_ID = "spec.duplicate_id"
 RULE_STATE_CONSTRAINS_NOTHING = "spec.state_constrains_nothing"
+RULE_MALFORMED_DOCUMENT_REF = "spec.malformed_document_reference"
 
 RULE_IDS = (
     RULE_UNKNOWN_STATUS,
@@ -41,6 +43,7 @@ RULE_IDS = (
     RULE_LOD0_OVER_TRI_BUDGET,
     RULE_DUPLICATE_ID,
     RULE_STATE_CONSTRAINS_NOTHING,
+    RULE_MALFORMED_DOCUMENT_REF,
 )
 """Every structural rule, so the inventory can be printed and asserted."""
 
@@ -137,6 +140,32 @@ def check_states_are_checkable(
     )
 
 
+def check_document_reference(
+    location: str, workspace: str, document_id: str, url: str
+) -> tuple[SpecViolation, ...]:
+    """A document reference that is not well formed is reported, naming it.
+
+    `document-platform` requires exactly this and nothing more of validation:
+    *"A document reference SHALL be checked only for being well formed."* No
+    network, no platform, no configuration — the same offline guarantee the
+    validator has everywhere else, applied to a link.
+    """
+    problem = reference_problem(workspace, document_id, url)
+    if problem is None:
+        return ()
+    named = document_id or url or workspace or "(empty)"
+    return (
+        SpecViolation(
+            rule_id=RULE_MALFORMED_DOCUMENT_REF,
+            severity=Severity.ERROR,
+            subject=location,
+            message=(f"document reference {named!r} at {location} is not well formed: {problem}"),
+            observed=named,
+            expected="a workspace, a document id and an http(s) address, none of them blank",
+        ),
+    )
+
+
 def check_duplicate_ids(
     declarations: Iterable[SpecDeclaration],
 ) -> tuple[SpecViolation, ...]:
@@ -183,11 +212,13 @@ __all__ = [
     "RULE_IDS",
     "RULE_LOD0_OVER_TRI_BUDGET",
     "RULE_LODS_NOT_DESCENDING",
+    "RULE_MALFORMED_DOCUMENT_REF",
     "RULE_STATE_CONSTRAINS_NOTHING",
     "RULE_UNKNOWN_STATUS",
     "SpecDeclaration",
     "check_asset",
     "check_declared_status",
+    "check_document_reference",
     "check_duplicate_ids",
     "check_first_lod_within_tri_budget",
     "check_lods_descending",

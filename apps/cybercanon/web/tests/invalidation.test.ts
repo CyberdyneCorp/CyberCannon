@@ -43,6 +43,8 @@ const POPULATION: Readonly<Record<string, ResourceKey>> = {
 	'preview-content': resources.previewContent(PROJECT, ASSET),
 	resolutions: resources.resolutions(PROJECT, ASSET),
 	'resolutions:other-asset': resources.resolutions(PROJECT, 'crate_small'),
+	documents: resources.documents(PROJECT, ASSET),
+	'documents:other-asset': resources.documents(PROJECT, 'crate_small'),
 	triage: resources.triage(PROJECT),
 	'triage:filtered': resources.triage(PROJECT, { kind: 'art-direction' }),
 	'other-project:assets': resources.assets(OTHER),
@@ -252,3 +254,24 @@ describe('a write through the API reports what it invalidated', () => {
 const notCalled: typeof fetch = () => {
 	throw new Error('the write was performed by the caller, not by the client');
 };
+
+
+describe('link-document', () => {
+	it("drops this asset's links, its specification and its briefing, and no more", () => {
+		expect(forgottenBy('link-document', { asset: ASSET })).toEqual([
+			'asset:spec',
+			'asset:spec:lensed',
+			'briefing',
+			'documents'
+		]);
+	});
+
+	it("leaves the project listing, the searches and another asset's links alone", () => {
+		const forgotten = forgottenBy('link-document', { asset: ASSET });
+
+		expect(forgotten).not.toContain('assets:unfiltered');
+		expect(forgotten).not.toContain('search');
+		expect(forgotten).not.toContain('documents:other-asset');
+		expect(forgotten).not.toContain('validation');
+	});
+});

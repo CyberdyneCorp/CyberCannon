@@ -32,7 +32,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-from cybercanon.adapters.outbound.git import commands
+from cybercanon.adapters.outbound.git import atomic, commands
 from cybercanon.adapters.outbound.git.repository_host import (
     HISTORY_FORMAT,
     UNIT,
@@ -199,8 +199,7 @@ class LocalRepositoryHost:
         if change.is_removal:
             target.unlink(missing_ok=True)
             return
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(change.content or b"")
+        atomic.write_atomically(target, change.content or b"")
 
     def _git(self, arguments: Sequence[str]):
         try:

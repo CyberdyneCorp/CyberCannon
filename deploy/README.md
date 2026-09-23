@@ -81,6 +81,11 @@ Absent means the feature is off — or, for the key cache, that its default
 applies — not that the deployment is broken. The service starts, and everything
 that needs a model reports itself **unavailable** on `/status`.
 
+The five document-platform variables below are the same shape: absent or incomplete, the
+composition root wires a null document platform, stored document references are
+still listed and openable as plain addresses, and every capability unrelated to
+linked documents behaves exactly as it does with the platform configured.
+
 `CANON_WEB_ORIGINS` is what makes the web application usable at all: D1 puts the
 API on `api.backend…` and the application on `canon.backend…`, so every request
 the application makes is cross-origin and the browser will only hand the
@@ -107,6 +112,11 @@ outage is not honoured until the window ends.
 | `CANON_LLM_VISION_MODEL` | a model identifier | | — | the multimodal model for image description |
 | `CANON_LLM_TIMEOUT_S` | a whole number of seconds | | 30 | half of the failure budget |
 | `CANON_LLM_MAX_RETRIES` | a whole number of attempts | | 2 | the other half |
+| `CANON_ARCHE_ENABLED` | a switch | | off | the document platform's master switch; absent, linked-document features report themselves unavailable and everything else is unchanged |
+| `CANON_ARCHE_BASE_URL` | the document platform's API root | | — | reached with the *caller's own* credential, never a service one |
+| `CANON_ARCHE_DEFAULT_WORKSPACE` | a workspace identifier | | — | where a document created from an asset page is made |
+| `CANON_ARCHE_TIMEOUT_S` | a whole number of seconds | | 5 | the failure budget for one call |
+| `CANON_ARCHE_WEB_URL` | `scheme://host` | | the API root | where a person opens a linked document; it is another application's routing, so it is configured rather than guessed |
 
 ### `web` — required
 

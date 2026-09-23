@@ -20,7 +20,14 @@
 import { describe, expect, it } from 'vitest';
 import { assetScreen } from '../src/lib/asset';
 import type { AssetPage } from '../src/lib/asset';
-import type { ApiResult, Failure, LensedSpec, LocationAnswer, ValidationOutcome } from '../src/lib/api';
+import type {
+	ApiResult,
+	DocumentListing,
+	Failure,
+	LensedSpec,
+	LocationAnswer,
+	ValidationOutcome
+} from '../src/lib/api';
 import type { RouteState } from '../src/lib/route-state';
 
 const PROJECT = 'ironwood';
@@ -106,6 +113,7 @@ function surface(options: {
 	locations?: ApiResult<LocationAnswer>;
 	spec?: ApiResult<LensedSpec>;
 	validation?: ApiResult<ValidationOutcome>;
+	documents?: ApiResult<DocumentListing>;
 	document?: string;
 }): Recorded {
 	const asked: string[] = [];
@@ -136,6 +144,38 @@ function surface(options: {
 				actor: 'auth|rafa',
 				may_promote: false
 			});
+		},
+		async documents() {
+			asked.push('documents');
+			return (
+				options.documents ??
+				ok({
+					project: PROJECT,
+					asset: ASSET,
+					path: 'assets/mech_scout/asset.yaml',
+					available: true,
+					reason: null,
+					guidance:
+						"Checkable statements belong in the asset's specification; rationale belongs in the linked document.",
+					links: [
+						{
+							document: 'd_rationale',
+							workspace: 'w_production',
+							url: 'https://arche.invalid/w/w_production/d/d_rationale',
+							linked_by: 'auth|rafa',
+							linked_at: '2026-09-22T09:00:00+00:00',
+							scope: 'asset' as const,
+							state: 'readable' as const,
+							resolved: true,
+							title: 'mech_scout — design rationale',
+							summary: 'Why the scout reads as a courier.',
+							display_title: 'mech_scout — design rationale',
+							resolved_at: '2026-09-22T09:01:00+00:00',
+							actions: ['open', 'unlink']
+						}
+					]
+				})
+			);
 		},
 		async preview() {
 			asked.push('preview');
@@ -397,5 +437,65 @@ describe('what the route reads for the 3D viewer, and when', () => {
 		expect(asked).not.toContain('preview');
 		expect(asked).not.toContain('resolutions');
 		expect(asked).toContain('annotations');
+	});
+});
+
+
+describe("the asset's linked documents, and what happens when they cannot be read", () => {
+	it('reads the link list and carries it onto the screen', async () => {
+		const { asked, reads } = surface({});
+
+		const screen = await assetScreen(reads, PROJECT, ASSET, address());
+
+		expect(asked).toContain('documents');
+		expect(screen.documents?.links.map((link) => link.document)).toEqual(['d_rationale']);
+	});
+
+	it('does not fail the page when the link list cannot be read at all', async () => {
+		const { reads } = surface({
+			documents: refusal('unavailable', 'the document platform did not answer')
+		});
+
+		const screen = await assetScreen(reads, PROJECT, ASSET, address());
+
+		expect(screen.state.kind).toBe('content');
+		expect(dataOf(screen.state)?.name).toBe('Mech Scout');
+		expect(screen.documents).toBeNull();
+	});
+
+	it('carries the unavailability reason rather than dropping the links', async () => {
+		const { reads } = surface({
+			documents: ok({
+				project: PROJECT,
+				asset: ASSET,
+				path: 'assets/mech_scout/asset.yaml',
+				available: false,
+				reason: 'unconfigured',
+				guidance: 'Checkable statements belong in the specification.',
+				links: [
+					{
+						document: 'd_rationale',
+						workspace: 'w_production',
+						url: 'https://arche.invalid/w/w_production/d/d_rationale',
+						linked_by: 'auth|rafa',
+						linked_at: '2026-09-22T09:00:00+00:00',
+						scope: 'asset' as const,
+						state: 'unreachable' as const,
+						resolved: false,
+						title: '',
+						summary: '',
+						display_title: 'https://arche.invalid/w/w_production/d/d_rationale',
+						resolved_at: '',
+						actions: ['open', 'unlink']
+					}
+				]
+			})
+		});
+
+		const screen = await assetScreen(reads, PROJECT, ASSET, address());
+
+		expect(screen.state.kind).toBe('content');
+		expect(screen.documents?.reason).toBe('unconfigured');
+		expect(screen.documents?.links[0].display_title).toContain('https://');
 	});
 });

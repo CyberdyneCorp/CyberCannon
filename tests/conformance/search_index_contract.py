@@ -16,11 +16,19 @@ every answer is identical.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from cybercanon.application.ports.search_index import (
     FileFingerprint,
     IndexedAsset,
     MatchKind,
     SearchIndex,
+)
+from cybercanon.domain.derived import (
+    DerivedRecord,
+    Provenance,
+    accepted_decision,
+    rejected_decision,
 )
 
 PROJECT = "ironwood"
@@ -88,6 +96,31 @@ ELSEWHERE = IndexedAsset(
 CORPUS = (MECH_SCOUT, MULE, CRATE, ELSEWHERE)
 
 MISSING_TERM = "hovercraft"
+
+FRONT_HASH = "a" * 64
+SIDE_HASH = "b" * 64
+GENERATED_AT = datetime(2026, 9, 22, 11, 30, tzinfo=UTC)
+
+SUGGESTED = ("quadruped", "strider")
+"""Two terms nothing in the corpus carries, so the sixth pass is observable."""
+
+
+def a_record(
+    source_hash: str = FRONT_HASH,
+    asset_id: str = "mech_scout",
+    suggested: tuple[str, ...] = SUGGESTED,
+) -> DerivedRecord:
+    """One derived record, as generation produces it."""
+    return DerivedRecord(
+        provenance=Provenance(
+            model="vision-v1", generated_at=GENERATED_AT, source_hash=source_hash
+        ),
+        asset_id=asset_id,
+        source_path=f"characters/{asset_id}/concept/front.png",
+        description="A light reconnaissance walker.",
+        tags=("mech", "walker"),
+        suggested_aliases=suggested,
+    )
 
 
 def seed(index: SearchIndex) -> SearchIndex:
@@ -260,3 +293,141 @@ class SearchIndexContract:
 
         assert implementation.list_assets(project=PROJECT) == before_list
         assert implementation.search("mech", project=PROJECT) == before_search
+
+    # -- derived metadata (add-derived-metadata, D5, D6, D9) -------------
+
+    def test_a_derived_record_round_trips_with_its_whole_provenance(
+        self, implementation: SearchIndex
+    ) -> None:
+        """The model, the moment and the source hash have to survive a column."""
+        implementation.put_derived(a_record(), project=PROJECT)
+
+        found = implementation.derived(FRONT_HASH, project=PROJECT)
+
+        assert found is not None
+        assert found.provenance == Provenance(
+            model="vision-v1", generated_at=GENERATED_AT, source_hash=FRONT_HASH
+        )
+        assert found.description == "A light reconnaissance walker."
+        assert found.tags == ("mech", "walker")
+        assert found.suggested_aliases == SUGGESTED
+        assert found.source_path == "characters/mech_scout/concept/front.png"
+
+    def test_a_record_is_keyed_by_the_image_so_regenerating_replaces_it(
+        self, implementation: SearchIndex
+    ) -> None:
+        """D5: the same bytes are the same row, however the words came out."""
+        implementation.put_derived(a_record(suggested=("quadruped",)), project=PROJECT)
+        implementation.put_derived(a_record(suggested=("strider",)), project=PROJECT)
+
+        held = implementation.derived_records(project=PROJECT)
+
+        assert len(held) == 1
+        assert held[0].suggested_aliases == ("strider",)
+
+    def test_a_different_image_is_a_different_record(self, implementation: SearchIndex) -> None:
+        implementation.put_derived(a_record(FRONT_HASH), project=PROJECT)
+        implementation.put_derived(a_record(SIDE_HASH), project=PROJECT)
+
+        held = implementation.derived_records(project=PROJECT)
+
+        assert {record.source_hash for record in held} == {FRONT_HASH, SIDE_HASH}
+
+    def test_records_can_be_narrowed_to_one_asset(self, implementation: SearchIndex) -> None:
+        implementation.put_derived(a_record(FRONT_HASH, "mech_scout"), project=PROJECT)
+        implementation.put_derived(a_record(SIDE_HASH, "mule"), project=PROJECT)
+
+        held = implementation.derived_records(project=PROJECT, asset_id="mule")
+
+        assert [record.asset_id for record in held] == ["mule"]
+
+    def test_an_unknown_image_has_no_record(self, implementation: SearchIndex) -> None:
+        assert implementation.derived("c" * 64, project=PROJECT) is None
+
+    def test_a_decision_round_trips_keyed_by_the_image_and_the_value(
+        self, implementation: SearchIndex
+    ) -> None:
+        """D6: the key is `(source hash, value)` and never the asset."""
+        implementation.put_derived(a_record(), project=PROJECT)
+        implementation.record_decision(
+            accepted_decision(FRONT_HASH, "strider", "auth|rafa", GENERATED_AT, "strider_mk2"),
+            project=PROJECT,
+        )
+
+        (decision,) = implementation.decisions(FRONT_HASH, project=PROJECT)
+
+        assert decision.key == (FRONT_HASH, "strider")
+        assert decision.accepted
+        assert decision.actor == "auth|rafa"
+        assert decision.at == GENERATED_AT
+        assert decision.recorded == "strider_mk2"
+
+    def test_a_decision_about_one_image_says_nothing_about_another(
+        self, implementation: SearchIndex
+    ) -> None:
+        implementation.put_derived(a_record(FRONT_HASH), project=PROJECT)
+        implementation.put_derived(a_record(SIDE_HASH), project=PROJECT)
+        implementation.record_decision(rejected_decision(FRONT_HASH, "strider"), project=PROJECT)
+
+        assert implementation.decisions(SIDE_HASH, project=PROJECT) == ()
+
+    def test_a_suggestion_matches_on_the_last_pass_and_discloses_itself(
+        self, implementation: SearchIndex
+    ) -> None:
+        """D9: it rescues a search that would return nothing, and says why."""
+        assert implementation.search("quadruped", project=PROJECT) == ()
+
+        implementation.put_derived(a_record(), project=PROJECT)
+
+        (hit,) = implementation.search("quadruped", project=PROJECT)
+        assert hit.asset_id == "mech_scout"
+        assert hit.kind is MatchKind.SUGGESTED_ALIAS
+        assert hit.is_suggestion
+        assert hit.matched == "quadruped"
+
+    def test_an_accepted_alias_outranks_a_suggestion(self, implementation: SearchIndex) -> None:
+        implementation.put_derived(a_record(suggested=("drone",)), project=PROJECT)
+
+        hits = implementation.search("drone", project=PROJECT)
+
+        assert [hit.kind for hit in hits] == [MatchKind.ALIAS]
+        assert hits[0].asset_id == "mech_scout"
+
+    def test_a_rejected_suggestion_stops_rescuing_searches(
+        self, implementation: SearchIndex
+    ) -> None:
+        implementation.put_derived(a_record(), project=PROJECT)
+        implementation.record_decision(rejected_decision(FRONT_HASH, "quadruped"), project=PROJECT)
+
+        assert implementation.search("quadruped", project=PROJECT) == ()
+        assert implementation.search("strider", project=PROJECT)
+
+    def test_a_suggestion_is_scoped_to_its_own_project(self, implementation: SearchIndex) -> None:
+        implementation.put_derived(a_record(), project=PROJECT)
+
+        assert implementation.search("quadruped", project=OTHER_PROJECT) == ()
+
+    def test_dropping_the_derived_half_leaves_the_asset_rows(
+        self, implementation: SearchIndex
+    ) -> None:
+        """*"Deleting all derived records SHALL cause no loss of project information."*"""
+        implementation.put_derived(a_record(), project=PROJECT)
+        implementation.record_decision(rejected_decision(FRONT_HASH, "strider"), project=PROJECT)
+        before = implementation.list_assets(project=PROJECT)
+
+        implementation.clear_derived(project=PROJECT)
+
+        assert implementation.derived_records(project=PROJECT) == ()
+        assert implementation.decisions(project=PROJECT) == ()
+        assert implementation.list_assets(project=PROJECT) == before
+        assert implementation.search("mech", project=PROJECT)
+        assert implementation.search("quadruped", project=PROJECT) == ()
+
+    def test_clearing_the_whole_index_clears_the_derived_half_too(
+        self, implementation: SearchIndex
+    ) -> None:
+        implementation.put_derived(a_record(), project=PROJECT)
+
+        implementation.clear()
+
+        assert implementation.derived_records() == ()

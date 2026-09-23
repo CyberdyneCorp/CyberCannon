@@ -72,6 +72,11 @@ applications:
         - CANON_LLM_VISION_MODEL
         - CANON_LLM_TIMEOUT_S
         - CANON_LLM_MAX_RETRIES
+        - CANON_ARCHE_ENABLED
+        - CANON_ARCHE_BASE_URL
+        - CANON_ARCHE_DEFAULT_WORKSPACE
+        - CANON_ARCHE_TIMEOUT_S
+        - CANON_ARCHE_WEB_URL
       # Values, for the settings whose *destination* is a deployment decision
       # rather than a credential. `project.md`: *"CANON_LLM_BASE_URL points at
       # the on-prem gateway from inside Coolify's network, which keeps

@@ -26,12 +26,13 @@ Three pieces:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from canon_fixtures import image as fixtures
 from cybercanon.adapters.outbound.git import schema, writer, yaml_io
 from cybercanon.application.ports.spec_store import (
+    PROJECT_CONFIG_PATH,
     HistoryUnavailable,
     LoadedMapping,
     LoadedSpec,
@@ -142,7 +143,25 @@ class RepositorySpecStore:
         return candidate if candidate in self.specs_under("") else None
 
     def load_project(self, start: str) -> ProjectConfig:
-        return self.config
+        """The configuration, with its document links read out of the repository.
+
+        The static half is whatever a test seeded; the `documents:` half is read
+        from `.canon/project.yaml` in the host, because a project-scoped link is
+        *written* there and a store that answered a remembered value would make
+        a write that landed and a write that did not look identical.
+        """
+        content = self.host.read(self.project, PROJECT_CONFIG_PATH, self._revision())
+        if content is None:
+            return self.config
+        data = yaml_io.load_mapping(content.decode("utf-8"), subject=PROJECT_CONFIG_PATH)
+        parsed, _ = schema.parse_project_file(data)
+        documents, _ = schema.to_documents(parsed.documents, "documents")
+        return replace(self.config, documents=documents)
+
+    def edited_project(self, content: bytes, documents) -> bytes:
+        """The adapter's own writer over `.canon/project.yaml`, comments intact."""
+        text = content.decode("utf-8") if content else ""
+        return writer.render_project(text, documents).encode("utf-8")
 
     def load_actor_mapping(self, start: str = "") -> LoadedMapping:
         return LoadedMapping(mapping=self.mapping)

@@ -24,7 +24,12 @@ adds the two the read surface needs: ``identity_provider`` and ``search_index``.
 ``notifier`` and ``dismissals``, plus the two CyberdyneAuth brings for the
 command line: ``credential_store`` and ``interactive_sign_in``.
 ``add-concept-ingestion`` adds the three ingestion needs: ``image_inspector``,
-``thumbnail_renderer`` and ``view_index``.
+``thumbnail_renderer`` and ``view_index``. The document-platform change adds
+the one linked documents need: ``document_platform``. ``add-derived-metadata``
+adds the two a model-backed feature needs: ``llm`` and ``vision`` — registered
+here for the reason every other fake is, which is that `llm-integration`'s
+*"model-backed features SHALL be testable with no endpoint reachable"* has to be
+true of the scenarios as well as of the unit suite.
 """
 
 from __future__ import annotations
@@ -36,9 +41,11 @@ from typing import Any
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.credential_store import InMemoryCredentialStore
 from cybercanon.application.testing.dismissals import InMemoryDismissals
+from cybercanon.application.testing.document_platform import InMemoryDocumentPlatform
 from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
 from cybercanon.application.testing.image_inspector import InMemoryImageInspector
 from cybercanon.application.testing.interactive_sign_in import InMemoryInteractiveSignIn
+from cybercanon.application.testing.llm import InMemoryLLM
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
 from cybercanon.application.testing.notifier import InMemoryNotifier
 from cybercanon.application.testing.repository_host import InMemoryRepositoryHost
@@ -46,6 +53,7 @@ from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.testing.thumbnail_renderer import InMemoryThumbnailRenderer
 from cybercanon.application.testing.view_index import InMemoryViewIndex
+from cybercanon.application.testing.vision import InMemoryVision
 
 FakeFactory = Callable[[], Any]
 """A zero-argument constructor for one port's in-memory fake."""
@@ -55,9 +63,11 @@ FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType(
         "blob_store": InMemoryBlobStore,
         "credential_store": InMemoryCredentialStore,
         "dismissals": InMemoryDismissals,
+        "document_platform": InMemoryDocumentPlatform,
         "identity_provider": InMemoryIdentityProvider,
         "image_inspector": InMemoryImageInspector,
         "interactive_sign_in": InMemoryInteractiveSignIn,
+        "llm": InMemoryLLM,
         "mesh_inspector": InMemoryMeshInspector,
         "notifier": InMemoryNotifier,
         "repository_host": InMemoryRepositoryHost,
@@ -65,6 +75,7 @@ FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType(
         "spec_store": InMemorySpecStore,
         "thumbnail_renderer": InMemoryThumbnailRenderer,
         "view_index": InMemoryViewIndex,
+        "vision": InMemoryVision,
     }
 )
 """Port name -> the fake that stands in for it. One entry per port."""
@@ -97,6 +108,7 @@ __all__ = [
     "InMemoryIdentityProvider",
     "InMemoryImageInspector",
     "InMemoryInteractiveSignIn",
+    "InMemoryLLM",
     "InMemoryMeshInspector",
     "InMemoryNotifier",
     "InMemoryRepositoryHost",
@@ -104,6 +116,7 @@ __all__ = [
     "InMemorySpecStore",
     "InMemoryThumbnailRenderer",
     "InMemoryViewIndex",
+    "InMemoryVision",
     "build_fakes",
     "fake_names",
 ]
