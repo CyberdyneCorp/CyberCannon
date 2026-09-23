@@ -36,9 +36,13 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~390 s on a warm checkout — 4973 Python tests (4973 passed,
-# 31 skipped, 122 e2e deselected) plus 763 frontend tests across 38 files, 657
-# scenarios, 0 absent. The skips are the
+# Measured runtime: ~431 s on a warm checkout — earlier timed runs of a smaller
+# tree gave 319 s, 345 s, 375 s, 390 s, 397 s and 424 s, which is the spread a
+# laptop gives and the reason this is a record rather than a budget — 5011
+# Python tests (4981 passed, 31 skipped, 138 e2e deselected) plus 763 frontend
+# tests across 38 files, 657 scenarios, 0 absent — of which the frontend suites
+# () are ~5 s including the build the code-splitting assertion reads.
+# The skips are the
 # opt-in Blender cross-check, which runs only with `CANON_BLENDER` set; the
 # xfail is gone because the defect it recorded — a multi-object OBJ losing every
 # part name but one — is fixed rather than tolerated.

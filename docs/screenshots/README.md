@@ -8,20 +8,35 @@ restyle can be reviewed without bringing that stack up.
 `openspec/project.md` ("Visual language — neo-brutalism") is the decision these
 render; `apps/cybercanon/web/src/lib/styles/tokens.css` is every value in them.
 
-## What was signed in, and what could not be
+## What was signed in, and how
 
-The e2e stack configures `CANON_AUTH_ISSUER` and `CANON_AUTH_KEY_SET_URL` at an
-address **nothing in this repository implements**, so the stack as it ships
-serves no authenticated screen: every asset surface answers `401`, and the
-browser lands on `forbidden`. That is why the suite in `tests/e2e/` asserts only
-what a signed-out browser can see.
+01 through 14 were **re-captured from the stack as it now ships**, with no
+identity provider bolted on from the host. `deploy/e2e/compose.yaml` runs
+CyberdyneAuth as a service of its own — `deploy/e2e/issuer.Dockerfile` over
+`tools/canon_issuer`, the same issuer the port-conformance, integration and BDD
+layers mint against — and the browser completed a real authorization-code
+exchange with a real proof key against it. The API verified the credential
+against the published key set, resolved `auth|rafa`, and answered from the real
+index.
 
-For these captures the stack was pointed at a key set that does answer —
-`tools/canon_issuer`'s `FakeIssuer`, which signs with real RSA keys, served over
-HTTP on the host — so the API verified a real credential and returned real rows
-from the real index. **The application, its components and its CSS are the
-running build in every image below.** Nothing was mocked in the browser except
-where a caption says so.
+Until that service existed, `CANON_AUTH_KEY_SET_URL` named an address on the
+`api` that **nothing served**: the catch-all refuses any path carrying no
+surface version, the retrieval answered 400, no credential could ever verify,
+and the stack served no authenticated screen at all. That is why the earlier set
+needed an issuer on the host, and why `tests/e2e/` could only assert what a
+signed-out browser sees. It now asserts the signed-in half too
+(`tests/e2e/test_web_signed_in.py`).
+
+15 through 20 are the earlier captures, unchanged: they are the screens that
+need something the seeded project cannot produce — a substituted API answer, an
+unmapped identity, an expired session.
+
+**One step is not automatic.** The index is rebuilt from the working copy by an
+operator command rather than by the service, so these were taken after running
+the rebuild against the running stack, keyed by the project the surface serves.
+`deploy/go-live.md` §0 (B3) is why that is not simply
+`python -m cybercanon.api.recover`, and it is a blocker for the real deployment
+rather than a quirk of this folder.
 
 | | Screen | Credential | Data |
 |---|---|---|---|
@@ -79,7 +94,13 @@ before-and-after is ever wanted.
 
 ## Reproducing them
 
-The captures are not a recipe in the justfile: they need an identity provider
-the deployment does not have, and a recipe that only works with one bolted on is
-a recipe that misleads. `tests/e2e/` is the automated claim about these screens;
+Bring the stack up (`just test-e2e` does it, or `docker compose --file
+deploy/e2e/compose.yaml up --wait --build`), rebuild the index against it, then
+drive a browser through `/sign-in` — the application does the rest, because the
+stack now contains an issuer that answers.
+
+They are still not a recipe in the justfile, for a smaller reason than before:
+the index step is manual until `deploy/go-live.md` B3 is resolved, and a recipe
+that silently depended on somebody having run a command by hand would be a
+recipe that misleads. `tests/e2e/` is the automated claim about these screens;
 these images are the reviewable one.

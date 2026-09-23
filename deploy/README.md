@@ -11,6 +11,12 @@ CyberCanon runs on the Cyberdyne Coolify instance at
 | `postgres` | the **rebuildable index** — never a source of truth | internal |
 | `minio` | the **blob mirror** — views, exports, preview GLBs | internal |
 
+> **Deploying it for the first time?** [`go-live.md`](go-live.md) is the
+> worksheet: what a human must obtain before anything is configured, a value per
+> variable for pre-production, the Migration Plan's order with each step's
+> confirmation, and the three things that are known not to work yet. This
+> document is the reference it points back to.
+
 The `canon` command line and the agent server are **deliberately not here**. The
 agent server is stdio and local-first; hosting it would add an open port, a CORS
 surface and a network threat model that local-first exists to avoid.
@@ -270,7 +276,9 @@ from the remote repository rather than by restoring it.
 All three survive a restart, a redeploy and an artifact promotion: the state is
 on the volume and the container is the thing being replaced. The procedures, the
 expected durations and the drill that measures them are in
-[`../docs/recovery.md`](../docs/recovery.md).
+[`recovery.md`](recovery.md); [`../docs/recovery.md`](../docs/recovery.md) is
+the neighbouring page and answers a different question — *what state does this
+service hold, and is all of it rebuildable?*
 
 ## Health, readiness and status
 

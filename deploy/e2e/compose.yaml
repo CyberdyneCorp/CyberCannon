@@ -65,6 +65,49 @@ services:
       timeout: 3s
       retries: 30
 
+  # CyberdyneAuth, in the stack rather than stubbed. `CANON_AUTH_KEY_SET_URL`
+  # used to name `http://api:8000/e2e-issuer/jwks.json` and **nothing served
+  # it**: the api's catch-all refuses any path carrying no surface version, so
+  # the key set retrieval answered 400, no credential could ever verify, and
+  # the browser suites could only ever assert the signed-out half of the
+  # application. Every screenshot this project has ever taken was limited by
+  # that one line.
+  #
+  # It is `tools/canon_issuer` — the same issuer the port-conformance,
+  # integration and BDD layers mint and rotate real RSA-signed credentials with
+  # — behind a socket. Who it signs in is this block's decision, not the
+  # module's: the groups below are the ones `CANON_AUTH_GROUP_ROLES` maps, and
+  # the project is the one `CANON_PROJECT` serves, so an actor arrives entitled
+  # to read it.
+  issuer:
+    build:
+      context: ../..
+      dockerfile: deploy/e2e/issuer.Dockerfile
+    environment:
+      # The address a credential names itself issued by, and the address the
+      # browser reaches — one string, because the `iss` claim the api checks
+      # against `CANON_AUTH_ISSUER` is the one the browser is redirected to.
+      # The api retrieves the key set at `http://issuer:9000` instead, on the
+      # compose network, which is exactly why the service declares the issuer
+      # and the key set address as two settings.
+      ISSUER_URL: http://localhost:9000
+      ISSUER_AUDIENCE: cybercanon-e2e
+      ISSUER_CLIENT_ID: cybercanon-web
+      ISSUER_SUBJECT: auth|rafa
+      ISSUER_NAME: Rafa Moreno
+      ISSUER_GROUPS: artists
+      ISSUER_PROJECTS: ronin
+      ISSUER_GIT_EMAILS: rafa@cyberdynecorp.ai
+    ports:
+      # Published because the browser is redirected here from the host and
+      # posts the code exchange here from the application's origin.
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/healthz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
   api:
     build:
       context: ../..
@@ -73,6 +116,7 @@ services:
       postgres: {condition: service_healthy}
       minio: {condition: service_healthy}
       repository: {condition: service_healthy}
+      issuer: {condition: service_healthy}
     environment:
       # The address the project is served at, and therefore the identity every
       # project-keyed decision underneath is made with: the entitlement, the
@@ -84,9 +128,14 @@ services:
       CANON_REPOSITORY_CREDENTIAL: unused-for-the-git-protocol
       CANON_FETCH_INTERVAL_S: "60"
       CANON_WEBHOOK_SECRET: e2e-webhook-secret
-      CANON_AUTH_ISSUER: http://api:8000/e2e-issuer
+      # The issuer identifier is the browser-facing address, because that is
+      # what the `iss` claim of a credential minted for a person in a browser
+      # says. The key set is retrieved over the compose network instead: these
+      # are two addresses for one service and the service declares them
+      # separately for exactly this reason.
+      CANON_AUTH_ISSUER: http://localhost:9000
       CANON_AUTH_AUDIENCE: cybercanon-e2e
-      CANON_AUTH_KEY_SET_URL: http://api:8000/e2e-issuer/jwks.json
+      CANON_AUTH_KEY_SET_URL: http://issuer:9000/jwks.json
       CANON_AUTH_GROUP_ROLES: art-directors=ART_DIRECTOR,artists=ARTIST
       CANON_DATABASE_URL: postgresql://canon:canon@postgres:5432/canon  # not-a-credential: created and destroyed by the run
       CANON_OBJECT_STORE_URL: http://canon:canon-secret@minio:9000/canon-e2e  # not-a-credential: created and destroyed by the run
@@ -123,8 +172,19 @@ services:
       dockerfile: deploy/e2e/web.Dockerfile
     depends_on:
       api: {condition: service_healthy}
+      issuer: {condition: service_healthy}
     environment:
       PUBLIC_CANON_API_URL: http://localhost:8000
+      # Sign-in, which the application reads at run time through
+      # `$env/dynamic/public`. Without these three the application serves every
+      # screen and states that sign-in is unavailable — which is what it did
+      # for as long as the key set address named nothing, and why no signed-in
+      # screen was ever exercised. The redirect address is deliberately absent:
+      # it is the origin the person is on plus `/signed-in`, so a preview
+      # deployment cannot send people back to another one by inheriting a value.
+      PUBLIC_CANON_AUTH_ISSUER: http://localhost:9000
+      PUBLIC_CANON_AUTH_CLIENT_ID: cybercanon-web
+      PUBLIC_CANON_AUTH_AUDIENCE: cybercanon-e2e
       PORT: "5173"
       HOST: "0.0.0.0"
     ports:
