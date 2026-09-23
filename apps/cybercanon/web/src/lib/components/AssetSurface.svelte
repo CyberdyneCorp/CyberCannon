@@ -118,3 +118,20 @@
 {:else}
 	<p class="pending">This asset's preview could not be read at this revision.</p>
 {/if}
+
+<style>
+	/*
+	 * The two sentences this component can put on a screen by itself.
+	 *
+	 * Both say the same kind of thing — *the route could not read this at
+	 * this revision* — and neither is a failure the person can act on here,
+	 * so both are prose on the page's ground. The states that ARE actionable
+	 * are further in: `Viewer3D` carries the unloadable preview and its
+	 * retry, and `RouteScreen` carries the six route states.
+	 */
+	.pending {
+		margin: 0;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
+	}
+</style>

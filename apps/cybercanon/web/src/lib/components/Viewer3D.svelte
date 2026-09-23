@@ -407,13 +407,19 @@
 		<button type="button" onclick={retry}>Retry</button>
 	{:else}
 		<div class="stage">
-			<canvas
-				bind:this={canvas}
-				width="640"
-				height="360"
-				onpointerdown={pressed}
-				onpointerup={released}
-			></canvas>
+			<!-- Neo-brutalism frames the canvas; it does not reach inside it. The
+			     edge, the hard offset and the ground are on this wrapper, and the
+			     canvas keeps the sizing it had, because `$lib/viewer/scene` reads
+			     `canvas.clientWidth` to size the renderer. -->
+			<div class="frame">
+				<canvas
+					bind:this={canvas}
+					width="640"
+					height="360"
+					onpointerdown={pressed}
+					onpointerup={released}
+				></canvas>
+			</div>
 			<div class="navigation" role="group" aria-label="framing">
 				<button type="button" onclick={frameEverything}>Frame asset</button>
 				<button type="button" onclick={frameThePart} disabled={!selectedPart}>
@@ -481,16 +487,54 @@
 </section>
 
 <style>
+	/*
+	 * The viewer's chrome. The render is three.js's and this stylesheet does
+	 * not reach inside it: everything here is the frame around the canvas,
+	 * the provenance above it, the parts beside it and the threads below.
+	 */
 	.viewer {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: var(--space-6);
 	}
-	canvas {
-		width: 100%;
-		max-width: 40rem;
-		background: #14161a;
+
+	h3 {
+		font-size: var(--text-h4);
+		margin-block-end: var(--space-2);
 	}
+
+	/*
+	 * WHAT IS BEING SHOWN AND AGAINST WHAT. `viewer-3d` requires the export
+	 * and the revision on the screen, so they lead, and they are set in the
+	 * mono because they are identifiers rather than prose.
+	 */
+	.provenance p {
+		margin: 0;
+		font-size: var(--text-small);
+	}
+
+	.export,
+	.revision {
+		font-family: var(--font-mono);
+		font-weight: var(--font-weight-strong);
+		color: var(--color-text);
+	}
+
+	/* A preview drawn against a revision that is no longer the current one.
+	   A disclosure rather than a failure — what is on screen is real, it is
+	   just not the latest — so it takes the spot yellow the design gives a
+	   notice. */
+	.superseded {
+		margin: var(--space-2) 0 0;
+		background: var(--color-highlight);
+		color: var(--color-text);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
+		padding: var(--space-2) var(--space-3);
+		font-weight: var(--font-weight-medium);
+	}
+
 	.figures,
 	.parts ul,
 	.thread-list {
@@ -498,20 +542,308 @@
 		margin: 0;
 		padding: 0;
 	}
+
+	/*
+	 * The counts, set as the design sets them: the figure large, tabular and
+	 * over its label, so triangles and objects can be read against a budget
+	 * at a glance.
+	 */
 	.figures {
 		display: flex;
-		gap: 1rem;
+		flex-wrap: wrap;
+		gap: var(--space-6);
+		margin-block-start: var(--space-3);
 	}
+
+	.figures li {
+		display: flex;
+		flex-direction: column-reverse;
+	}
+
+	.figures .value {
+		font-family: var(--font-mono);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-h3);
+		font-variant-numeric: tabular-nums;
+		line-height: var(--leading-heading);
+	}
+
+	.figures .label {
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--color-neutral-700);
+	}
+
+	/*
+	 * A figure the export does not record. *"Not recorded"* is a statement
+	 * about the file, not a number, so it drops out of the mono into the
+	 * body face at body size — it stops looking like a count somebody could
+	 * compare, which is exactly what it is not.
+	 */
 	.unrecorded .value {
-		font-style: italic;
+		font-family: var(--font-body);
+		font-size: var(--text-body);
+		font-weight: 400;
+		color: var(--color-neutral-700);
 	}
-	.orphaned .orphan {
-		font-style: italic;
+
+	.stage {
+		display: grid;
+		gap: var(--space-3);
+		justify-items: start;
 	}
-	.degraded,
+
+	/*
+	 * THE FRAME AROUND THE CANVAS. Neo-brutalism frames the render; it does
+	 * not reach inside it. The canvas keeps the size it had — the scene
+	 * module sizes its renderer from `canvas.clientWidth` — and everything
+	 * this system draws is on the wrapper.
+	 */
+	.frame {
+		width: 100%;
+		max-width: 40rem;
+		background: var(--color-surface);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-lg);
+	}
+
+	canvas {
+		display: block;
+		width: 100%;
+	}
+
+	.navigation {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	/*
+	 * NO RENDERING CONTEXT (D11). This is a disclosure and not an error: the
+	 * stills, the specification and every thread including the orphans are
+	 * still here and still triageable — what is missing is the render. So it
+	 * takes the spot yellow this interface gives *some of this is
+	 * unavailable*, and the sentence about placing an anchor sits under it as
+	 * prose, because it is the consequence rather than a second problem.
+	 */
+	.degraded {
+		margin: 0;
+		background: var(--color-highlight);
+		color: var(--color-text);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
+		padding: var(--space-2) var(--space-3);
+		font-weight: var(--font-weight-medium);
+	}
+
+	.placement-unavailable,
+	.placement {
+		margin: var(--space-2) 0 0;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
+	}
+
+	/* An asset with no preview at all. Nothing went wrong; there is simply
+	   nothing to draw. Prose, on the page's ground, with no box. */
 	.no-preview,
-	.unloadable,
 	.absence {
-		font-style: italic;
+		margin: 0;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
+	}
+
+	/*
+	 * A PREVIEW THAT EXISTS AND COULD NOT BE LOADED, which `viewer-3d`
+	 * requires to be a different sentence from *this asset has no preview* —
+	 * the two send a person to different places. This one is the second
+	 * accent, because something did fail, and it is the only state in this
+	 * component that carries a retry.
+	 */
+	.unloadable {
+		margin: 0;
+		background: var(--color-accent-2-100);
+		color: var(--color-text);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
+		padding: var(--space-2) var(--space-3);
+		font-weight: var(--font-weight-medium);
+	}
+
+	.unloadable-reason {
+		margin: var(--space-2) 0;
+		font-size: var(--text-small);
+		color: var(--color-accent-2-800);
+	}
+
+	/* The one way forward out of an unloadable preview, so it takes the spot
+	   yellow the design reserves for the action a block is about. It is the
+	   only direct control this section has. */
+	.viewer > button {
+		justify-self: start;
+		background: var(--color-highlight);
+	}
+
+	.viewer > button:hover:not(:disabled) {
+		background: var(--color-highlight-hover);
+	}
+
+	/*
+	 * The parts. A column of rows rather than a row of controls: the design
+	 * sets a list like this flat, with the selected one on the spot yellow,
+	 * because ten bordered buttons stacked is ten boxes and no hierarchy.
+	 */
+	.parts ul {
+		display: grid;
+		gap: 0;
+	}
+
+	.parts li button {
+		display: block;
+		width: 100%;
+		text-align: start;
+		font-family: var(--font-body);
+		font-weight: 400;
+		font-size: var(--text-small);
+		background: none;
+		border: 0;
+		box-shadow: none;
+		padding: var(--space-1) var(--space-2);
+		color: var(--color-text);
+	}
+
+	.parts li button:hover:not(:disabled) {
+		transform: none;
+		box-shadow: none;
+		background: var(--color-neutral-100);
+	}
+
+	.parts li button:active:not(:disabled) {
+		transform: none;
+		box-shadow: none;
+	}
+
+	.parts li.selected button {
+		background: var(--color-highlight);
+		font-weight: var(--font-weight-strong);
+	}
+
+	.selected-part {
+		margin: var(--space-2) 0 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-small);
+	}
+
+	.threads {
+		display: grid;
+		gap: var(--space-3);
+	}
+
+	/*
+	 * How many threads this export cannot draw, answered by the server
+	 * without a renderer (D6) and stated whatever the number is. It is set as
+	 * prose rather than as a tag: a permanent pink label reading `0 orphaned`
+	 * would be an alarm about nothing, and the rows below carry the mark for
+	 * the ones that need a decision.
+	 */
+	.orphan-count {
+		margin: 0;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
+	}
+
+	.thread-list {
+		display: grid;
+		gap: var(--space-1);
+	}
+
+	.thread-list li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-1) var(--space-2);
+	}
+
+	.thread-list li button {
+		flex: 1 1 12rem;
+		text-align: start;
+		font-family: var(--font-body);
+		font-weight: 400;
+		font-size: var(--text-small);
+		line-height: var(--leading-body);
+		background: none;
+		border: 0;
+		box-shadow: none;
+		padding: var(--space-1) var(--space-2);
+		color: var(--color-text);
+	}
+
+	.thread-list li button:hover:not(:disabled) {
+		transform: none;
+		box-shadow: none;
+		background: var(--color-neutral-100);
+	}
+
+	.thread-list li button:active:not(:disabled) {
+		transform: none;
+		box-shadow: none;
+	}
+
+	/*
+	 * AN ORPHANED THREAD IS A DECISION, NOT A BREAKAGE.
+	 *
+	 * The anchor is doing its job: the part it names is not in this export,
+	 * so the thread is listed rather than drawn, and it is never shown on the
+	 * wrong part. That is the system working, and somebody now has to choose
+	 * a part to re-anchor it to. So the row keeps the second accent's
+	 * LIGHTEST tint — the design's own orphan treatment — with the expected
+	 * part boxed beside it, and it is deliberately quieter than the
+	 * unloadable panel above, which is the state where something did break.
+	 */
+	.thread-list li.orphaned {
+		background: var(--color-accent-2-100);
+		border: var(--border-thin) solid var(--color-divider);
+		border-radius: var(--radius-sm);
+	}
+
+	.thread-list li.orphaned button:hover:not(:disabled) {
+		background: var(--color-accent-2-200);
+	}
+
+	.orphan {
+		font-size: var(--text-fine);
+		font-weight: var(--font-weight-strong);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--color-accent-2-800);
+		padding-inline-end: var(--space-2);
+	}
+
+	/* What the viewer could not put back when a thread was opened — the
+	   camera, the clip, the part. Stated, never swallowed. */
+	.restore-notice {
+		margin: 0;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
+	}
+
+	/*
+	 * THE WAY OUT OF AN ORPHAN. It is the affirmative act on this screen —
+	 * it rewrites where a thread lives — so it takes the spot yellow the
+	 * design reserves for the one action a block is about, and it says which
+	 * part it will use, so nobody presses it hoping.
+	 */
+	.threads > button {
+		justify-self: start;
+		background: var(--color-highlight);
+	}
+
+	.threads > button:hover:not(:disabled) {
+		background: var(--color-highlight-hover);
 	}
 </style>

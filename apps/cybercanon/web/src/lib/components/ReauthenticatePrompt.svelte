@@ -70,10 +70,10 @@
 	<section class="reauthenticate" data-held={held.key}>
 		<h2>Your session expired before this was saved</h2>
 		<p>{held.describe} is still here, exactly as you wrote it, and has not been submitted.</p>
-		<button type="button" onclick={reauthenticate} disabled={busy}>
+		<button class="primary" type="button" onclick={reauthenticate} disabled={busy}>
 			{busy ? 'Waiting for sign-in…' : 'Sign in again and submit it'}
 		</button>
-		<button type="button" onclick={decline} disabled={busy}>Not now</button>
+		<button class="quiet" type="button" onclick={decline} disabled={busy}>Not now</button>
 	</section>
 {/if}
 
@@ -86,17 +86,29 @@
 {/if}
 
 <style>
+	/*
+	 * This panel is holding somebody's unsaved paragraph, so it sits at the
+	 * top elevation the system has — it is the most important thing on the
+	 * page for as long as it is on it.
+	 */
 	.reauthenticate {
-		border: 1px solid currentColor;
-		border-radius: 0.5rem;
-		padding: 1rem;
-		margin: 0 1rem 1rem;
+		background: var(--color-surface);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-lg);
+		padding: var(--space-4);
+		margin: 0 var(--space-4) var(--space-4);
 		display: grid;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		justify-items: start;
 	}
 
+	.reauthenticate h2 {
+		font-size: var(--text-h4);
+	}
+
 	.notice {
-		margin: 0.5rem 1rem 0;
+		margin: var(--space-2) var(--space-4) 0;
+		font-weight: var(--font-weight-medium);
 	}
 </style>

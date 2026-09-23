@@ -106,15 +106,49 @@
 {/if}
 
 <style>
+	/*
+	 * One panel, six states, and the colour is how they are told apart at a
+	 * glance. `degraded` is the one that matters most here: `asset-browser`
+	 * forbids presenting a partial result as complete, so the panel that says
+	 * so is the loudest thing on a screen that also has content on it.
+	 */
 	.route-state {
-		border: 1px solid currentColor;
-		border-radius: 0.5rem;
-		padding: 1rem;
-		margin-block-end: 1rem;
+		background: var(--color-surface);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
+		padding: var(--space-4);
+		margin-block-end: var(--space-4);
+		color: var(--color-text);
+	}
+
+	.route-state h2 {
+		font-size: var(--text-h4);
+	}
+
+	.route-state p {
+		margin-block-end: 0;
+	}
+
+	.route-state[data-state='degraded'] {
+		background: var(--color-highlight);
+	}
+
+	.route-state[data-state='failed'] {
+		background: var(--color-accent-2-100);
+	}
+
+	.route-state[data-state='forbidden'] {
+		background: var(--color-accent-100);
 	}
 
 	.unavailable {
-		margin: 0.5rem 0 0;
-		padding-inline-start: 1.25rem;
+		margin: var(--space-2) 0 0;
+		padding-inline-start: var(--space-4);
+	}
+
+	.action {
+		margin-block-start: var(--space-3);
+		font-weight: var(--font-weight-strong);
 	}
 </style>

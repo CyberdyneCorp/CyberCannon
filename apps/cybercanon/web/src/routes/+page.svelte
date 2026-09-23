@@ -56,11 +56,62 @@
 </RouteScreen>
 
 <style>
+	/*
+	 * The picker. The design sets a project list as a column of names in the
+	 * heading face with air between them — no cards, no rules, no boxes: this
+	 * is the one screen in the application where hierarchy is carried by size
+	 * and space alone, because there is only one kind of thing on it.
+	 */
 	.projects {
 		list-style: none;
-		margin: 0;
+		margin: var(--space-6) 0 0;
 		padding: 0;
 		display: grid;
-		gap: 0.25rem;
+		gap: var(--space-4);
+	}
+
+	/*
+	 * The accent rule under the name is what says these are doors, and it is
+	 * there before the pointer is: a name set in the heading face at this size
+	 * reads as a heading otherwise, and colour alone is not an affordance. It
+	 * is drawn as a border rather than a text decoration so it keeps the
+	 * system’s weight, which is how `ProjectBar` draws the same link.
+	 */
+	.to-project {
+		font-family: var(--font-heading);
+		font-weight: var(--font-heading-weight);
+		font-size: var(--text-h3);
+		letter-spacing: var(--tracking-heading);
+		color: var(--color-text);
+		border-block-end: var(--border-thin) solid var(--color-accent-700);
+	}
+
+	.to-project:hover {
+		color: var(--color-accent-700);
+		text-decoration: none;
+		border-block-end-color: var(--color-accent-600);
+	}
+
+	/* Prose on this screen is read once and has to be read, so it takes a
+	   measure rather than the width of the window. */
+	.no-projects {
+		max-width: 60ch;
+	}
+
+	/* The way in, for somebody who has not signed in yet. `web-session`
+	   requires an offer rather than an error, so it is the loudest thing on an
+	   otherwise empty screen — but it stays a link, because it goes to an
+	   address, and the boxed treatment in this system belongs to controls that
+	   act. */
+	.sign-in {
+		font-family: var(--font-heading);
+		font-weight: var(--font-heading-weight);
+		font-size: var(--text-h4);
+		border-block-end: var(--border-thin) solid var(--color-accent-700);
+	}
+
+	.sign-in:hover {
+		text-decoration: none;
+		border-block-end-color: var(--color-accent-600);
 	}
 </style>

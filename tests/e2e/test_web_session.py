@@ -74,5 +74,5 @@ def test_the_sign_in_screen_shows_nothing_from_the_canon(page: Any) -> None:
 
     _rendered(page, "h1")
 
-    assert page.locator("ul.assets").count() == 0
+    assert page.locator(".assets").count() == 0
     assert page.locator("article.overview").count() == 0

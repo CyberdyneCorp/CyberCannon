@@ -73,35 +73,70 @@
 </div>
 
 <style>
+	/*
+	 * The filter bar. Two groups and a count, boxed in full-strength ink —
+	 * the hairline border and the soft radius this carried before were the
+	 * two things on the sheet that belonged to no token at all.
+	 */
 	.filters {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 1rem;
+		gap: var(--space-3);
 		align-items: center;
-		margin-block-end: 0.75rem;
+		margin-block-end: var(--space-3);
 	}
 
 	fieldset {
 		display: flex;
-		gap: 0.5rem;
+		flex-wrap: wrap;
+		gap: var(--space-2);
 		align-items: center;
-		border: 1px solid currentColor;
-		border-radius: 0.25rem;
-		padding: 0.25rem 0.5rem;
+		background: var(--color-surface);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-field);
+		padding: var(--space-1) var(--space-2);
 	}
 
+	/* The group's name, in the system's eyebrow — the same treatment the
+	   design gives `View`, `Tool`, `Kind` and `State` down the sheet's rail. */
 	legend {
-		padding-inline: 0.25rem;
+		padding-inline: var(--space-1);
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
 	}
 
 	label {
 		display: inline-flex;
-		gap: 0.25rem;
+		gap: var(--space-1);
 		align-items: center;
+		font-size: var(--text-small);
 	}
 
+	/*
+	 * WHAT THE FILTER IS HIDING, and it is a requirement rather than a
+	 * caption: *"a filter that silently removed work is the reason somebody
+	 * swears an annotation vanished"*. So when the count is anything but
+	 * zero it is boxed and tinted with the second accent — the same mark
+	 * every other *somebody has to notice this* carries in this interface —
+	 * and when it is zero it is quiet prose, because *nothing hidden* is not
+	 * news.
+	 */
 	.hidden-count {
 		margin: 0;
-		opacity: 0.8;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
+	}
+
+	.hidden-count:not([data-hidden='0']) {
+		background: var(--color-accent-2-100);
+		color: var(--color-accent-2-800);
+		border: var(--border-thin) solid var(--color-divider);
+		border-radius: var(--radius-sm);
+		font-weight: var(--font-weight-strong);
+		padding: 0 var(--space-1);
 	}
 </style>

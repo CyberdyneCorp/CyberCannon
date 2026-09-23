@@ -1,0 +1,26 @@
+{
+  "$comment": [
+    "The design-system adherence gate's one moving part \u2014 see",
+    "scripts/adherence.mjs and openspec/project.md, \"Visual language \u2014",
+    "neo-brutalism\".",
+    "",
+    "`pending` names the components that still carry the pre-restyle styling:",
+    "a hairline border, a soft radius, a colour that is nobody's token. They",
+    "are reported on every run and they do not fail the build, because the",
+    "restyle arrives screen by screen and a gate that fails on day one is a",
+    "gate somebody turns off on day two.",
+    "",
+    "The list is only allowed to SHRINK. A file listed here that has no",
+    "violations left fails the build until it is removed, so the list cannot",
+    "outlive the work \u2014 which is the only thing that separates a waiver from",
+    "a hole. Adding a file is a deliberate act and a reviewable line in a",
+    "diff; there is no wildcard and there is no per-rule escape.",
+    "",
+    "The list is empty: every component in this application draws its colour,",
+    "its font, its border, its radius and its shadow from tokens.css. The key",
+    "stays, and it stays empty, because the next component to be written is",
+    "the next one that could need waiving \u2014 and an empty list that somebody",
+    "has to add a name to is a reviewable line in a diff, which is the point."
+  ],
+  "pending": []
+}

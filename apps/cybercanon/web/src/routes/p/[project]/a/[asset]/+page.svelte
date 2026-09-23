@@ -40,7 +40,24 @@
 </RouteScreen>
 
 <style>
+	/*
+	 * Which asset this is and which project it belongs to. `app-navigation`
+	 * puts the project on every screen; the asset page states it beside the
+	 * name as well, because this is the screen from which somebody acts.
+	 *
+	 * The project takes the mono, because it is an identifier rather than a
+	 * name — the same face this interface sets `mech_scout` and `gate_dock`
+	 * in everywhere else — and the asset's display name beside it stays in
+	 * the body face, which is what tells the two apart at a glance.
+	 */
 	.belongs-to {
-		margin: 0 0 0.75rem;
+		margin: 0 0 var(--space-4);
+		font-size: var(--text-h5);
+	}
+
+	.project {
+		font-family: var(--font-mono);
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
 	}
 </style>

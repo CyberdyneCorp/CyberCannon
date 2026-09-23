@@ -247,6 +247,26 @@ describe('one page, everything recorded', () => {
 		expect(exports).toContain('passed');
 	});
 
+	/**
+	 * `validate-export` has three outcomes for a rule and only two of them are
+	 * a verdict: a rule can pass, a rule can be violated, and a rule can not
+	 * have been evaluated at all — because the export carried nothing to check
+	 * it against. The third is the one a screen loses first, by folding it into
+	 * the violation count or by leaving it out because it is usually zero; and
+	 * a person reading "0 violations" over an export where half the rules never
+	 * ran has been told the opposite of what happened.
+	 *
+	 * So the three are asserted as three separately labelled entries rather
+	 * than as three numbers somewhere in the section's text.
+	 */
+	it('keeps rules that were not evaluated distinct from passed and from violated', () => {
+		const labels = section('exports').entries.map((entry) => entry.label);
+
+		expect(labels).toContain('Validation outcome');
+		expect(labels).toContain('Violations');
+		expect(labels).toContain('Rules not evaluated');
+	});
+
 	it('presents the recorded links', () => {
 		const links = text('links');
 
