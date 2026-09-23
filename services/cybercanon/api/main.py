@@ -41,7 +41,11 @@ from cybercanon.adapters.inbound.http import logs
 from cybercanon.adapters.inbound.http.app import build_app
 from cybercanon.adapters.wiring.configuration import ServiceConfiguration, load
 from cybercanon.adapters.wiring.hosted import HostedDeployment, build_deployment
-from cybercanon.adapters.wiring.identity import WiredIdentity, identity_provider
+from cybercanon.adapters.wiring.identity import (
+    WiredIdentity,
+    identity_provider,
+    worker_credentials,
+)
 from cybercanon.application.use_cases.service_health import (
     LANGUAGE_MODEL,
     ComponentStatus,
@@ -83,10 +87,11 @@ def build_for(configuration: ServiceConfiguration) -> FastAPI:
     answer the rest, at the moment `/readyz` asks.
     """
     logs.configure()
-    identity = identity_provider(configuration.identity)
+    identity = identity_provider(configuration.identity, project=configuration.repository.project)
     deployment = build_deployment(
         configuration,
         identity=identity,
+        worker=worker_credentials(configuration),
         observed=lambda: observed(configuration, identity),
     )
     app = build_app(

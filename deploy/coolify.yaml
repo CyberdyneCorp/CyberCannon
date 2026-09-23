@@ -54,6 +54,15 @@ applications:
         - CANON_WEBHOOK_SECRET
         - CANON_AUTH_ISSUER
         - CANON_AUTH_AUDIENCE
+        # The client this deployment is registered as, and the organisation it
+        # serves. CyberdyneAuth writes every client's roles into one `roles`
+        # claim as `<client id>:<role>`, so the first is how the api knows which
+        # entries are its own; and a person reads the project only if their
+        # `orgs` claim carries the second *and* they hold a role on the first.
+        # Neither is written down in the repository: an org id belongs to the
+        # identity service's database, not to the product.
+        - CANON_AUTH_CLIENT_ID
+        - CANON_AUTH_ORG_ID
         - CANON_AUTH_KEY_SET_URL
         - CANON_AUTH_GROUP_ROLES
         - CANON_DATABASE_URL
@@ -63,6 +72,12 @@ applications:
         - CANON_DRAIN_WINDOW_S
       optional:
         - CANON_AUTH_KEY_CACHE_TTL_S
+        # Background work's own client-credentials client. A pair: set both, and
+        # scheduled work obtains a service credential of its own; set neither,
+        # and it runs as it does today. The secret is a secret — Coolify holds
+        # it and nothing in this repository does.
+        - CANON_WORKER_CLIENT_ID
+        - CANON_WORKER_CLIENT_SECRET
         - CANON_WORKING_COPIES
         - CANON_WEB_ORIGINS
         - CANON_LLM_ENABLED

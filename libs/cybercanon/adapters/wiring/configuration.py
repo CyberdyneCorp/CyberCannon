@@ -287,9 +287,13 @@ FETCH_INTERVAL = "CANON_FETCH_INTERVAL_S"
 WEBHOOK_SECRET = "CANON_WEBHOOK_SECRET"
 AUTH_ISSUER = "CANON_AUTH_ISSUER"
 AUTH_AUDIENCE = "CANON_AUTH_AUDIENCE"
+AUTH_CLIENT_ID = "CANON_AUTH_CLIENT_ID"
+AUTH_ORG_ID = "CANON_AUTH_ORG_ID"
 AUTH_KEY_SET_URL = "CANON_AUTH_KEY_SET_URL"
 AUTH_KEY_CACHE_TTL = "CANON_AUTH_KEY_CACHE_TTL_S"
 GROUP_ROLES = "CANON_AUTH_GROUP_ROLES"
+WORKER_CLIENT_ID = "CANON_WORKER_CLIENT_ID"
+WORKER_CLIENT_SECRET = "CANON_WORKER_CLIENT_SECRET"
 DATABASE_URL = "CANON_DATABASE_URL"
 OBJECT_STORE_URL = "CANON_OBJECT_STORE_URL"
 LINK_EXPIRY = "CANON_LINK_EXPIRY_S"
@@ -321,9 +325,19 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(WEBHOOK_SECRET, "the shared secret the git host signs with", secret=True),
     Setting(AUTH_ISSUER, "the issuer this service trusts"),
     Setting(AUTH_AUDIENCE, "the audience this service is addressed as"),
+    Setting(AUTH_CLIENT_ID, "the client this deployment's roles are registered under"),
+    Setting(AUTH_ORG_ID, "the identifier of the organisation this deployment serves"),
     Setting(AUTH_KEY_SET_URL, "a URL of the form scheme://host/path", read=url),
-    Setting(GROUP_ROLES, "a list of `group=ROLE` pairs", read=_pairs),
+    Setting(GROUP_ROLES, "a list of `role=ROLE` pairs", read=_pairs),
     Setting(AUTH_KEY_CACHE_TTL, "a whole number of seconds", read=seconds, required=False),
+    Setting(WORKER_CLIENT_ID, "the client background work signs in as", required=False, default=""),
+    Setting(
+        WORKER_CLIENT_SECRET,
+        "the secret that client authenticates with",
+        required=False,
+        secret=True,
+        default="",
+    ),
     Setting(DATABASE_URL, "a connection string of the form scheme://host", read=url, secret=True),
     Setting(OBJECT_STORE_URL, "a URL of the form scheme://host", read=url),
     Setting(LINK_EXPIRY, "a whole number of seconds", read=seconds),
@@ -367,15 +381,28 @@ SETTINGS: tuple[Setting, ...] = (
 )
 """Every variable this service reads, required and optional, in one table.
 
-The required fifteen — project, repository, branch, credential, fetch interval,
-webhook secret, issuer, audience, key set URL, group mapping, database, object
-store, link expiry, write-back timeout, drain window — are what the service
-refuses to start without. `CANON_PROJECT` is required for the reason the others
+The required seventeen — project, repository, branch, credential, fetch
+interval, webhook secret, issuer, audience, client id, organisation, key set
+URL, role mapping, database, object store, link expiry, write-back timeout,
+drain window — are what the service refuses to start without. The client id and
+the organisation are required rather than optional because both fail *closed*:
+an unset client id recognises no role in the `roles` claim and an unset
+organisation admits nobody, so a deployment that omitted either would start,
+sign people in and then show them nothing — which reads as an empty project
+rather than as a misconfiguration, and is precisely the shape of green this
+service has been bitten by before. `CANON_PROJECT` is required for the reason the others
 are: a hosted API that serves no project answers health and nothing else, and
 that is a deployment nobody notices is broken until somebody opens the web
 application. The last two are a *pair*: D7 makes "a commit or
 nothing" a property of two configured numbers in a known order, so they are
 read together and checked against each other (:class:`RolloverConfig`).
+
+The worker's two are optional, and optional as a pair: a deployment that
+configures neither does its background work exactly as before, and one that
+configures half of it behaves like the absence rather than failing once per
+scheduled run (:class:`WorkerConfig`). The secret is declared `secret=True`, so
+the scan that refuses a committed `CANON_REPOSITORY_CREDENTIAL` refuses this one
+too.
 
 The seven model variables are optional by `project.md`'s rule that *"the
 system SHALL be fully usable with it off"*, and the five document-platform
@@ -449,19 +476,68 @@ class RepositoryConfig:
 
 @dataclass(frozen=True)
 class IdentityConfig:
-    """The issuer this service trusts, and how its groups become roles (D12).
+    """The issuer this service trusts, who it is to that issuer, and its roles (D12).
 
     `group_roles` is configuration rather than code because `auth-integration`
     requires it: *"the translation ... SHALL be driven by configuration rather
-    than by code that names specific groups"*, and a group with no mapping
+    than by code that names specific groups"*, and a role key with no mapping
     grants nothing.
+
+    `client_id` and `organisation` are the two the real token shape made
+    necessary, and they are configuration for exactly the same reason.
+    CyberdyneAuth writes **every** client's roles into one `roles` claim, each
+    entry prefixed with the client it belongs to, so a deployment that did not
+    know its own client id would either grant nothing or — far worse — grant
+    somebody this project's art director because they are an art director in a
+    different application. And a person reads this deployment's project only if
+    their `orgs` claim carries `organisation`, which is an identifier in the
+    identity service's database: writing one into this repository would tie the
+    product to one studio and would have to be edited by the second.
     """
 
     issuer: str
     audience: str
     key_set_url: str
     group_roles: Mapping[str, str]
+    client_id: str = ""
+    organisation: str = ""
     key_cache_ttl: timedelta = DEFAULT_KEY_CACHE_TTL
+
+
+@dataclass(frozen=True)
+class WorkerConfig:
+    """The client background work obtains its own credential as, when it has one.
+
+    `auth-integration`: *"Work performed with no live human caller SHALL
+    authenticate with a service credential, SHALL resolve to an actor identified
+    as automation"*. That credential is minted by a client-credentials exchange,
+    and these two are the client it is minted for.
+
+    Optional as a **pair**, and the pair is why :attr:`available` exists: an id
+    with no secret cannot obtain anything, so half a configuration behaves like
+    the absence it is rather than failing once per scheduled run. A deployment
+    that configures neither still validates, still writes back and is still
+    recorded as automation — it simply has no token to present to anything that
+    asks for one.
+
+    :attr:`secret` is a :class:`Secret`, so it is kept out of every log line,
+    refusal and traceback exactly as `CANON_REPOSITORY_CREDENTIAL` is.
+    """
+
+    client_id: str = ""
+    secret: Secret = Secret("")
+
+    @property
+    def available(self) -> bool:
+        """Whether background work can obtain a credential of its own."""
+        return bool(self.client_id and self.secret)
+
+    @property
+    def absence(self) -> str:
+        """Why it cannot, for a caller that has to say so."""
+        if not self.client_id and not self.secret:
+            return f"{WORKER_CLIENT_ID} and {WORKER_CLIENT_SECRET} are not set"
+        return f"{WORKER_CLIENT_ID} and {WORKER_CLIENT_SECRET} are not both set"
 
 
 @dataclass(frozen=True)
@@ -594,6 +670,7 @@ class ServiceConfiguration:
     identity: IdentityConfig
     storage: StorageConfig
     rollover: RolloverConfig
+    worker: WorkerConfig = WorkerConfig()
     model: ModelConfig = ModelConfig()
     browser: BrowserAccess = BrowserAccess()
 
@@ -629,7 +706,13 @@ def load(environment: Mapping[str, str] | None = None) -> ServiceConfiguration:
             audience=values[AUTH_AUDIENCE],
             key_set_url=values[AUTH_KEY_SET_URL],
             group_roles=values[GROUP_ROLES],
+            client_id=values[AUTH_CLIENT_ID],
+            organisation=values[AUTH_ORG_ID],
             key_cache_ttl=values[AUTH_KEY_CACHE_TTL] or DEFAULT_KEY_CACHE_TTL,
+        ),
+        worker=WorkerConfig(
+            client_id=values[WORKER_CLIENT_ID],
+            secret=Secret(values[WORKER_CLIENT_SECRET]),
         ),
         storage=StorageConfig(
             database_url=Secret(values[DATABASE_URL]),
@@ -720,6 +803,7 @@ __all__ = [
     "ServiceConfiguration",
     "Setting",
     "StorageConfig",
+    "WorkerConfig",
     "group_roles",
     "load",
     "missing_from",

@@ -65,6 +65,8 @@ COMPLETE = {
     "CANON_WEBHOOK_SECRET": "a-webhook-secret",
     "CANON_AUTH_ISSUER": "https://auth.cyberdynecorp.ai/",
     "CANON_AUTH_AUDIENCE": "cybercanon",
+    "CANON_AUTH_CLIENT_ID": "cyb_Complete0Client1",
+    "CANON_AUTH_ORG_ID": "org_Complete0Studio",
     "CANON_AUTH_KEY_SET_URL": "https://auth.cyberdynecorp.ai/.well-known/jwks.json",
     "CANON_AUTH_GROUP_ROLES": "art-leads=ART_DIRECTOR,artists=ARTIST",
     "CANON_DATABASE_URL": "postgresql://canon@db/canon",
@@ -95,8 +97,17 @@ def test_every_required_variable_is_namespaced() -> None:
 
 
 def test_the_required_set_is_the_one_the_task_enumerates() -> None:
+    """Seventeen, and the two most recent are the ones a token made necessary.
+
+    `CANON_AUTH_CLIENT_ID` and `CANON_AUTH_ORG_ID` are *required* rather than
+    optional because both fail closed: an unset client id recognises no entry in
+    the one `roles` claim CyberdyneAuth sends, and an unset organisation admits
+    nobody. A deployment missing either would start, sign people in and show
+    them an empty project — a misconfiguration wearing the face of an empty
+    repository — so the boot refuses instead, naming them.
+    """
     assert set(REQUIRED) == set(COMPLETE)
-    assert len(REQUIRED) == 15
+    assert len(REQUIRED) == 17
 
 
 # --------------------------------------------------------------------------

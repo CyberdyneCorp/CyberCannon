@@ -38,12 +38,19 @@ from cybercanon.application.use_cases.validation_worker import (
     WorkerReport,
     validate_changed_exports,
 )
+from cybercanon.domain.validation_outcome import AUTOMATION
 
 type Job = Callable[[str], object]
 """What the runner does with a project name. The use case, handed in."""
 
 type ErrorSink = Callable[[str, BaseException], None]
 """Where a job's failure goes. Never nowhere, and never into the caller."""
+
+
+def as_automation() -> str:
+    """The attribution a pass has when nobody obtained a credential for it (G2)."""
+    return AUTOMATION
+
 
 _STOP = None
 
@@ -239,7 +246,11 @@ class Ticker:
             self._stopped.wait(self._interval)
 
 
-def validation_job(container: Container, repository_host: RepositoryHost) -> Job:
+def validation_job(
+    container: Container,
+    repository_host: RepositoryHost,
+    attributed_to: Callable[[], str] = as_automation,
+) -> Job:
     """The job the API deployment runs off the request path: G1's worker.
 
     A closure over one project's ports rather than a class, because there is
@@ -247,6 +258,12 @@ def validation_job(container: Container, repository_host: RepositoryHost) -> Job
     validate and what to commit, and this only supplies the ports it was wired
     with. The container is the same one the read surface serves from, so the
     verdict the worker commits is the verdict that surface would print.
+
+    `attributed_to` is asked **per pass** rather than once, so a deployment whose
+    worker client exists can present its own service credential and be recorded
+    as the subject that credential resolves to, and one that has none — or one
+    whose identity service is down — is recorded as `automation`, which is what
+    G2 asks for and what this did before there was a credential to obtain.
     """
 
     def run(project: str) -> Result[WorkerReport]:
@@ -257,6 +274,7 @@ def validation_job(container: Container, repository_host: RepositoryHost) -> Job
             mesh_inspector=container.mesh_inspector,
             blob_store=container.blob_store,
             search_index=container.search_index,
+            attributed_to=attributed_to(),
         )
 
     return run

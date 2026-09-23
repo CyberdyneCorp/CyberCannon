@@ -34,9 +34,10 @@ unmapped identity, an expired session.
 **One step is not automatic.** The index is rebuilt from the working copy by an
 operator command rather than by the service, so these were taken after running
 the rebuild against the running stack, keyed by the project the surface serves.
-`deploy/go-live.md` §0 (B3) is why that is not simply
-`python -m cybercanon.api.recover`, and it is a blocker for the real deployment
-rather than a quirk of this folder.
+It is `python -m cybercanon.api.recover` against the copy under the stack's
+working-copy volume: the directory the copy is kept in is the name the surface
+serves it at, which is what `deploy/go-live.md` §0 (B3) records and what the
+entry point now keys rows by.
 
 | | Screen | Credential | Data |
 |---|---|---|---|
@@ -100,7 +101,7 @@ drive a browser through `/sign-in` — the application does the rest, because th
 stack now contains an issuer that answers.
 
 They are still not a recipe in the justfile, for a smaller reason than before:
-the index step is manual until `deploy/go-live.md` B3 is resolved, and a recipe
-that silently depended on somebody having run a command by hand would be a
-recipe that misleads. `tests/e2e/` is the automated claim about these screens;
+the index step is an operator command rather than something the service does at
+start, and a recipe that silently depended on somebody having run a command by
+hand would be a recipe that misleads. `tests/e2e/` is the automated claim about these screens;
 these images are the reviewable one.

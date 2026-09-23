@@ -48,6 +48,7 @@ from botocore.config import Config
 
 from cybercanon.adapters.inbound.http.surface import HostedProject, Surface
 from cybercanon.adapters.inbound.http.webhooks import RepositoryNotifications
+from cybercanon.adapters.outbound.auth.flows import ServiceCredentials
 from cybercanon.adapters.outbound.git.repository_host import GitRepositoryHost, ProjectRemote
 from cybercanon.adapters.outbound.git.spec_store import GitSpecStore
 from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
@@ -66,7 +67,7 @@ from cybercanon.adapters.wiring.build import (
 )
 from cybercanon.adapters.wiring.configuration import ServiceConfiguration
 from cybercanon.adapters.wiring.container import Container
-from cybercanon.adapters.wiring.identity import WiredIdentity
+from cybercanon.adapters.wiring.identity import WiredIdentity, background_identity
 from cybercanon.application.ports.clock import system_clock
 from cybercanon.application.use_cases.deployment_status import (
     DeploymentJournal,
@@ -312,6 +313,7 @@ def build_deployment(
     configuration: ServiceConfiguration,
     *,
     identity: WiredIdentity | None = None,
+    worker: ServiceCredentials | None = None,
     environment: Mapping[str, str] | None = None,
     observed: Callable[[], Sequence[ComponentStatus]] = tuple,
 ) -> HostedDeployment:
@@ -321,6 +323,13 @@ def build_deployment(
     model, the identity service — and what it returns is prepended to what the
     probes find, so `/readyz` and `/status` read one list rather than two that
     have to be reconciled.
+
+    `worker` is how background work obtains a credential of its own
+    (`CANON_WORKER_CLIENT_ID` and its secret). ``None`` — the deployment that
+    configured neither — is the behaviour this had before: the pass runs and is
+    recorded as automation. Nothing is obtained here, at build time; the
+    exchange happens at the first pass, because a boot that needed the identity
+    service to be up is the cascade D8 exists to prevent.
     """
     repository = configuration.repository
     project = repository.project
@@ -334,7 +343,13 @@ def build_deployment(
     )
     container = _container(root, index=index, blobs=blobs, project=project, environment=environment)
     journal = DeploymentJournal()
-    work = BackgroundWork(validation_job(container, host))
+    work = BackgroundWork(
+        validation_job(
+            container,
+            host,
+            background_identity(worker, provider=identity.provider if identity else None),
+        )
+    )
     sync = _sync(host, journal, work)
     surface = Surface(
         projects={

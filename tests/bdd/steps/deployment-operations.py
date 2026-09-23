@@ -152,6 +152,8 @@ COMPLETE = {
     "CANON_WEBHOOK_SECRET": "a-webhook-secret",
     "CANON_AUTH_ISSUER": "https://auth.cyberdynecorp.ai/",
     "CANON_AUTH_AUDIENCE": "cybercanon",
+    "CANON_AUTH_CLIENT_ID": "cyb_Complete0Client1",
+    "CANON_AUTH_ORG_ID": "org_Complete0Studio",
     "CANON_AUTH_KEY_SET_URL": "https://auth.cyberdynecorp.ai/.well-known/jwks.json",
     "CANON_AUTH_GROUP_ROLES": "art-leads=ART_DIRECTOR,artists=ARTIST",
     "CANON_DATABASE_URL": "postgresql://canon@db/canon",

@@ -8,12 +8,24 @@ one of each and asserts that "no emails" comes back as an empty tuple rather
 than as a failure or a `None` some call site has to handle.
 
 The permission is *per provider* as well as per person, which is why there are
-two fixtures: `implementation` is a provider that describes git authorship where
-it knows it, and `without_git_authorship` is one that never describes it at all —
-CyberdyneAuth as it stands today. Both run the whole contract, so neither shape
-can become the only one the port really supports, and the resolved person is
-asserted to be the same either way: D13 decides where the emails come from, never
-who the actor is.
+three fixtures. `implementation` is every provider there is, and runs everything
+that is true whoever answered. `describes_git_authorship` is a provider that
+supplies commit addresses where it knows them, and `without_git_authorship` is
+one that never supplies them at all — CyberdyneAuth as it stands today, because
+a real access token carries no `git_emails` claim, no `email` and no `name`. The
+two authorship shapes are asserted against the fixture that can actually be
+*asked*: a suite that demanded commit addresses of every implementation would be
+demanding a claim the issuer does not send, which is how the version of this
+file that minted one came to agree with the adapter for ever.
+
+The resolved person is asserted to be the same either way: D13 decides where the
+emails come from, never who the actor is.
+
+**The person the contract expects is described only by what a provider can
+really answer.** There is no display name here beyond the subject and no
+authorship on the actor, because the identity service supplies neither: a
+contract that expected a name would be satisfiable only by a fixture that
+invented one.
 
 The failure side is contract too: an unresolvable credential raises
 :class:`IdentityUnavailable` and never returns a partial actor, because the
@@ -31,8 +43,18 @@ from cybercanon.application.ports.identity_provider import (
     IdentityUnavailable,
 )
 from cybercanon.domain.identity import Actor, ActorId, Role
+from cybercanon.domain.tenancy import Tenant
 
 PROJECT = "cyberdyne-game"
+
+ORGANISATION = "org_C0ntract0Studio"
+"""The organisation both people belong to and the deployment serves. **Invented.**
+
+A person reads `PROJECT` because they are a member of this organisation and hold
+a role on this deployment's client. The identifier is the contract's own, named
+after nothing: an organisation id in this repository would tie the suite to a
+record in somebody else's database.
+"""
 
 DESCRIBED = Credential("token-rafa-with-emails")
 """A credential whose provider also supplies the person's commit addresses."""
@@ -44,17 +66,27 @@ UNKNOWN = Credential("token-nobody-ever-issued")
 
 RAFA = Actor(
     id=ActorId("auth|rafa"),
-    display_name="Rafa",
+    display_name="auth|rafa",
     roles=(Role.ARTIST,),
     projects=(PROJECT,),
+    tenant=Tenant(ORGANISATION),
 )
+"""One resolved person, described by the four things a provider really answers.
+
+The display name is the subject, because an access token carries no `name`: a
+person's readable name is the web application's to fetch and the actors mapping's
+to record, and an actor that carried an invented one would be the fixture
+describing somebody the identity service cannot.
+"""
+
 RAFA_EMAILS = ("rafa@cyberdyne.com", "rafa@personal.dev")
 
 ANA = Actor(
     id=ActorId("auth|ana"),
-    display_name="Ana",
+    display_name="auth|ana",
     roles=(Role.ART_DIRECTOR,),
     projects=(PROJECT,),
+    tenant=Tenant(ORGANISATION),
 )
 
 
@@ -67,10 +99,16 @@ class IdentityProviderContract:
         assert resolved.actor == RAFA
 
     def test_a_provider_may_supply_git_author_emails(
-        self, implementation: IdentityProvider
+        self, describes_git_authorship: IdentityProvider
     ) -> None:
-        """D13's first link: when the provider knows, the mapping file is not needed."""
-        resolved = implementation.resolve(DESCRIBED)
+        """D13's first link: when the provider knows, the mapping file is not needed.
+
+        Asked of the providers that describe authorship, because the permission
+        is per provider: CyberdyneAuth describes none — its token carries no
+        `git_emails` claim — and the scenario below is the half of the port it
+        answers.
+        """
+        resolved = describes_git_authorship.resolve(DESCRIBED)
 
         assert resolved.git_emails == RAFA_EMAILS
         assert resolved.describes_git_authorship

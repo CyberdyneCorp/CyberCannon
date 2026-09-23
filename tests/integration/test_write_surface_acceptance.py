@@ -49,7 +49,7 @@ from fastmcp.client.transports import StdioTransport
 from game_repo import BARREL_BUDGET, BARREL_SPEC, MECH_EXPORT, MECH_SPEC, build_game_repo
 from machine import (
     AGENT,
-    ART_DIRECTION_GROUP,
+    ART_DIRECTION_ROLE,
     GIT_EMAIL,
     PERSON,
     SUBJECT,
@@ -142,7 +142,7 @@ def game(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def session(game: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     """The whole agent session, against a signed-in machine and a spawned server."""
     keychain = stub_keychain(tmp_path_factory.mktemp("keychain"))
-    with signing_issuer(groups=(ART_DIRECTION_GROUP,)) as running:
+    with signing_issuer(roles=(ART_DIRECTION_ROLE,)) as running:
         environment = bare_environment(keychain, **running.environment, CANON_AGENT=AGENT)
         signed_in = subprocess.run(
             [sys.executable, "-m", "cybercanon.cli", "login"],

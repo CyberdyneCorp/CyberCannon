@@ -76,7 +76,7 @@ services:
   # It is `tools/canon_issuer` — the same issuer the port-conformance,
   # integration and BDD layers mint and rotate real RSA-signed credentials with
   # — behind a socket. Who it signs in is this block's decision, not the
-  # module's: the groups below are the ones `CANON_AUTH_GROUP_ROLES` maps, and
+  # module's: the role keys below are the ones `CANON_AUTH_GROUP_ROLES` maps, and
   # the project is the one `CANON_PROJECT` serves, so an actor arrives entitled
   # to read it.
   issuer:
@@ -94,10 +94,25 @@ services:
       ISSUER_AUDIENCE: cybercanon-e2e
       ISSUER_CLIENT_ID: cybercanon-web
       ISSUER_SUBJECT: auth|rafa
-      ISSUER_NAME: Rafa Moreno
-      ISSUER_GROUPS: artists
-      ISSUER_PROJECTS: ronin
-      ISSUER_GIT_EMAILS: rafa@cyberdynecorp.ai
+      # The claims CyberdyneAuth actually emits. There is no name, no email and
+      # no `git_emails` on a real access token, so there are none here either —
+      # a person's commit addresses come from `.canon/actors.yaml` (D13). The
+      # role keys below are written into the token prefixed with
+      # `ISSUER_CLIENT_ID`, exactly as the real issuer writes them.
+      #
+      # The organisation is what decides whether this person reads the project
+      # at all, and it must be the same string the api is given as
+      # `CANON_AUTH_ORG_ID`: a stack where the two differ signs somebody in and
+      # then shows them nothing, which reads as an empty project rather than as
+      # a misconfiguration. It is an invented identifier — nothing in this
+      # repository names a real organisation.
+      ISSUER_ORG_ID: org_F1xture0Studio
+      ISSUER_ORG_SHORT_NAME: fixture-studio
+      ISSUER_ROLES: artists
+      # Billing products, which is all `entitlements` has ever been. It is not
+      # access and it names no project: this stack's person reads `ronin`
+      # because they are in the organisation and hold a role on this client.
+      ISSUER_ENTITLEMENTS: pro:monthly
     ports:
       # Published because the browser is redirected here from the host. The
       # code exchange is not posted from the browser: the web application's
@@ -136,8 +151,20 @@ services:
       # separately for exactly this reason.
       CANON_AUTH_ISSUER: http://localhost:9000
       CANON_AUTH_AUDIENCE: cybercanon-e2e
+      # The client the issuer prefixes every role with, and the one the api
+      # filters on: `ISSUER_CLIENT_ID` above writes `<client id>:artists` into
+      # the token, and an api told a different client id would read a signed-in
+      # person as holding nothing at all.
+      CANON_AUTH_CLIENT_ID: cybercanon-web
       CANON_AUTH_KEY_SET_URL: http://issuer:9000/jwks.json
       CANON_AUTH_GROUP_ROLES: art-directors=ART_DIRECTOR,artists=ARTIST
+      # The organisation this deployment belongs to. A person reads the project
+      # only if their `orgs` claim carries this id *and* they hold a role on
+      # this client — membership alone is not access and a role alone is not
+      # membership. It matches `ISSUER_ORG_ID` above, and it is configuration
+      # rather than a constant precisely so that no org id is written into the
+      # product.
+      CANON_AUTH_ORG_ID: org_F1xture0Studio
       CANON_DATABASE_URL: postgresql://canon:canon@postgres:5432/canon  # not-a-credential: created and destroyed by the run
       CANON_OBJECT_STORE_URL: http://canon:canon-secret@minio:9000/canon-e2e  # not-a-credential: created and destroyed by the run
       CANON_LINK_EXPIRY_S: "900"

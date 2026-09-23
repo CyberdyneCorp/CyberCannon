@@ -193,22 +193,72 @@ def test_the_issuer_mints_for_the_audience_the_api_trusts(
     assert issuer["ISSUER_URL"].rstrip("/") == api_environment[AUTH_ISSUER].rstrip("/")
 
 
-def test_the_issued_credential_is_entitled_to_the_project_the_api_serves(
+def test_the_issuer_and_the_api_agree_on_the_client(
     api_environment: dict[str, str], stack_document: dict
 ) -> None:
-    """Entitlement is a claim, so a token for another project reads nothing here."""
+    """The roles claim is prefixed with the client id, so both ends must name one.
+
+    The issuer writes `<ISSUER_CLIENT_ID>:<role>` into every token and the api
+    keeps only the entries carrying `CANON_AUTH_CLIENT_ID`. Two different values
+    is a stack whose signed-in person holds no role anywhere — every write
+    refused for want of a role nobody can see they are missing.
+    """
     issuer = stack_document["services"]["issuer"]["environment"]
-    entitled = [name.strip() for name in str(issuer["ISSUER_PROJECTS"]).split(",")]
 
-    assert api_environment["CANON_PROJECT"] in entitled
+    assert (
+        str(issuer["ISSUER_CLIENT_ID"]).strip() == api_environment["CANON_AUTH_CLIENT_ID"].strip()
+    )
 
 
-def test_the_issued_groups_are_ones_the_api_maps_to_a_role(
+def test_the_issuer_and_the_api_agree_on_the_organisation(
     api_environment: dict[str, str], stack_document: dict
 ) -> None:
-    """An unmapped group grants nothing, which reads as a session that can do nothing."""
+    """The org id is what admits the person, so the two ends must name the same one.
+
+    This replaces an assertion that `ISSUER_PROJECTS`/`ISSUER_ENTITLEMENTS`
+    contained `CANON_PROJECT`, which was checking the wrong claim: CyberdyneAuth
+    sends no `projects`, and `entitlements` is a list of billing products. A
+    person reads this stack's project because their `orgs` claim carries the org
+    id the api is configured with and they hold a role on this client — so an
+    issuer and an api naming different organisations is a stack that signs
+    somebody in and then shows them nothing, which reads as an empty project
+    rather than as a misconfiguration.
+    """
     issuer = stack_document["services"]["issuer"]["environment"]
-    held = {name.strip() for name in str(issuer["ISSUER_GROUPS"]).split(",") if name.strip()}
+
+    assert str(issuer["ISSUER_ORG_ID"]).strip() == api_environment["CANON_AUTH_ORG_ID"].strip()
+
+
+def test_the_issued_entitlements_are_not_read_as_project_access(
+    api_environment: dict[str, str], stack_document: dict
+) -> None:
+    """`entitlements` is billing. A stack that spells it as a project invites the bug.
+
+    The claim carried `ronin` — the project name — for exactly as long as the
+    adapter read `projects` for entitlement, and a stack that keeps spelling a
+    subscription as a project name is how that reading gets reintroduced by
+    somebody reasonably copying what is already there.
+    """
+    issuer = stack_document["services"]["issuer"]["environment"]
+    products = {name.strip() for name in str(issuer["ISSUER_ENTITLEMENTS"]).split(",")}
+
+    assert api_environment["CANON_PROJECT"] not in products
+    assert all(":" in product for product in products if product), (
+        f"{products} do not look like billing products, and `entitlements` is billing"
+    )
+
+
+def test_the_issued_roles_are_ones_the_api_maps_to_a_role(
+    api_environment: dict[str, str], stack_document: dict
+) -> None:
+    """An unmapped role key grants nothing, which reads as a session that can do nothing.
+
+    The issuer writes each key below into the token prefixed with its client id,
+    the way CyberdyneAuth does; what is compared here is the unprefixed key,
+    because that is what the API's mapping is configured with.
+    """
+    issuer = stack_document["services"]["issuer"]["environment"]
+    held = {name.strip() for name in str(issuer["ISSUER_ROLES"]).split(",") if name.strip()}
     mapped = {
         pair.split("=", 1)[0].strip()
         for pair in api_environment["CANON_AUTH_GROUP_ROLES"].split(",")

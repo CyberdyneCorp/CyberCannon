@@ -43,6 +43,8 @@ from canon_issuer import (
     AUTHORIZE_PATH,
     DEVICE_CODE_PATH,
     EPOCH,
+    ORG_ID,
+    PRO_MONTHLY,
     TOKEN_PATH,
     FakeIssuer,
     impostor_key,
@@ -98,9 +100,17 @@ TOKEN = Credential("an-opaque-credential")
 GROUP = "art-leads"
 CLAIM = "https://auth.cyberdynecorp.ai/groups"
 
-ARTISTS = "cyberdyne-artists"
-INTERNS = "cyberdyne-interns"
-MAPPED = {ARTISTS: "ARTIST"}
+ARTIST_KEY = "artist"
+INTERN_KEY = "intern"
+MAPPED = {ARTIST_KEY: "ARTIST"}
+"""Role keys as CyberdyneAuth spells them, and the one this suite maps.
+
+The feature calls these *groups*, which is the specification's word for
+"whatever the identity service names a thing that maps to a domain role". What
+CyberdyneAuth actually sends is a `roles` claim whose every entry is prefixed
+with the client id it belongs to, so the issuer below writes
+`<client id>:artist` and configuration still names the bare key.
+"""
 
 WINDOW_S = 900.0
 COOLDOWN_S = 10.0
@@ -154,8 +164,14 @@ def a_verifier(identity: dict[str, Any], **group_roles: str) -> CyberdyneAuth:
         ),
     )
     verifier = CyberdyneAuth(
-        trust=Trust(issuer=issuer.issuer, audience=issuer.audience),
+        trust=Trust(
+            issuer=issuer.issuer,
+            audience=issuer.audience,
+            client_id=issuer.client_id,
+            organisation=ORG_ID,
+        ),
         keys=keys,
+        project=PROJECT,
         group_roles=dict(group_roles) or MAPPED,
         now=lambda: datetime.fromtimestamp(EPOCH, tz=UTC),
     )
@@ -336,7 +352,7 @@ def test_beyond_the_window_refusal_names_the_cause() -> None: ...
 def _a_credential_that_verifies(identity: dict[str, Any]) -> None:
     verifier = a_verifier(identity)
     identity["credential"] = identity["issuer"].mint(
-        SUBJECT, name="Rafa", groups=[ARTISTS], projects=[PROJECT]
+        SUBJECT, roles=[ARTIST_KEY], entitlements=[PRO_MONTHLY]
     )
     identity["verifier"] = verifier
 
@@ -565,7 +581,7 @@ def _no_claim_vocabulary(identity: dict[str, Any]) -> None:
 @given("a credential carrying a group with no configured mapping")
 def _a_credential_with_an_unmapped_group(identity: dict[str, Any]) -> None:
     a_verifier(identity)
-    identity["credential"] = identity["issuer"].mint(SUBJECT, groups=[ARTISTS, INTERNS])
+    identity["credential"] = identity["issuer"].mint(SUBJECT, roles=[ARTIST_KEY, INTERN_KEY])
 
 
 @when("the actor is resolved")
@@ -585,7 +601,7 @@ def _no_role_from_the_unmapped_group(identity: dict[str, Any]) -> None:
 def _a_credential_with_only_unmapped_groups(identity: dict[str, Any]) -> None:
     a_verifier(identity)
     identity["credential"] = identity["issuer"].mint(
-        SUBJECT, groups=[INTERNS, "cyberdyne-guests"], projects=[PROJECT]
+        SUBJECT, roles=[INTERN_KEY, "guest"], entitlements=[PRO_MONTHLY]
     )
 
 
@@ -617,7 +633,7 @@ def _role_requiring_operations_are_refused(identity: dict[str, Any]) -> None:
 @given("a new group in the identity service")
 def _a_new_group(identity: dict[str, Any]) -> None:
     a_verifier(identity)
-    identity["credential"] = identity["issuer"].mint(SUBJECT, groups=[INTERNS])
+    identity["credential"] = identity["issuer"].mint(SUBJECT, roles=[INTERN_KEY])
     identity["before"] = ran(
         authenticate(identity["credential"], identity_provider=identity["verifier"])
     ).actor
@@ -628,7 +644,7 @@ def _the_group_is_mapped(identity: dict[str, Any]) -> None:
     """Configuration alone: the same issuer, the same keys, a different mapping."""
     identity["result"] = authenticate(
         identity["credential"],
-        identity_provider=a_verifier(identity, **{INTERNS: "DESIGNER"}),
+        identity_provider=a_verifier(identity, **{INTERN_KEY: "DESIGNER"}),
     )
 
 
@@ -646,7 +662,7 @@ def _the_group_now_grants_its_role(identity: dict[str, Any]) -> None:
 @when("the verification adapter resolves an actor")
 def _the_adapter_resolves(identity: dict[str, Any]) -> None:
     verifier = a_verifier(identity)
-    credential = identity["issuer"].mint(SUBJECT, name="Rafa", groups=[ARTISTS], projects=[PROJECT])
+    credential = identity["issuer"].mint(SUBJECT, roles=[ARTIST_KEY], entitlements=[PRO_MONTHLY])
     identity["resolution"] = verifier.resolve(credential)
 
 
@@ -893,9 +909,7 @@ def _a_scheduled_refresh_records(identity: dict[str, Any]) -> None:
     beside the operation could name anybody.
     """
     verifier = a_verifier(identity)
-    service = identity["issuer"].mint(
-        "cybercanon-worker", grant="client-credentials", projects=[PROJECT]
-    )
+    service = identity["issuer"].mint("cybercanon-worker", service=True, entitlements=[PRO_MONTHLY])
     authenticated = ran(authenticate_background(service, identity_provider=verifier))
 
     host = InMemoryRepositoryHost()
@@ -931,7 +945,7 @@ def _no_person_is_named(identity: dict[str, Any]) -> None:
 def _a_service_credential(identity: dict[str, Any]) -> None:
     a_verifier(identity)
     identity["credential"] = identity["issuer"].mint(
-        "cybercanon-worker", grant="client-credentials", projects=[PROJECT]
+        "cybercanon-worker", service=True, entitlements=[PRO_MONTHLY]
     )
 
 
@@ -965,9 +979,22 @@ def _the_supplied_identifier_had_no_effect(identity: dict[str, Any]) -> None:
 
 @given("published keys retrieved before the identity service became unreachable")
 def _keys_retrieved_before_the_outage(identity: dict[str, Any]) -> None:
+    """The person holds a role here, because that is what admits them.
+
+    Entitlement is the organisation their `orgs` claim carries *plus* a role on
+    this client, so a credential carrying neither is served nothing however
+    reachable the identity service is — and this scenario is about the outage,
+    not about somebody who was never entitled.
+    """
     verifier = a_verifier(identity)
-    ran(authenticate(identity["issuer"].mint(SUBJECT), identity_provider=verifier))
-    identity["credential"] = identity["issuer"].mint(SUBJECT, projects=[PROJECT])
+    ran(
+        authenticate(
+            identity["issuer"].mint(SUBJECT, roles=[ARTIST_KEY]), identity_provider=verifier
+        )
+    )
+    identity["credential"] = identity["issuer"].mint(
+        SUBJECT, roles=[ARTIST_KEY], entitlements=[PRO_MONTHLY]
+    )
     identity["issuer"].go_dark()
     identity["clock"].advance(WINDOW_S / 2)
 

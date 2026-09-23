@@ -27,7 +27,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from canon_issuer import FakeIssuer
+from canon_issuer import CLIENT_ID, ORG_ID, FakeIssuer
 from cybercanon.adapters.inbound.http.health import DEGRADED_FIELD, READY, READY_PATH, STATUS_FIELD
 from cybercanon.adapters.inbound.http.status import STATUS_PATH
 from cybercanon.adapters.outbound.auth.keys import KeySetPolicy
@@ -63,6 +63,8 @@ COMPLETE = {
     "CANON_WEBHOOK_SECRET": "a-webhook-secret",
     "CANON_AUTH_ISSUER": "https://auth.cyberdynecorp.ai/",
     "CANON_AUTH_AUDIENCE": "cybercanon",
+    "CANON_AUTH_CLIENT_ID": CLIENT_ID,
+    "CANON_AUTH_ORG_ID": ORG_ID,
     "CANON_AUTH_KEY_SET_URL": "https://auth.cyberdynecorp.ai/.well-known/jwks.json",
     "CANON_AUTH_GROUP_ROLES": "art-leads=ART_DIRECTOR,artists=ARTIST",
     "CANON_DATABASE_URL": "postgresql://canon@db/canon",
@@ -85,7 +87,9 @@ def _identity(issuer: FakeIssuer, ttl: timedelta = DEFAULT_KEY_CACHE_TTL) -> Ide
         issuer=issuer.issuer,
         audience=issuer.audience,
         key_set_url="https://auth.cyberdynecorp.ai/.well-known/jwks.json",
-        group_roles={"art-leads": "ART_DIRECTOR"},
+        group_roles={"art_director": "ART_DIRECTOR"},
+        client_id=issuer.client_id,
+        organisation=ORG_ID,
         key_cache_ttl=ttl,
     )
 
@@ -140,7 +144,7 @@ def test_the_configured_window_is_the_caches_window(issuer: FakeIssuer) -> None:
 def test_a_credential_minted_before_the_outage_still_verifies(issuer: FakeIssuer) -> None:
     """*"continues verifying existing tokens while the provider is unreachable"*."""
     wired = identity_provider(_identity(issuer), source=issuer)
-    credential = issuer.mint("auth|rafa", name="Rafa", groups=["art-leads"])
+    credential = issuer.mint("auth|rafa", roles=["art_director"])
     wired.provider.resolve(credential)
     retrievals = issuer.fetches
 
@@ -157,7 +161,7 @@ def test_the_window_ends_and_the_refusal_names_the_identity_service(
     """*"a bounded window ... ending at the TTL"* — stated, and then executed."""
     clock = _Ticking()
     wired = identity_provider(_identity(issuer, timedelta(minutes=5)), source=issuer, clock=clock)
-    credential = issuer.mint("auth|rafa", groups=["art-leads"])
+    credential = issuer.mint("auth|rafa", roles=["art_director"])
     wired.provider.resolve(credential)
 
     issuer.go_dark()
@@ -173,7 +177,7 @@ def test_a_longer_window_keeps_verifying_where_a_shorter_one_would_not(
     """The number is the deployment's decision, so it has to make a difference."""
     clock = _Ticking()
     wired = identity_provider(_identity(issuer, timedelta(hours=1)), source=issuer, clock=clock)
-    credential = issuer.mint("auth|rafa", groups=["art-leads"])
+    credential = issuer.mint("auth|rafa", roles=["art_director"])
     wired.provider.resolve(credential)
 
     issuer.go_dark()
@@ -198,7 +202,7 @@ def test_nothing_retrieved_yet_is_not_an_outage(issuer: FakeIssuer) -> None:
 def test_a_successful_retrieval_reports_the_service_available(issuer: FakeIssuer) -> None:
     wired = identity_provider(_identity(issuer), source=issuer)
 
-    wired.provider.resolve(issuer.mint("auth|rafa", groups=["art-leads"]))
+    wired.provider.resolve(issuer.mint("auth|rafa", roles=["art_director"]))
 
     assert wired.status == identity_status(wired.observed)
     assert wired.status.detail == VERIFYING
@@ -213,13 +217,13 @@ def test_a_failed_retrieval_reports_the_service_unreachable(issuer: FakeIssuer) 
     make the scenario a test of how long this suite is willing to sleep.
     """
     wired = identity_provider(_identity(issuer), source=issuer, policy=_eager())
-    old = issuer.mint("auth|rafa", groups=["art-leads"])
+    old = issuer.mint("auth|rafa", roles=["art_director"])
     wired.provider.resolve(old)
 
     issuer.go_dark()
     issuer.rotate()
     with pytest.raises(IdentityServiceUnavailable):
-        wired.provider.resolve(issuer.mint("auth|ana", groups=["art-leads"]))
+        wired.provider.resolve(issuer.mint("auth|ana", roles=["art_director"]))
 
     assert wired.status.state == UNAVAILABLE
     assert wired.provider.resolve(old).actor.id.value == "auth|rafa", "the cached key held"
@@ -274,7 +278,7 @@ def test_the_status_surface_names_the_identity_service_unreachable(
     """`/status` is authenticated, so the credential that reads it is a cached one."""
     _served_by(monkeypatch, issuer)
     client = TestClient(build_for(load(_environment(issuer))))
-    rafa = issuer.mint("auth|rafa", name="Rafa", groups=["art-leads"])
+    rafa = issuer.mint("auth|rafa", roles=["art_director"])
     client.get(STATUS_PATH, headers={"Authorization": f"Bearer {rafa.value}"})
 
     issuer.go_dark()

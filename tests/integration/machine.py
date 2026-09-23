@@ -39,24 +39,45 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
-from canon_issuer import DEVICE_CODE_PATH, TOKEN_PATH, FakeIssuer
+from canon_issuer import (
+    DEVICE_CODE_PATH,
+    HOME_ORG,
+    ORG_ID,
+    PRO_MONTHLY,
+    TOKEN_PATH,
+    FakeIssuer,
+)
 from cybercanon.application.ports.identity_provider import Credential
 
 JWKS_PATH = "/.well-known/jwks.json"
+DISCOVERY_PATH = "/.well-known/openid-configuration"
 
 SUBJECT = "auth|rafa"
+"""What the credential says, and the only name of a person that ever crosses it."""
+
 PERSON = "Rafa"
+"""What `.canon/actors.yaml` calls that subject — never a claim.
+
+A CyberdyneAuth access token carries no `name` and no `email`, so a readable
+name reaches a surface from the mapping file or from nowhere (D13). It is here
+because the git author and the mapping use it, and it is deliberately *not*
+minted into a credential any more.
+"""
 GIT_EMAIL = "rafa@cyberdyne.com"
 PROJECT = "Ronin"
 AGENT = "blender-agent"
 
-ART_DIRECTION_GROUP = "cybercanon-art-direction"
-GROUP_ROLES = f"{ART_DIRECTION_GROUP}=ART_DIRECTOR"
-"""The one group this machine maps, so an agent can act as an art director.
+ART_DIRECTION_ROLE = "art_director"
+GROUP_ROLES = f"{ART_DIRECTION_ROLE}=ART_DIRECTOR"
+"""The one role key this machine maps, so an agent can act as an art director.
 
 Promotion is the thing the milestone has to refuse *for a caller who would
 otherwise be allowed it*, and a refusal that came from a missing role would
 prove nothing about the prohibition.
+
+The key is unprefixed because that is what the mapping is configured with; the
+issuer writes it into the token as `<client id>:art_director`, which is how
+CyberdyneAuth really writes it.
 """
 
 KEYCHAIN = '''\
@@ -131,15 +152,26 @@ class PersonIsAlreadyAtTheBrowser(FakeIssuer):
     Two overrides, and both are about what a *server* does rather than about
     what the flow does. The device grant is approved as soon as it is issued —
     the person in this story already has the browser open — and the credential
-    it then mints carries the claims a real CyberdyneAuth would put in it: the
-    display name, the groups a role is configured from, the projects the
-    entitlement is taken over and the git emails attribution is bound to.
+    it then mints carries the claims a real CyberdyneAuth puts in it: the role
+    keys a domain role is configured from, the organisation the person belongs
+    to, and their billing entitlements.
+
+    It carries **no display name and no git emails**, because a real access
+    token carries neither. `GIT_EMAIL` still names the same person, but the
+    binding between the subject and that address is `.canon/actors.yaml`'s job
+    (D13) rather than a claim's, and a machine that minted the claim would be
+    testing a provider that does not exist.
+
+    It carries no `projects` either, and that is the load-bearing absence: this
+    machine used to mint `projects=[PROJECT]`, so every suite downstream watched
+    a person read a project they were entitled to by a claim the identity
+    service has never sent. What entitles them here is `orgs` and `roles`,
+    exactly as it does in production.
     """
 
-    display_name: str = PERSON
-    groups: tuple[str, ...] = ()
-    projects: tuple[str, ...] = (PROJECT,)
-    git_emails: tuple[str, ...] = (GIT_EMAIL,)
+    roles: tuple[str, ...] = ()
+    entitlements: tuple[str, ...] = (PRO_MONTHLY,)
+    orgs: tuple[Mapping[str, Any], ...] = (HOME_ORG,)
     lifetime_s: int = 3600
     """What a real CyberdyneAuth would put in the credential it issues."""
 
@@ -150,10 +182,9 @@ class PersonIsAlreadyAtTheBrowser(FakeIssuer):
 
     def mint(self, subject: str = SUBJECT, **overrides: Any) -> Credential:
         claims: dict[str, Any] = {
-            "name": self.display_name,
-            "groups": list(self.groups),
-            "projects": list(self.projects),
-            "git_emails": list(self.git_emails),
+            "roles": list(self.roles),
+            "entitlements": list(self.entitlements),
+            "orgs": list(self.orgs),
             "lifetime_s": self.lifetime_s,
         }
         return super().mint(subject, **(claims | overrides))
@@ -175,6 +206,11 @@ class Issuing:
             "CANON_AUTH_AUDIENCE": self.issuer.audience,
             "CANON_AUTH_KEY_SET_URL": f"{self.base_url}{JWKS_PATH}",
             "CANON_AUTH_GROUP_ROLES": GROUP_ROLES,
+            # The organisation this machine's deployment belongs to, and the one
+            # the credential's `orgs` claim carries. Never a real org id: it is
+            # an invented value that lives in `canon_issuer` and is read from
+            # the environment here, because the product must not name one.
+            "CANON_AUTH_ORG_ID": ORG_ID,
         }
 
     def credential(self, **overrides: Any) -> Credential:
@@ -183,15 +219,42 @@ class Issuing:
 
 
 class _Endpoints(BaseHTTPRequestHandler):
-    """The three requests a sign-in makes, answered by the issuer behind them."""
+    """The four requests a sign-in makes, answered by the issuer behind them.
+
+    The fourth is the discovery document, and it is here because `canon` no
+    longer knows where an issuer's endpoints are: it reads them from
+    `/.well-known/openid-configuration`, the way an OpenID client does, rather
+    than appending a path it believes in. A machine whose issuer published no
+    document would refuse the sign-in naming the identity service — which is the
+    behaviour, and is why this fixture publishes one.
+    """
 
     issuer: PersonIsAlreadyAtTheBrowser
 
     def do_GET(self) -> None:
-        if self.path.split("?")[0] != JWKS_PATH:
+        path = self.path.split("?")[0]
+        if path == DISCOVERY_PATH:
+            self._answer(200, self._discovery())
+            return
+        if path != JWKS_PATH:
             self._answer(404, {"error": "not_found"})
             return
         self._answer(200, self.issuer.jwks())
+
+    def _discovery(self) -> Mapping[str, Any]:
+        """Where this issuer serves what, in the shape an OIDC client reads.
+
+        The addresses are this fixture's own — `/oauth/token` and
+        `/oauth/device/code` — and that is the point: nothing in the product
+        knows them, so a suite that drives a real sign-in is proving that the
+        client took them from here.
+        """
+        return {
+            "issuer": self.issuer.issuer,
+            "token_endpoint": f"{self.issuer.issuer}{TOKEN_PATH}",
+            "device_authorization_endpoint": f"{self.issuer.issuer}{DEVICE_CODE_PATH}",
+            "jwks_uri": f"{self.issuer.issuer}{JWKS_PATH}",
+        }
 
     def do_POST(self) -> None:
         length = int(self.headers.get("content-length", "0"))
@@ -310,7 +373,8 @@ def secrets_in(configuration: Mapping[str, Any], candidates: Sequence[str]) -> t
 
 __all__ = [
     "AGENT",
-    "ART_DIRECTION_GROUP",
+    "ART_DIRECTION_ROLE",
+    "DISCOVERY_PATH",
     "GIT_EMAIL",
     "GROUP_ROLES",
     "JWKS_PATH",
