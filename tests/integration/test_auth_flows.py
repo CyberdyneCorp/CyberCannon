@@ -19,6 +19,8 @@ really performs the comparison rather than against an assertion about intent.
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
+from typing import Any
 
 import pytest
 
@@ -30,7 +32,7 @@ from cybercanon.adapters.outbound.auth.flows import (
     Endpoints,
     ServiceCredentials,
 )
-from cybercanon.adapters.outbound.auth.oauth import OAuthRefusal
+from cybercanon.adapters.outbound.auth.oauth import SLOW_DOWN, OAuthRefusal
 from cybercanon.application.ports.identity_provider import Credential
 from cybercanon.application.ports.interactive_sign_in import SignInFailed, SignInUnavailable
 
@@ -281,3 +283,93 @@ def test_a_service_credential_is_obtained_with_no_person_involved(
 
     assert isinstance(credential, Credential)
     assert credential.value
+
+
+# --------------------------------------------------------------------------
+# Task 3.2 — the poll is paced by the issuer, never by a number we invented
+# --------------------------------------------------------------------------
+
+
+class PacedIssuer:
+    """The issuer, with the polls counted and `slow_down` asked for once.
+
+    A wrapper rather than a change to :class:`~canon_issuer.FakeIssuer`: what is
+    under test is the *client's* pacing, and the issuer's job is only to say
+    `authorization_pending` and then `slow_down` the way a real one does when a
+    client polls faster than it asked for.
+    """
+
+    def __init__(self, issuer: FakeIssuer, *, slow_down_after: int = 1) -> None:
+        self._issuer = issuer
+        self._slow_down_after = slow_down_after
+        self.polls = 0
+
+    def post(self, url: str, form: Mapping[str, str]) -> Mapping[str, object]:
+        if TOKEN_PATH not in url:
+            return self._issuer.post(url, form)
+        self.polls += 1
+        if self.polls == self._slow_down_after:
+            raise OAuthRefusal(SLOW_DOWN, "you are polling too fast")
+        return self._issuer.post(url, form)
+
+
+def _paced(issuer: FakeIssuer, endpoints: Endpoints, transport: object) -> tuple[Any, list[float]]:
+    """A device flow whose every wait is recorded rather than slept through."""
+    waits: list[float] = []
+    flow = DeviceAuthorization(
+        endpoints=endpoints,
+        client_id=issuer.client_id,
+        transport=transport,
+        sleep=waits.append,
+        monotonic=lambda: 0.0,
+    )
+    return flow, waits
+
+
+def test_polling_waits_the_interval_the_issuer_asked_for(
+    issuer: FakeIssuer, endpoints: Endpoints
+) -> None:
+    """The grant carries an interval; the client honours it rather than guessing.
+
+    A poll loop that ignored it is the one that gets rate-limited and then
+    blamed on the identity service — which is why the interval is read off the
+    grant and is the *only* source of the pause.
+    """
+    paced = PacedIssuer(issuer, slow_down_after=0)
+    flow, waits = _paced(issuer, endpoints, paced)
+    grant = flow.begin()
+
+    credential = _approved_after(flow, grant, issuer, polls=3)
+
+    assert credential.value
+    assert grant.interval_s == 1
+    assert waits == [float(grant.interval_s)] * 2
+
+
+def test_a_slow_down_lengthens_the_wait_rather_than_repeating_it(
+    issuer: FakeIssuer, endpoints: Endpoints
+) -> None:
+    """*"Honouring `slow_down` by lengthening it"* — the issuer sets the pace twice."""
+    paced = PacedIssuer(issuer, slow_down_after=1)
+    flow, waits = _paced(issuer, endpoints, paced)
+    grant = flow.begin()
+
+    _approved_after(flow, grant, issuer, polls=3)
+
+    assert waits[0] > float(grant.interval_s)
+    assert waits[1] == waits[0], "a pending answer keeps the pace it was slowed to"
+
+
+def _approved_after(flow: Any, grant: Any, issuer: FakeIssuer, *, polls: int) -> Credential:
+    """Approve the grant once the client has polled `polls` times, then let it in."""
+    approved = {"count": 0}
+    original = flow._sleep
+
+    def sleep(seconds: float) -> None:
+        original(seconds)
+        approved["count"] += 1
+        if approved["count"] >= polls - 1:
+            issuer.approve(grant.user_code)
+
+    flow._sleep = sleep
+    return flow.redeem(grant)

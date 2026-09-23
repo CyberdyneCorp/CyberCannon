@@ -24,7 +24,13 @@ from typer.testing import CliRunner
 
 from cybercanon.adapters.inbound.cli.app import build_app
 from cybercanon.adapters.inbound.mcp import rendering
-from cybercanon.adapters.inbound.mcp.tools import TOOL_NAMES, advertised, build_server
+from cybercanon.adapters.inbound.mcp.tools import (
+    READ_TOOL_NAMES,
+    TOOL_NAMES,
+    WRITE_TOOL_NAMES,
+    advertised,
+    build_server,
+)
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.identity_provider import ResolvedIdentity
 from cybercanon.application.ports.spec_store import ProjectConfig
@@ -257,9 +263,17 @@ def test_a_client_lists_exactly_the_expected_tools(server: FastMCP) -> None:
 
 
 def test_the_expected_list_names_every_tool_this_change_ships() -> None:
-    """The literal is the contract; a duplicate or a stray entry is a defect in it."""
+    """The literal is the contract; a duplicate or a stray entry is a defect in it.
+
+    `add-mcp-writes` D3 grows this by **exactly two** rather than escaping it —
+    *"the exact-match tool-surface test from the read change grows by exactly
+    two names, which is the point of it existing"* — so the eight reads are
+    still counted on their own, and a ninth read or a third write fails here.
+    """
     assert len(set(TOOL_NAMES)) == len(TOOL_NAMES)
-    assert len(TOOL_NAMES) == 8
+    assert len(READ_TOOL_NAMES) == 8
+    assert len(WRITE_TOOL_NAMES) == 2
+    assert len(TOOL_NAMES) == 10
 
 
 def test_no_tool_accepts_an_identity(server: FastMCP) -> None:

@@ -132,9 +132,15 @@ def mcp_modules(repo_root: Path) -> list[Path]:
 
 
 def test_the_adapter_exists_to_be_checked(mcp_modules: list[Path]) -> None:
-    """A guard over nothing is a guard that passes for the wrong reason."""
-    assert len(mcp_modules) >= 3
-    assert {path.name for path in mcp_modules} >= {"tools.py", "rendering.py"}
+    """A guard over nothing is a guard that passes for the wrong reason.
+
+    `writes.py` is named here for task 4.7: the write tools have the most to
+    gain from a shortcut — *"just check whether the budget is actually
+    reachable before recording this"* — so the guard has to be known to cover
+    them rather than assumed to.
+    """
+    assert len(mcp_modules) >= 4
+    assert {path.name for path in mcp_modules} >= {"tools.py", "rendering.py", "writes.py"}
 
 
 def test_the_adapter_imports_nothing_from_an_outbound_adapter(mcp_modules: list[Path]) -> None:

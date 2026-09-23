@@ -592,13 +592,22 @@ def stroke(mark: Stroke) -> list[list[float]]:
 
 
 def annotation(entry: Annotation) -> dict[str, Any]:
-    """One annotation, with the attribution rendered as the person and the agent."""
+    """One annotation, with the attribution rendered as the person and the agent.
+
+    `author_kind` and `observation_kind` travel because `mcp-write-surface`
+    requires agent authorship to be visible *"wherever an annotation is
+    presented to a person"* — a triage view included — and a client that had to
+    infer it from `via` would be inferring it from a field an agent is allowed
+    to leave empty.
+    """
     return {
         "id": entry.id,
         "kind": str(entry.kind),
         "author": entry.author,
         "via": entry.via or None,
         "attribution": entry.attribution,
+        "author_kind": str(entry.author_kind),
+        "observation_kind": str(entry.observation_kind) if entry.observation_kind else None,
         "text": entry.text,
         "state": str(entry.state),
         "anchor": anchor(entry.target),

@@ -22,6 +22,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 from cybercanon.application.ports.interactive_sign_in import DeviceGrant
+from cybercanon.application.ports.outcome_reporter import Delivery
 from cybercanon.application.ports.search_index import RecordedMiss
 from cybercanon.application.results import Refusal
 from cybercanon.application.use_cases.derived_metadata import (
@@ -32,6 +33,7 @@ from cybercanon.application.use_cases.derived_metadata import (
 from cybercanon.application.use_cases.index_assets import RebuildReport
 from cybercanon.application.use_cases.ingest_views import IngestionOutcome
 from cybercanon.application.use_cases.lint_spec import LintFinding, LintReport
+from cybercanon.application.use_cases.observations import Identity
 from cybercanon.application.use_cases.resolve_actor import UnmappedAuthors
 from cybercanon.application.use_cases.sign_in import SignedIn, SignedOut, SignInStatus
 from cybercanon.application.use_cases.validate_export import ValidationOutcome
@@ -47,6 +49,17 @@ NO_FINDINGS = "no findings"
 NO_MISSES = "no search term has come up empty"
 NO_UNMAPPED = "every git author and recorded owner is bound to a person"
 UNREADABLE_HEADING = "specifications that could not be read"
+UNVERIFIED = (
+    "a credential is stored but could not be verified, so writes are refused "
+    "until the identity service can be reached again; reads are unaffected"
+)
+"""The state a person cannot otherwise tell apart from being signed out.
+
+`signed_in` says a credential is in the machine's store and `verified` says
+somebody could check it. Showing only the first would say *signed in* to a
+person whose writes are all being refused, and showing only the second would
+send them through a sign-in that changes nothing.
+"""
 
 
 def render_validations(outcomes: Sequence[ValidationOutcome]) -> str:
@@ -144,6 +157,30 @@ def render_sign_out(signed_out: SignedOut) -> str:
 def render_sign_in_status(status: SignInStatus) -> str:
     """Whether this machine holds a credential — never what it is."""
     return f"canon: {status}"
+
+
+def render_identity(identity: Identity) -> str:
+    """Who this machine writes as, and what has not been delivered yet.
+
+    Both halves in one sentence because they are read at the same moment: a
+    person asking *am I signed in* is usually asking because something did not
+    happen, and a growing pending count is the other half of that answer (D6).
+    """
+    lines = [f"canon: {identity}"]
+    if identity.stored_in:
+        lines.append(f"{INDENT}credential store: {identity.stored_in}")
+    if identity.signed_in and not identity.verified:
+        lines.append(f"{INDENT}{UNVERIFIED}")
+    if not identity.agent:
+        lines.append(f"{INDENT}no agent identifier is configured, so writes are refused here")
+    if identity.detail:
+        lines.append(f"{INDENT}{identity.detail}")
+    return "\n".join(lines)
+
+
+def render_delivery(delivery: Delivery) -> str:
+    """What a flush achieved, and what is still waiting. Never a failure."""
+    return f"canon: {delivery}"
 
 
 def render_ingestion(outcome: IngestionOutcome) -> str:
@@ -349,7 +386,9 @@ def _flatten(groups: Iterable[Sequence[str]]) -> tuple[str, ...]:
 
 __all__ = [
     "render_compiled",
+    "render_delivery",
     "render_failure",
+    "render_identity",
     "render_lint",
     "render_misses",
     "render_project_notes",

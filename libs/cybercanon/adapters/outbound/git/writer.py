@@ -209,6 +209,9 @@ def _annotation(annotation: Annotation) -> dict[str, Any]:
     _put(entry, "via", annotation.via)
     entry["text"] = annotation.text
     entry["state"] = str(annotation.state)
+    if annotation.is_agent_authored:
+        entry["author_kind"] = str(annotation.author_kind)
+    _put(entry, "observation_kind", _observation_kind(annotation))
     _put(entry, "authored_against", annotation.authored_against)
     _put(entry, "created_at", annotation.created_at)
     _put(entry, "edited_at", annotation.edited_at)
@@ -223,6 +226,11 @@ def _annotation(annotation: Annotation) -> dict[str, Any]:
     _put(entry, "replies", [_reply(reply) for reply in annotation.replies])
     _put(entry, "strokes", [_stroke(stroke) for stroke in annotation.strokes])
     return entry
+
+
+def _observation_kind(annotation: Annotation) -> str:
+    """What an agent found, as the file writes it — absent for a person's words."""
+    return str(annotation.observation_kind) if annotation.observation_kind else ""
 
 
 def _put(entry: dict[str, Any], key: str, value: Any) -> None:

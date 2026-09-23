@@ -13,6 +13,7 @@ with zero files on disk and stays that way.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,15 @@ from cybercanon.adapters.outbound.mesh.trimesh_inspector import TrimeshInspector
 from cybercanon.application.ports.spec_store import SpecNotFound, SpecUnreadable
 from cybercanon.application.testing.outcomes import ran
 from cybercanon.application.use_cases.validate_export import validate_export
+from cybercanon.domain.annotations import (
+    Anchor3D,
+    Annotation,
+    AnnotationKind,
+    AuthorKind,
+    ObservationKind,
+)
+from cybercanon.domain.identity import AgentId
+from cybercanon.domain.observations import observation, target_for
 from cybercanon.domain.status import Status
 
 pytestmark = pytest.mark.integration
@@ -214,3 +224,63 @@ def test_a_path_outside_the_repository_discovers_nothing(tmp_path: Path) -> None
 def test_loading_a_spec_that_is_not_there_is_reported(tmp_path: Path) -> None:
     with pytest.raises(SpecNotFound):
         _repository(tmp_path).load("characters/nobody/asset.yaml")
+
+
+# --------------------------------------------------------------------------
+# add-mcp-writes 1.1 — an observation's two new fields survive the file
+# --------------------------------------------------------------------------
+
+
+def test_an_observation_round_trips_through_the_file_with_both_of_its_fields(
+    tmp_path: Path,
+) -> None:
+    """`author_kind` and `observation_kind` are useless if the file drops them.
+
+    The write path builds the observation in the domain and the reader rebuilds
+    it from `asset.yaml`; this asserts the two survive that trip, because a
+    marking that is only true in memory would make *"agent authorship is visible
+    on every human surface"* false the moment anybody re-read the repository.
+    """
+    store = _repository(tmp_path)
+    document = store.read_document(SPEC_PATH)
+    recorded = observation(
+        identifier="obs_1",
+        author="auth|rafa",
+        via=AgentId("blender-agent"),
+        kind=AnnotationKind.TECHNICAL,
+        observation_kind=ObservationKind.UNATTAINABLE_CONSTRAINT,
+        text="12000 triangles is unreachable without losing the head silhouette",
+        target=target_for("head"),
+        created_at="2026-03-01T12:00:00+00:00",
+    )
+
+    edited = store.edited(document, replace(document.asset, annotations=(recorded,)))
+    (read_back,) = store.parse_document(SPEC_PATH, edited).asset.annotations
+
+    assert read_back.author_kind is AuthorKind.AGENT
+    assert read_back.observation_kind is ObservationKind.UNATTAINABLE_CONSTRAINT
+    assert read_back.via == "blender-agent"
+    assert read_back.durable_key == "head"
+
+
+def test_a_human_annotation_writes_neither_of_the_observation_fields(tmp_path: Path) -> None:
+    """The file a person's annotation produces is the file it always produced.
+
+    An empty optional is absent rather than written out, so adding two members
+    to the format did not change one byte of what a human-authored thread looks
+    like in a diff.
+    """
+    store = _repository(tmp_path)
+    document = store.read_document(SPEC_PATH)
+    human = Annotation(
+        id="an_1",
+        author="auth|rafa",
+        kind=AnnotationKind.ART_DIRECTION,
+        text="the silhouette reads as a crate",
+        target=Anchor3D(part="head"),
+    )
+
+    edited = store.edited(document, replace(document.asset, annotations=(human,))).decode("utf-8")
+
+    assert "author_kind" not in edited
+    assert "observation_kind" not in edited

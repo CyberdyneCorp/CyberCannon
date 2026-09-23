@@ -22,6 +22,10 @@ build/
 # CyberCanon local state (rebuildable)
 .canon/index.sqlite
 .canon/queries.log
+# Reported validation outcomes waiting for delivery (add-mcp-writes, D6). A
+# retry buffer, never canon: the verdict is authoritative locally and the
+# outcome's durable home is the committed `asset.validation.json` (G2).
+.canon/reports.ndjson
 
 # Environment
 .env

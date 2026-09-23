@@ -42,6 +42,74 @@ class AnnotationKind(Enum):
         return self.value
 
 
+class AuthorKind(Enum):
+    """Whether a person wrote this, or an automated caller did (D8).
+
+    `add-mcp-writes` requires an agent-authored annotation to be distinguishable
+    from a human-authored one *"without the reader inspecting anything
+    further"*, on every surface that presents one. A field rather than an
+    inference from :attr:`Annotation.via`: `via` names the instrument a person
+    used and is legitimately empty for an agent whose launch configuration named
+    no one, so deriving authorship from it would make the marking depend on a
+    value that is allowed to be absent.
+
+    Two members and no third. *Everything* is written by a person or by an
+    automated caller acting for one, and a record that could say neither is the
+    anonymous record the write surface refuses to create.
+    """
+
+    HUMAN = "human"
+    AGENT = "agent"
+
+    @classmethod
+    def values(cls) -> tuple[str, ...]:
+        """Every accepted author kind, in declaration order."""
+        return tuple(member.value for member in cls)
+
+    @classmethod
+    def from_value(cls, value: str) -> AuthorKind | None:
+        """The author kind this text names, or ``None`` when it names none."""
+        return _AUTHOR_KINDS.get(value.strip())
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class ObservationKind(Enum):
+    """What an automated caller is reporting — its own vocabulary, not `kind`.
+
+    `mcp-write-surface` is explicit that this is a **second** field rather than
+    a widening of the first: an observation *"SHALL carry the annotation `kind`
+    defined by the `asset-spec` capability ... SHALL NOT redefine, extend or
+    narrow that set — and SHALL additionally declare an `observation_kind` in a
+    separate field"*. So :class:`AnnotationKind` still answers *which discipline
+    is speaking* and this answers *what the agent found*, and neither can be
+    spelled with the other's values.
+
+    Three members, each from the requirement's own wording — *"an unattainable
+    constraint, an ambiguity in the specification, and a defect found in the
+    asset"*. The set is closed: an unrecognised value is refused naming these,
+    never recorded as free-form text.
+    """
+
+    UNATTAINABLE_CONSTRAINT = "unattainable_constraint"
+    AMBIGUITY = "ambiguity"
+    DEFECT = "defect"
+
+    @classmethod
+    def values(cls) -> tuple[str, ...]:
+        """Every accepted observation kind, in declaration order."""
+        return tuple(member.value for member in cls)
+
+    @classmethod
+    def from_value(cls, value: str) -> ObservationKind | None:
+        """The observation kind this text names, or ``None`` when it names none."""
+        return _OBSERVATION_KINDS.get(value.strip())
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class AnnotationState(Enum):
     """The two exits, plus the one state that is not an exit."""
 
@@ -51,6 +119,10 @@ class AnnotationState(Enum):
 
     def __str__(self) -> str:
         return self.value
+
+
+_AUTHOR_KINDS = {member.value: member for member in AuthorKind}
+_OBSERVATION_KINDS = {member.value: member for member in ObservationKind}
 
 
 class AnchorState(Enum):
@@ -413,6 +485,39 @@ class Annotation:
     recorded as resolved with that conclusion as its closing text."*
     """
 
+    author_kind: AuthorKind = AuthorKind.HUMAN
+    """Whether a person wrote this or an automated caller did (D8).
+
+    `HUMAN` by default, which is what every annotation written before the write
+    surface existed is and what every hand-authored entry still is: the
+    marking exists to make the *machine* visible, so the default has to be the
+    ordinary case rather than the interesting one.
+    """
+
+    observation_kind: ObservationKind | None = None
+    """What an agent found, when one wrote this — never a discipline (D8).
+
+    ``None`` for a human's annotation, which declares no observation kind and
+    is not asked to: the field belongs to the observation vocabulary, and
+    :attr:`kind` remains the `asset-spec` set for every annotation alike.
+    """
+
+    @property
+    def is_agent_authored(self) -> bool:
+        """Whether an automated caller wrote this — the marking every surface reads.
+
+        One property rather than four renderers each comparing to a string, for
+        the reason :func:`attributed` is one function: *"an agent-authored one
+        SHALL be distinguishable from a human-authored one"* on every surface,
+        and four opinions about how would eventually be three.
+        """
+        return self.author_kind is AuthorKind.AGENT
+
+    @property
+    def is_observation(self) -> bool:
+        """Whether this is an agent's observation — agent-authored, with a kind."""
+        return self.is_agent_authored and self.observation_kind is not None
+
     @property
     def is_open(self) -> bool:
         return self.state is AnnotationState.OPEN
@@ -767,13 +872,61 @@ def open_annotations(annotations: tuple[Annotation, ...]) -> tuple[Annotation, .
     return tuple(annotation for annotation in annotations if annotation.is_open)
 
 
+# --------------------------------------------------------------------------
+# How a human surface marks what it is showing (add-mcp-writes, D8)
+# --------------------------------------------------------------------------
+
+
+AGENT_AUTHORED = "agent-authored"
+"""How every surface says *a machine wrote this*. One phrasing, decided once.
+
+`mcp-write-surface` requires an agent-authored annotation to be distinguishable
+from a human-authored one *"without the reader inspecting anything further"*,
+wherever one is presented. Four surfaces each inventing a marking is how a
+reader learns that the briefing and the web application disagree about who said
+something — the failure :func:`attributed` already exists to prevent.
+"""
+
+UNANCHORED = "unanchored"
+"""How a surface says *this names a target the asset does not have*.
+
+Beside the target **as the caller gave it**, never instead of it: the
+unresolved name is the evidence a person needs in order to work out what was
+meant, and `project.md` forbids the silently mis-placed annotation by name.
+"""
+
+
+def marks(annotation: Annotation) -> tuple[str, ...]:
+    """The words a reader needs about this annotation before reading its text.
+
+    Authorship first, then anchoring, because they answer different questions —
+    *who said this* and *does it still land anywhere* — and a surface that
+    merged them would eventually drop one. A human-authored, anchored
+    annotation is marked with nothing at all, which is the point: the marking
+    exists to make the exceptional visible.
+    """
+    applicable = (
+        (AGENT_AUTHORED, annotation.is_agent_authored),
+        (UNANCHORED, annotation.is_orphaned),
+    )
+    return tuple(mark for mark, applies in applicable if applies)
+
+
+def marked(annotation: Annotation) -> str:
+    """:func:`marks` as one parenthetical, or nothing when there is nothing to say."""
+    listed = ", ".join(marks(annotation))
+    return f" ({listed})" if listed else ""
+
+
 __all__ = [
+    "AGENT_AUTHORED",
     "ANCHOR_TYPES",
     "DEFAULT_FILTER",
     "MAX_STROKE_POINTS",
     "NO_SUCH_PART",
     "NO_SUCH_VIEW",
     "STROKE_TOLERANCE",
+    "UNANCHORED",
     "Anchor",
     "Anchor2D",
     "Anchor3D",
@@ -782,14 +935,18 @@ __all__ = [
     "AnnotationFilter",
     "AnnotationKind",
     "AnnotationState",
+    "AuthorKind",
     "Camera",
+    "ObservationKind",
     "Orphan",
     "Point",
     "Reply",
     "Stroke",
     "attributed",
     "capped",
+    "marked",
     "marked_orphans",
+    "marks",
     "open_annotations",
     "orphan_reason",
     "orphans",

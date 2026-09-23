@@ -1,4 +1,4 @@
-"""The FastMCP stdio server — eight read tools over one container (D1, D6).
+"""The FastMCP stdio server — eight read tools and two writes, over one container.
 
 This is the second inbound adapter, and it is the first real test of the "one
 core, three surfaces" claim: if anything below decided something the command
@@ -24,6 +24,11 @@ nothing here to disagree with.
 * **A lens is a free parameter carrying no authority.** Authorization is decided
   before the lens is looked at (D3), inside the use case, which is what makes it
   safe to let a caller send any lens string it likes.
+* **The two write tools are proposals** (`add-mcp-writes`). They record an
+  observation and report a verdict, and the list of them is
+  :data:`WRITE_TOOL_NAMES` — two entries, and the number is the requirement
+  rather than a starting point. Nothing here promotes, resolves, edits a
+  constraint or creates an asset, because there is no tool that could.
 
 Failures are answers, and since D10 they are answers *by construction*: a use
 case returns one of seven outcomes rather than raising, so an unknown
@@ -46,11 +51,13 @@ from dataclasses import dataclass, field
 
 from fastmcp import FastMCP
 
-from cybercanon.adapters.inbound.mcp import rendering
+from cybercanon.adapters.inbound.mcp import rendering, writes
+from cybercanon.adapters.inbound.mcp.writes import WRITE_TOOL_NAMES
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.results import Result, succeeded
 from cybercanon.application.use_cases.index_assets import UnreadableSpec
 from cybercanon.application.use_cases.spec_lens import Lens
+from cybercanon.domain.annotations import AnnotationKind, ObservationKind
 
 SERVER_NAME = "cybercanon"
 STDIO = "stdio"
@@ -66,18 +73,27 @@ a cross-thread use of it.
 """
 
 INSTRUCTIONS = """\
-CyberCanon — the canon of this game project, read-only and local.
+CyberCanon — the canon of this game project, local and mostly read-only.
 
 Every tool reads the repository's `asset.yaml` specifications and answers in
-prose. Nothing here writes: specifications, annotations and constraints are
-changed by people, on human-facing surfaces.
+prose. Specifications, constraints and rules are changed by people, on
+human-facing surfaces: no tool here edits one, and none ever will.
 
 `get_asset_spec` accepts an optional lens — design, art, modeling or code —
 which narrows what a response shows and never widens what it may show. A lensed
 answer says so and says that the full specification exists.
+
+Two tools record something, and both are proposals rather than edits.
+`add_annotation` records an observation — typically that a declared constraint
+cannot be met, and why. It changes no constraint: a person promotes it into a
+rule or resolves it as an issue, and you can do neither. `report_export`
+delivers a validation verdict that was produced locally; the verdict stands
+whether or not the report is delivered. Both need a signed-in person
+(`canon auth login`) and an agent identifier in this server's launch
+configuration; without either, every read still works.
 """
 
-TOOL_NAMES: tuple[str, ...] = (
+READ_TOOL_NAMES: tuple[str, ...] = (
     "where_is",
     "list_assets",
     "search_assets",
@@ -87,11 +103,18 @@ TOOL_NAMES: tuple[str, ...] = (
     "diff_spec",
     "validate_export",
 )
-"""The advertised surface, exactly (D6).
+"""The eight tools that change nothing. Every one of them leaves the tree clean."""
+
+TOOL_NAMES: tuple[str, ...] = (*READ_TOOL_NAMES, *WRITE_TOOL_NAMES)
+"""The advertised surface, exactly (D6, D3).
 
 An exact-match test turns "we decided not to expose promotion" into "you must
-edit this tuple and explain yourself". No entry here mutates repository content,
-and until the `mcp-write-surface` capability arrives none may.
+edit this tuple and explain yourself". `add-mcp-writes` grew it by exactly two
+entries — *"the exact-match tool-surface test from the read change grows by
+exactly two names, which is the point of it existing"* — and the two halves are
+named apart so the number of tools that change recorded state can be asserted on
+its own. A third entry in :data:`WRITE_TOOL_NAMES` is a defect rather than an
+addition, in this version and in every later one.
 """
 
 
@@ -238,18 +261,69 @@ def _validation_tools(server: FastMCP, surface: ReadSurface) -> None:
         return surface.answer(container.validate_export(export), rendering.render_validation)
 
 
+def _write_tools(server: FastMCP, surface: ReadSurface) -> None:
+    """The two tools that change recorded state, and there is no third.
+
+    Both are the same three lines every read tool is: arguments in, one
+    container call, prose out. Neither takes an actor, an agent or an author —
+    the write session the container assembles carries both parties, from the
+    credential and from the launch configuration — so there is no signature here
+    through which a caller could claim to be somebody.
+    """
+    container = surface.container
+
+    @server.tool(run_in_thread=IN_THREAD)
+    def add_annotation(
+        asset: str,
+        target: str,
+        text: str,
+        kind: str = AnnotationKind.TECHNICAL.value,
+        observation_kind: str = ObservationKind.UNATTAINABLE_CONSTRAINT.value,
+    ) -> str:
+        """Record an observation on an asset — for example that a constraint cannot be met.
+
+        `kind` is the discipline speaking (art-direction, technical, design) and
+        `observation_kind` is what you found (unattainable_constraint,
+        ambiguity, defect). The entry is recorded open, attributed to you and to
+        this agent, and left for a person to promote or resolve. It changes no
+        constraint, rule, budget, status or owner.
+        """
+        return surface.answer(
+            container.record_observation(
+                writes.observation_from(asset, target, text, kind, observation_kind)
+            ),
+            rendering.render_observation,
+            asset,
+        )
+
+    @server.tool(run_in_thread=IN_THREAD)
+    def report_export(asset: str, path: str, result: str = "") -> str:
+        """Report the outcome of validating an export. The verdict is produced locally.
+
+        `result` is your own account of the run and is recorded nowhere: the
+        outcome reported is the one this machine's validator produces from the
+        file at `path`, which is the same verdict `canon validate` prints. A
+        destination that cannot be reached does not change it and does not fail
+        this call — the report is kept and delivered later.
+        """
+        return writes.answer_report(container, container.validate_export(path), path, asset)
+
+
 _REGISTRARS: Sequence[Callable[[FastMCP, ReadSurface], None]] = (
     _lookup_tools,
     _spec_tools,
     _validation_tools,
+    _write_tools,
 )
 
 
 __all__ = [
     "INSTRUCTIONS",
+    "READ_TOOL_NAMES",
     "SERVER_NAME",
     "STDIO",
     "TOOL_NAMES",
+    "WRITE_TOOL_NAMES",
     "ReadSurface",
     "advertised",
     "build_server",

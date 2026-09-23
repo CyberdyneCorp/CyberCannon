@@ -29,7 +29,8 @@ the one linked documents need: ``document_platform``. ``add-derived-metadata``
 adds the two a model-backed feature needs: ``llm`` and ``vision`` — registered
 here for the reason every other fake is, which is that `llm-integration`'s
 *"model-backed features SHALL be testable with no endpoint reachable"* has to be
-true of the scenarios as well as of the unit suite.
+true of the scenarios as well as of the unit suite. ``add-mcp-writes`` adds the
+two the write surface needs: ``annotation_writer`` and ``outcome_reporter``.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
 
+from cybercanon.application.testing.annotation_writer import InMemoryAnnotationWriter
 from cybercanon.application.testing.blob_store import InMemoryBlobStore
 from cybercanon.application.testing.credential_store import InMemoryCredentialStore
 from cybercanon.application.testing.dismissals import InMemoryDismissals
@@ -48,6 +50,7 @@ from cybercanon.application.testing.interactive_sign_in import InMemoryInteracti
 from cybercanon.application.testing.llm import InMemoryLLM
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
 from cybercanon.application.testing.notifier import InMemoryNotifier
+from cybercanon.application.testing.outcome_reporter import InMemoryOutcomeReporter
 from cybercanon.application.testing.repository_host import InMemoryRepositoryHost
 from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
@@ -60,6 +63,7 @@ FakeFactory = Callable[[], Any]
 
 FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType(
     {
+        "annotation_writer": InMemoryAnnotationWriter,
         "blob_store": InMemoryBlobStore,
         "credential_store": InMemoryCredentialStore,
         "dismissals": InMemoryDismissals,
@@ -70,6 +74,7 @@ FAKE_FACTORIES: Mapping[str, FakeFactory] = MappingProxyType(
         "llm": InMemoryLLM,
         "mesh_inspector": InMemoryMeshInspector,
         "notifier": InMemoryNotifier,
+        "outcome_reporter": InMemoryOutcomeReporter,
         "repository_host": InMemoryRepositoryHost,
         "search_index": InMemorySearchIndex,
         "spec_store": InMemorySpecStore,
@@ -102,6 +107,7 @@ def _registry(factories: Mapping[str, FakeFactory] | None) -> Mapping[str, FakeF
 __all__ = [
     "FAKE_FACTORIES",
     "FakeFactory",
+    "InMemoryAnnotationWriter",
     "InMemoryBlobStore",
     "InMemoryCredentialStore",
     "InMemoryDismissals",
@@ -111,6 +117,7 @@ __all__ = [
     "InMemoryLLM",
     "InMemoryMeshInspector",
     "InMemoryNotifier",
+    "InMemoryOutcomeReporter",
     "InMemoryRepositoryHost",
     "InMemorySearchIndex",
     "InMemorySpecStore",

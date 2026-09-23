@@ -32,21 +32,31 @@ observation an agent's report becomes (`add-mcp-writes`).
 from __future__ import annotations
 
 import socket
+from dataclasses import fields
 from typing import Any
 
 import pytest
 from pytest_bdd import given, scenario, then, when
 
 from cybercanon.application.ports.identity_provider import Credential, IdentityUnavailable
+from cybercanon.application.testing.annotation_writer import InMemoryAnnotationWriter
 from cybercanon.application.testing.identity_provider import InMemoryIdentityProvider
+from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
 from cybercanon.application.testing.outcomes import ran
+from cybercanon.application.testing.repository_host import InMemoryRepositoryHost
 from cybercanon.application.testing.search_index import InMemorySearchIndex
 from cybercanon.application.testing.spec_store import InMemorySpecStore
 from cybercanon.application.use_cases.index_assets import rebuild_index
 from cybercanon.application.use_cases.lookup_assets import ART, where_is
+from cybercanon.application.use_cases.observations import (
+    ObservationRequest,
+    WriteSession,
+    record_observation,
+)
 from cybercanon.application.use_cases.resolve_actor import (
     UNVERIFIABLE,
     ActorResolver,
+    AlreadyResolved,
     GitIdentitySource,
     IdentityCache,
     list_unmapped_authors,
@@ -54,7 +64,10 @@ from cybercanon.application.use_cases.resolve_actor import (
     may_read,
     resolve_git_identity,
     strip_identity_claims,
+    verified_as,
 )
+from cybercanon.application.use_cases.validation_records import from_document
+from cybercanon.application.use_cases.validation_worker import validate_changed_exports
 from cybercanon.domain.actor_checks import (
     RULE_DUPLICATE_EMAIL,
     RULE_DUPLICATE_SUBJECT,
@@ -70,8 +83,11 @@ from cybercanon.domain.actors import (
     resolve_git_author,
     resolve_subject,
 )
+from cybercanon.domain.annotations import AnnotationKind, AuthorKind, ObservationKind
 from cybercanon.domain.asset import Asset, AssetId
 from cybercanon.domain.authorization import may_author_durable_content, may_read_project
+from cybercanon.domain.constraints import Constraints
+from cybercanon.domain.format_matrix import facts_for
 from cybercanon.domain.identity import (
     UNMAPPED_MARK,
     Actor,
@@ -80,6 +96,8 @@ from cybercanon.domain.identity import (
     Attribution,
     Role,
 )
+from cybercanon.domain.mesh_facts import MeshFormat
+from cybercanon.domain.validation_outcome import AUTOMATION
 
 SUBJECT = "auth|rafa"
 DISPLAY_NAME = "Rafa"
@@ -107,6 +125,11 @@ SECOND_STRANGER = "designer@studio.example"
 SPEC_PATH = "characters/mech_scout/asset.yaml"
 MECH_SCOUT = Asset(id=AssetId("mech_scout"), name="Scout Mech")
 TTL_SECONDS = 60.0
+
+SCHEDULED_EXPORT = "characters/mech_scout/exports/SM_mech_scout_LOD0.glb"
+SCHEDULED_RECORD = "characters/mech_scout/asset.validation.json"
+SCHEDULED_SPEC = b"schema_version: 1\nid: mech_scout\nname: Scout Mech\n"
+"""The personless pass's repository: one specification, one export, one outcome."""
 
 
 class Ticks:
@@ -1061,3 +1084,145 @@ def _all_three_show_the_same_name(session: dict[str, Any]) -> None:
     presentations = session["presentations"]
 
     assert set(presentations.values()) == {DISPLAY_NAME}, presentations
+
+
+# --------------------------------------------------------------------------
+# The two scenarios that were waiting for the write surface (`add-mcp-writes`)
+# --------------------------------------------------------------------------
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Unattainable budget is reported, not changed",
+)
+def test_unattainable_budget_is_reported_not_changed() -> None: ...
+
+
+@scenario(
+    "../features/add-mcp-read-server/agent-identity.feature",
+    "Scheduled run cannot act as a person",
+)
+def test_scheduled_run_cannot_act_as_a_person() -> None: ...
+
+
+UNATTAINABLE = "12000 triangles is unreachable without losing the head silhouette"
+TRI_BUDGET = 12000
+BLENDER = AgentId("blender-agent")
+
+
+@given("an asset with a triangle budget an agent cannot meet")
+def _an_asset_with_an_unmeetable_budget(session: dict[str, Any]) -> None:
+    """One asset, one budget, and a writer that records against the file it is in."""
+    asset = Asset(
+        id=AssetId("mech_scout"),
+        name="Scout Mech",
+        constraints=Constraints(tri_budget=TRI_BUDGET),
+    )
+    store = InMemorySpecStore()
+    store.add(SPEC_PATH, asset)
+    writer = InMemoryAnnotationWriter()
+    writer.declare("mech_scout", SPEC_PATH)
+    session["store"] = store
+    session["writer"] = writer
+    session["budget_before"] = store.load(SPEC_PATH).asset.constraints.tri_budget
+
+
+@when("the agent reports that the budget is unattainable")
+def _the_agent_reports_the_budget_is_unattainable(session: dict[str, Any]) -> None:
+    """The write surface, called as an agent acting for a person who may write."""
+    actor = Actor(
+        id=ActorId(SUBJECT), display_name=DISPLAY_NAME, roles=(Role.ARTIST,), projects=(PROJECT,)
+    )
+    session["outcome"] = record_observation(
+        WriteSession(
+            project=PROJECT,
+            resolver=AlreadyResolved(verified_as(actor)),
+            writer=session["writer"],
+            agent=BLENDER,
+        ),
+        ObservationRequest(
+            asset="mech_scout",
+            target="head",
+            text=UNATTAINABLE,
+            kind=AnnotationKind.TECHNICAL.value,
+            observation_kind=ObservationKind.UNATTAINABLE_CONSTRAINT.value,
+        ),
+    )
+
+
+@then("the report SHALL be recorded as an observation")
+def _it_was_recorded_as_an_observation(session: dict[str, Any]) -> None:
+    recorded = ran(session["outcome"])
+
+    assert recorded.annotation.text == UNATTAINABLE
+    assert recorded.annotation.author_kind is AuthorKind.AGENT
+    assert recorded.annotation.is_open, "an observation enters the triage open"
+
+
+@then("the recorded triangle budget SHALL be unchanged")
+def _the_budget_did_not_move(session: dict[str, Any]) -> None:
+    """Read the asset back, and then say why it could not have moved.
+
+    The value is the first check and the weaker one: a write that *could* touch
+    a constraint would still leave this one alone most of the time. The second
+    is structural and is the one that holds tomorrow — the request the agent
+    makes has four fields and none of them names a constraint, a budget, a rule
+    or a state, so there is no argument through which a budget could travel.
+    """
+    after = session["store"].load(SPEC_PATH).asset.constraints.tri_budget
+    recorded = ran(session["outcome"])
+    carried = {field.name for field in fields(ObservationRequest)}
+
+    assert after == session["budget_before"] == TRI_BUDGET
+    assert str(TRI_BUDGET) in recorded.annotation.text, "the number is text, and only text"
+    assert carried == {"asset", "target", "text", "kind", "observation_kind"}
+
+
+@given("a run with no human caller")
+def _a_run_with_no_human_caller(session: dict[str, Any]) -> None:
+    """The fetch-triggered validation pass: a scheduler started it, nobody asked."""
+    host = InMemoryRepositoryHost()
+    host.add_project(PROJECT, {SPEC_PATH: SCHEDULED_SPEC, SCHEDULED_EXPORT: b"glTF-ish bytes"})
+    host.clone(PROJECT)
+    store = InMemorySpecStore()
+    store.add(SPEC_PATH, Asset(id=AssetId("mech_scout"), name="Scout Mech"))
+    store.snapshot(host.head(PROJECT).value)
+    inspector = InMemoryMeshInspector()
+    inspector.add(SCHEDULED_EXPORT, facts_for(MeshFormat.GLB, triangles=11840))
+    session["host"] = host
+    session["store"] = store
+    session["inspector"] = inspector
+
+
+@when("it performs a recorded action")
+def _it_performs_a_recorded_action(session: dict[str, Any]) -> None:
+    """The action the system actually records with no person: a validation outcome."""
+    ran(
+        validate_changed_exports(
+            PROJECT,
+            repository_host=session["host"],
+            spec_store=session["store"],
+            mesh_inspector=session["inspector"],
+        )
+    )
+    session["record"] = from_document(
+        session["host"].remote_files(PROJECT)[SCHEDULED_RECORD], SCHEDULED_RECORD
+    )
+
+
+@then("the record SHALL identify it as automation")
+def _the_record_says_automation(session: dict[str, Any]) -> None:
+    record = session["record"]
+
+    assert record.by_automation
+    assert record.attributed_to == AUTOMATION
+
+
+@then("SHALL NOT name any person as responsible")
+def _no_person_is_named(session: dict[str, Any]) -> None:
+    """Not this person, and not any other: nobody's subject is in the record."""
+    written = session["host"].remote_files(PROJECT)[SCHEDULED_RECORD].decode("utf-8")
+
+    assert SUBJECT not in written
+    assert WORK_EMAIL not in written
+    assert DISPLAY_NAME not in written
