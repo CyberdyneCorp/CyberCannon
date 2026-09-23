@@ -12,7 +12,7 @@
 # Install it in a game repository with:
 #
 #     repos:
-#       - repo: https://github.com/cyberdynecorp/cybercanon
+#       - repo: https://github.com/CyberdyneCorp/CyberCannon
 #         rev: v0.1.0
 #         hooks:
 #           - id: canon

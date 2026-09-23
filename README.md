@@ -298,6 +298,210 @@ identity is refused, naming the missing entry — because git is the source of
 truth, every person has two identities, and leaving them unlinked breaks
 attribution silently six months into the history.
 
+## GitHub, and what it is actually doing
+
+Two repositories, doing two completely different jobs. Confusing them makes
+everything below unreadable.
+
+| Repository | What it holds | What the git host is to it |
+|---|---|---|
+| **A game repository** — one per project, named by `CANON_REPOSITORY_URL` | `asset.yaml`, concept views, `art-spec.md`, `.canon/` — the canon itself | **the database.** CyberCanon reads it and writes to it at runtime. |
+| **This repository** — [`CyberdyneCorp/CyberCannon`](https://github.com/CyberdyneCorp/CyberCannon) | the tool | an ordinary source host: pull requests, CI, the published pre-commit hook. |
+
+The first row is the unusual one, and the rest of this section is its
+consequences.
+
+### The game repository is the database
+
+There is no ORM, no migration and no sync job, because there is nothing to sync
+*to*. `git diff` is the changelog of your art direction and `git blame` answers
+who tightened the triangle budget and when — not as a nice side effect, but as
+the only copy. PostgreSQL and MinIO are derived: destroy both, rebuild from the
+repository, and every answer is identical. That is a drill, not an aspiration —
+[`docs/recovery.md`](docs/recovery.md) destroys the working copy, the index and
+the blob mirror and compares every answer before and after.
+
+So the product's durability question is not *"is our database backed up"*. It is
+*"is your game repository backed up"*, which it already was.
+
+### Reading: a working copy, pinned to a revision
+
+```mermaid
+graph LR
+    GH["The game repository"] --> FETCH["Scheduled fetch - the guarantee"]
+    GH --> HOOK["Webhook - the optimisation"]
+    FETCH --> WC["Persistent working copy, on a volume"]
+    HOOK --> WC
+    WC --> REV["One pinned revision per request"]
+    REV --> READ["Every file that request reads"]
+    REV --> IDX["Index and blob mirror - derived"]
+
+    style GH fill:#FFF8E1,stroke:#F9A825
+    style FETCH fill:#E8F5E9,stroke:#2E7D32
+    style HOOK fill:#ECEFF1,stroke:#546E7A
+    style REV fill:#E3F2FD,stroke:#1565C0
+    style IDX fill:#F3E5F5,stroke:#6A1B9A
+```
+
+Three properties, each bought on purpose:
+
+- **The scheduler is the guarantee; the webhook is only an optimisation.** A
+  notification shortens the wait between a commit landing and the working copy
+  seeing it. It is never the *reason* the copy is current, because webhooks are
+  lost, misconfigured and silently disabled by repository administrators — and a
+  project that was quietly hours stale with nothing reporting it is the failure
+  this arrangement exists to refuse.
+- **Reads come from the git object database at a pinned revision, never from the
+  checked-out tree.** A multi-file read is assembled from one revision by
+  construction, so a fetch landing mid-request cannot produce a torn read. That
+  is structural, not a lock somebody has to remember to take.
+- **A project still cloning says `provisioning`.** An empty asset list is
+  forbidden as an answer, because "still cloning" and "this project has no
+  assets" look identical to a caller and mean opposite things.
+
+**Rejected: reading through the host's REST API.** It would remove the volume,
+and add rate limits, per-read latency, a hard dependency on the host being up,
+and a second `SpecStore` implementation that would behave differently from the
+local one — reintroducing precisely the *"it passed on my machine but the site
+says it failed"* bug that one-core-three-surfaces exists to prevent.
+
+### Writing: a direct commit, in your name
+
+A write-back is a **direct commit to a configured branch**, authored as the
+person who asked for it. Not a pull request, and not a service account.
+
+| Rule | Why |
+|---|---|
+| One logical edit is one pushed commit | A commit that cannot be pushed **did not happen** — there is no local-only state to reconcile later. |
+| A rejected push retries against the new tip | The remote advancing is an ordinary race, not an error for a person to see. |
+| Conflict state that cannot be *determined* is refused | The check used to return "no" on error. A write that fails open on an unreadable working copy is how a conflict marker gets committed. |
+| A person with no git identity is refused | Named, not substituted: `<subject> has no entry in .canon/actors.yaml, so an edit cannot be attributed to a git identity; add them to the mapping`. |
+
+The last one is the one people argue about, so it is worth stating plainly:
+committing somebody's edit under a shared bot identity is exactly how `git blame`
+stops answering the question this whole tool exists to answer. **No mapping, no
+write.**
+
+The product does not open a pull request for you. Because the target branch is
+configuration, a project that wants review before `main` points
+`CANON_REPOSITORY_BRANCH` at a branch that is not `main` and reviews the diff
+there; nothing in the product changes either way.
+
+### Every person has two identities, and one file joins them
+
+CyberdyneAuth knows a **subject**. Git knows an **email**. `.canon/actors.yaml`
+lives in the game repository and is the join — versioned, reviewable, and part
+of the project rather than of the deployment.
+
+```yaml
+# .canon/actors.yaml, in the game repository
+actors:
+  - subject: "<the identity provider's subject for this person>"
+    display_name: Leo Test
+    emails: [leo@example.com]      # load-bearing: commits are authored with the first
+    default_role: ART_DIRECTOR     # descriptive, NOT a grant
+```
+
+`emails` is what makes a write possible; an entry with an empty list is refused
+exactly like a person with no entry at all. `default_role` is **not** an
+authorization grant — a caller's roles come from the `roles` claim in their
+token and the mapping is never merged into them. It describes a past commit
+author when history is displayed, which is a different question from *what may
+this caller do right now*.
+
+### The webhook
+
+`POST /hooks/repository` — deliberately outside the versioned `/v1` prefix,
+because the versioned surface is a promise to *our* clients about *our*
+resources, and this is an inbound hint from a third party whose payload we
+barely read.
+
+```
+X-Canon-Signature: sha256=<hmac-sha256 of the exact bytes received>
+{"project": "ronin", "ref": "refs/heads/main"}
+```
+
+An HMAC over the body rather than a bearer token in a header, because the body
+is what is being attested: a token proves somebody knows the token, a digest
+proves *this notification* came from somebody who does. Four outcomes, and each
+one is specified rather than convenient:
+
+| Case | What happens |
+|---|---|
+| Authenticated, configured project, its branch | Refresh now. `202` |
+| **Unauthenticated** | **Ignored.** No refresh, no retry, no queue — the origin check is the only thing between this and anybody making the service fetch on demand. |
+| Unknown project, or a branch we do not serve | Accepted and discarded, `202` — an error here would make the host start disabling the hook, and the projects that *are* configured would lose their optimisation over one that never existed. |
+| A body naming no project | Unreadable — reported rather than silently discarded. |
+
+**The secret is required to boot.** `CANON_WEBHOOK_SECRET` is in the required
+set, so a hosted service started without it refuses and names it. The adapter
+itself can mount no endpoint at all — `register()` accepts `None` — but the
+hosted composition root always supplies a secret, so that branch belongs to
+other wirings and to tests rather than to a deployment. What an unset or empty
+secret must never become is an *open* endpoint, and it cannot: a secret that is
+empty authenticates nothing.
+
+*Practical note:* the payload shape above is ours, not GitHub's. A GitHub push
+event sends `X-Hub-Signature-256` and a body with `repository.name` instead of
+`project`, so pointing a raw GitHub webhook at this endpoint yields
+*unauthenticated* and then *unreadable*. A deployment that wants push
+notifications needs a small relay that signs our shape.
+
+Until one exists, the right configuration is a **random secret nobody holds**.
+Every notification then fails the origin check and is ignored, staleness stays
+bounded by `CANON_FETCH_INTERVAL_S`, and there is no window in which an unsigned
+caller can make the service fetch on demand. Nothing is lost by this: the
+scheduled fetch is the guarantee, and the webhook only ever shortened the wait.
+
+### The credential
+
+| Variable | What it is |
+|---|---|
+| `CANON_REPOSITORY_URL` | The remote, **carrying the token** — e.g. `https://x-access-token:<PAT>@github.com/<org>/<repo>.git`. This is what git authenticates with. |
+| `CANON_REPOSITORY_CREDENTIAL` | The same token, declared separately. **Nothing authenticates with it.** |
+| `CANON_REPOSITORY_BRANCH` | The branch write-backs are committed to. |
+| `CANON_FETCH_INTERVAL_S` | How often the scheduled fetch runs. |
+| `CANON_WEBHOOK_SECRET` | What a notification is signed with. **Required** — the service refuses to start without it. A value nobody holds is the correct setting until a relay exists. |
+| `CANON_WRITE_BACK_TIMEOUT_S` | How long one write-back may take before abandoning itself, resetting the working copy and reporting that **no change was recorded**. |
+| `CANON_DRAIN_WINDOW_S` | How long a retiring instance may drain. **Must be longer than the timeout above**, so an accepted write-back either finishes or is abandoned before termination. |
+
+`CANON_REPOSITORY_CREDENTIAL` exists to be *known*, not used: declaring the token
+is what makes it one of the strings scrubbed from every rendered message, log
+line and traceback. Setting both scrubs it twice — once bare, once inside the
+URL. One consequence worth expecting rather than debugging: because the URL is
+itself a secret, a git failure will not name the repository.
+
+### It is git, not GitHub
+
+Nothing in the product branches on the host. The `RepositoryHost` port speaks
+ten plain git operations — clone, fetch, head, read at a revision, commit as an
+author, push, list paths, history of one path, recover — and the end-to-end stack
+runs the whole system against a bare `git://` daemon in a container, with no
+GitHub anywhere. GitLab, Gitea or a bare remote work by construction.
+
+GitHub is where we happen to run it, and the one place a host-shaped assumption
+could have crept in — the webhook — is the one place it deliberately did not.
+
+### GitHub for *this* repository
+
+Ordinary, with one rule: **CI runs `just` recipes and nothing else.**
+
+```yaml
+- name: just check      # unit, BDD, conformance, both traceability gates, lint, imports, spec
+- name: just test-e2e   # browsers and the compose stack, which the run brings up itself
+```
+
+A check that lives in the workflow file is a check a developer's `just check` can
+never reproduce, so `tests/tooling/test_ci_workflow.py` fails the build if one
+leaks in. The two jobs run independently, so a slow e2e job never delays the
+verdict on `check`. A failing e2e run uploads its traces as an artifact — that is
+evidence, not a check.
+
+This repository also **publishes** the pre-commit hook that game repositories
+install ([`.pre-commit-hooks.yaml`](.pre-commit-hooks.yaml)), which is the
+lightest possible integration: a game repository adopts CyberCanon by adding
+four lines of YAML, and rolls back by deleting them.
+
 ## Install
 
 ```sh
@@ -413,7 +617,7 @@ that confuses *failed* with *never ran* is worse than one that has neither.
 ```yaml
 # .pre-commit-config.yaml, in the game repository
 repos:
-  - repo: https://github.com/cyberdynecorp/cybercanon
+  - repo: https://github.com/CyberdyneCorp/CyberCannon
     rev: v0.1.0
     hooks:
       - id: canon
