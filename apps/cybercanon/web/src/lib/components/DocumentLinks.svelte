@@ -99,56 +99,133 @@
 </section>
 
 <style>
+	/*
+	 * A list of references, set the way the design sets one: the title in the
+	 * link colour, the provenance under it in the quiet ink, and nothing
+	 * boxed except the two things that are not prose — the scope tag and the
+	 * state of a link that could not be resolved.
+	 *
+	 * The component's own comment fixes what may appear here, and the styling
+	 * follows it: a forbidden entry has no title and no summary to set,
+	 * because the surface sent none, and there is no rule below that could
+	 * put one back.
+	 */
 	.documents {
-		margin-top: 1.5rem;
+		margin-block-start: var(--space-6);
+		border-block-start: var(--border-heavy) solid var(--color-divider);
+		padding-block-start: var(--space-3);
 	}
 
 	.heading {
-		margin: 0;
-		font-size: 1rem;
+		font-size: var(--text-h4);
+		margin-block-end: var(--space-1);
 	}
 
 	.guidance,
-	.unavailable,
 	.none {
-		margin: 0.25rem 0 0.75rem;
-		font-size: 0.8125rem;
-		opacity: 0.85;
+		margin: 0 0 var(--space-3);
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
 	}
 
+	/*
+	 * The platform being unavailable is a disclosure rather than a failure —
+	 * the links are still here, they are just showing addresses instead of
+	 * titles — so it takes the spot yellow the design gives a notice, in a
+	 * box, rather than the second accent it gives something broken.
+	 */
+	.unavailable {
+		margin: 0 0 var(--space-3);
+		background: var(--color-highlight);
+		color: var(--color-text);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
+		padding: var(--space-2) var(--space-3);
+		font-size: var(--text-small);
+	}
+
+	/* The asset's own documents and the project's are two groups, and the
+	   label that says which is the system's eyebrow. */
 	.scope {
-		margin: 0.75rem 0 0.25rem;
-		font-size: 0.8125rem;
-		text-transform: lowercase;
-		opacity: 0.8;
+		margin: var(--space-4) 0 var(--space-2);
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--color-neutral-700);
 	}
 
 	.links {
 		margin: 0;
 		padding: 0;
 		list-style: none;
+		display: grid;
+		gap: var(--space-3);
 	}
 
 	.link {
-		margin-bottom: 0.75rem;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-1) var(--space-2);
 	}
 
+	.title {
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-h5);
+	}
+
+	/* A tag, in this system's terms: boxed in full-strength ink, never a
+	   tinted pill. Scope is a fact about the link and takes the neutral. */
 	.scope-tag,
 	.state {
-		margin-left: 0.5rem;
-		font-size: 0.75rem;
+		display: inline-block;
+		border: var(--border-thin) solid var(--color-divider);
+		border-radius: var(--radius-sm);
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		opacity: 0.7;
+		white-space: nowrap;
+		padding: 0 var(--space-1);
+		background: var(--color-neutral-200);
+		color: var(--color-text);
+	}
+
+	/*
+	 * A link that could not be resolved. Unreachable, gone and not-permitted
+	 * are three different sentences and the component prints whichever one it
+	 * is; what this does is make sure the tag is never mistaken for the scope
+	 * beside it — the second accent's tint behind the same black edge, so the
+	 * two differ in colour and in wording and stay different in greyscale.
+	 */
+	.state {
+		background: var(--color-accent-2-100);
+		color: var(--color-accent-2-800);
 	}
 
 	.summary,
 	.attribution {
-		margin: 0.25rem 0 0;
-		font-size: 0.8125rem;
+		flex-basis: 100%;
+		margin: 0;
+		font-size: var(--text-small);
 	}
 
+	/* `app-navigation`: attribution is on every screen that shows a
+	   contribution. Quiet, and never absent. */
 	.attribution {
-		opacity: 0.7;
+		color: var(--color-neutral-700);
+	}
+
+	.unlink {
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		padding: 0 var(--space-1);
+		box-shadow: var(--shadow-sm);
 	}
 </style>

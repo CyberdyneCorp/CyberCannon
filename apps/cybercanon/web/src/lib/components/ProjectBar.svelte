@@ -50,23 +50,46 @@
 {/if}
 
 <style>
+	/* The project sits beside the wordmark in the design's masthead, in the
+	   italic that marks it as the thing being read rather than the product
+	   reading it. */
+	.project {
+		font-size: var(--text-h5);
+		font-style: italic;
+	}
+
 	.switcher {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		align-items: baseline;
+		font-size: var(--text-small);
 	}
 
 	.switcher ul {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		list-style: none;
 		margin: 0;
 		padding: 0;
 	}
 
+	/* An eyebrow: the smallest, quietest type in the system. */
 	.lead {
-		font-size: 0.875rem;
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--color-neutral-700);
+	}
+
+	.to-project {
+		font-weight: var(--font-weight-strong);
+		border-block-end: var(--border-thin) solid var(--color-accent-700);
+	}
+
+	.to-project:hover {
+		text-decoration: none;
+		border-block-end-color: var(--color-accent-600);
 	}
 </style>

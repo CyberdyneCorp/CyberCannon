@@ -1,0 +1,186 @@
+/*
+ * CyberCanon's design tokens — the one place a colour, a font, a border width,
+ * a radius or a shadow is written down.
+ *
+ * `openspec/project.md` ("Visual language — neo-brutalism") records the
+ * decision this file implements, and the rule it carries: a component that
+ * writes a hex value, a font stack, a border width or a shadow offset inline
+ * is a bug. `scripts/adherence.mjs` is that rule, mechanised, and `just check`
+ * runs it.
+ *
+ * SOURCE. Everything under "The design, verbatim" is transcribed from
+ * `design/cybercanon-neo-brutal.html` — the inline `:root` that overrides the
+ * vendored Broadsheet system into the neo-brutal treatment — and from
+ * `design/_ds/broadsheet-<id>/styles.css` for the tokens that override leaves
+ * standing. Values are copied, not rounded, renamed or judged; a ramp step
+ * that nothing uses today is still here, because the next screen is the one
+ * that needs it.
+ *
+ * THE ONE DELIBERATE DEVIATION is the font stacks. The design writes
+ * `"Archivo",sans-serif`; this file writes the same families with a real
+ * fallback behind each, because this interface is read on a studio machine
+ * that may never reach a font file, and a missing family must cost the page
+ * its voice and not its layout. The families, their order and their weights
+ * are the design's.
+ */
+
+:root {
+	/* ═══════════════════════════════════════════════════════════════════
+	   The design, verbatim — cybercanon-neo-brutal.html's `:root`
+	   ═══════════════════════════════════════════════════════════════════ */
+
+	/* Ground, surface, ink. The divider is full-strength ink: in this system a
+	   rule is a structural border, not a hairline tint. */
+	--color-bg: #fff6e5;
+	--color-surface: #ffffff;
+	--color-text: #000;
+	--color-divider: #000;
+
+	/* Neutral ramp. 100-300 for tinted fills and quiet surfaces, 500 as the
+	   base, 700-900 for text on a tint and for secondary copy. */
+	--color-neutral-100: #f4efe4;
+	--color-neutral-200: #e6e0d3;
+	--color-neutral-300: #cfc9bc;
+	--color-neutral-400: #aaa498;
+	--color-neutral-500: #7d786e;
+	--color-neutral-600: #5c5850;
+	--color-neutral-700: #3d3a35;
+	--color-neutral-800: #24221f;
+	--color-neutral-900: #111;
+
+	/* The accent and its full ramp. `--color-accent` itself is interface
+	   chrome and the focus ring; paragraph-size text in the accent takes
+	   `--color-accent-700`, which is the step that clears AA on this ground. */
+	--color-accent: #2f6bff;
+	--color-accent-100: #e3ebff;
+	--color-accent-200: #c4d5ff;
+	--color-accent-300: #97b5ff;
+	--color-accent-400: #6690ff;
+	--color-accent-500: #4478ff;
+	--color-accent-600: #1f57e6;
+	--color-accent-700: #1a45b3;
+	--color-accent-800: #143480;
+	--color-accent-900: #0e2352;
+
+	/* The second accent, the rarer spot colour. The design overrides four
+	   steps of its ramp and leaves the rest of Broadsheet's standing; the four
+	   it names are the four it uses, and they are the four to use. */
+	--color-accent-2: #ff4f8b;
+	--color-accent-2-100: #ffe3ec;
+	--color-accent-2-200: #ffc6d8;
+	--color-accent-2-700: #b0144c;
+	--color-accent-2-800: #7e0e37;
+
+	/* Type. Weight 800 on the heading face is the design's, and it is what
+	   makes the type read as the system rather than as a bold sans. */
+	--font-heading: 'Archivo', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+	--font-heading-weight: 800;
+	--font-body: 'Space Grotesk', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+	/* Nothing in this system is rounded. All three steps are zero, and all
+	   three exist, so a component asks for a radius by role and gets the
+	   system's answer rather than inventing one. */
+	--radius-sm: 0;
+	--radius-md: 0;
+	--radius-lg: 0;
+
+	/* Elevation is a hard black offset — no blur, no tint, no ambience. */
+	--shadow-sm: 2px 2px 0 #000;
+	--shadow-md: 4px 4px 0 #000;
+	--shadow-lg: 8px 8px 0 #000;
+
+	/* ═══════════════════════════════════════════════════════════════════
+	   Broadsheet's tokens the override leaves standing
+	   design/_ds/broadsheet-<id>/styles.css
+	   ═══════════════════════════════════════════════════════════════════ */
+
+	/* The spacing scale, at the system's 1.25x density. Six steps, and the
+	   gaps in the numbering (no 5, no 7) are the system's own. */
+	--space-1: 5px;
+	--space-2: 10px;
+	--space-3: 15px;
+	--space-4: 20px;
+	--space-6: 30px;
+	--space-8: 40px;
+
+	/* ═══════════════════════════════════════════════════════════════════
+	   CyberCanon's extensions
+	   ═══════════════════════════════════════════════════════════════════
+
+	   Values the neo-brutal page writes literally in its component layer
+	   (`.btn`, `.tag`, `.input`, `.table`) rather than as `:root` variables.
+	   They are the design's numbers; they are named here because a component
+	   that cannot say `var(--…)` will say `3px`, and then the system has two
+	   sources of truth. */
+
+	/* Monospace. The design loads Space Mono and sets it inline on the address
+	   chip; the address is the state (D3), so it gets a token. */
+	--font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+	/* Border weights. `--border-thick` is the system's default — every button,
+	   input, table and dialog in the design is 3px. `--border-heavy` is the
+	   front-page rule under the masthead; `--border-thin` is a tag's edge and a
+	   table's row rule; `--border-hairline` is the thin half of the thick-thin
+	   pair. */
+	--border-hairline: 1px;
+	--border-thin: 2px;
+	--border-thick: 3px;
+	--border-heavy: 4px;
+
+	/* The two fills the design uses as flat spot colour: the yellow that marks
+	   the primary action and the table head, and the green that carries a
+	   notice. Both are read as black-on-colour, which is what keeps them legal
+	   at this saturation. */
+	--color-highlight: #ffd23f;
+	--color-highlight-hover: #ffc300;
+	--color-affirm: #7ee2a8;
+
+	/* The elevation steps between the three named ones. A field sits a little
+	   above the sheet, a hovered control lifts one pixel further than
+	   `--shadow-md`, a table is the heaviest thing on a page that is not a
+	   dialog, and a pressed control has no shadow at all because it has
+	   travelled into its own. */
+	--shadow-field: 3px 3px 0 #000;
+	--shadow-raised: 5px 5px 0 #000;
+	--shadow-table: 6px 6px 0 #000;
+	--shadow-pressed: 0 0 0 #000;
+
+	/* The press. A control lifts by `--lift-travel` on hover and travels
+	   `--press-travel` — exactly `--shadow-md`'s offset — when pressed, which
+	   is why the shadow disappears underneath it. */
+	--lift-travel: 1px;
+	--press-travel: 4px;
+	--transition-press:
+		transform 0.08s,
+		box-shadow 0.08s;
+
+	/* Keyboard focus is themed, never the browser's. */
+	--focus-ring-width: 2px;
+	--focus-ring-offset: 2px;
+
+	/* A disabled control drops to 45% — the system's number, in the system's
+	   readme. */
+	--opacity-disabled: 0.45;
+
+	/* Weights and the type scale, from Broadsheet's base layer. Sizes are not tokens in
+	   the system's own sheet; they are tokens here so `base.css` is the only
+	   file in the application that states a size. */
+	--font-weight-strong: 700;
+	--font-weight-medium: 500;
+	--text-h1: 42px;
+	--text-h2: 32px;
+	--text-h3: 25px;
+	--text-h4: 20px;
+	--text-h5: 16px;
+	--text-h6: 13px;
+	--text-body: 15px;
+	--text-small: 13px;
+	--text-fine: 11px;
+	--leading-body: 1.55;
+	--leading-heading: 1.12;
+	--tracking-heading: -0.015em;
+	--tracking-caps: 0.08em;
+
+	/* How much of the accent tints a selection. */
+	--selection-strength: 30%;
+}

@@ -41,10 +41,31 @@
 {/if}
 
 <style>
+	/*
+	 * Both notices are flat spot colour behind the system's heavy edge, which
+	 * is how this design says "read me" — it has no tints and no soft
+	 * callouts to say it with. Black on both fills, which is what keeps them
+	 * legible at this saturation.
+	 */
 	.notice {
-		margin: 0.5rem 1rem 0;
-		padding: 0.5rem 0.75rem;
-		border: 1px solid currentColor;
-		border-radius: 0.5rem;
+		margin: var(--space-2) var(--space-4) 0;
+		padding: var(--space-2) var(--space-3);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
+		font-weight: var(--font-weight-medium);
+		color: var(--color-text);
+	}
+
+	/* A person who cannot be attributed is the more serious of the two, and
+	   takes the second accent. */
+	.notice[data-notice='unmapped'] {
+		background: var(--color-accent-2);
+	}
+
+	/* An issuer that cannot be reached does not stop anyone reading, so it is
+	   the spot yellow rather than the alarm. */
+	.notice[data-notice='verification'] {
+		background: var(--color-highlight);
 	}
 </style>

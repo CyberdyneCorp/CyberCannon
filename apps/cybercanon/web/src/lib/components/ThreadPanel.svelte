@@ -209,10 +209,26 @@
 </aside>
 
 <style>
+	/*
+	 * The thread panel. The design sets this column as a stack of sections
+	 * with no boxes at all — the conversation is prose and prose does not
+	 * want a frame — and boxes exactly three things: the state tag, the
+	 * orphan, and the failure. Those are the three that are not prose.
+	 */
 	.panel {
 		display: grid;
-		gap: 1rem;
+		gap: var(--space-6);
 		align-content: start;
+	}
+
+	h3 {
+		font-size: var(--text-h4);
+		margin-block-end: var(--space-2);
+	}
+
+	h4 {
+		font-size: var(--text-h5);
+		margin-block-end: var(--space-1);
 	}
 
 	textarea,
@@ -221,25 +237,162 @@
 		width: 100%;
 	}
 
+	/* Deep enough to write a sentence about a silhouette into without the
+	   box scrolling on the second line, and resizable, because some of
+	   these are a paragraph. */
+	textarea {
+		min-height: calc(var(--space-8) * 2);
+		resize: vertical;
+	}
+
+	.composer,
+	.thread,
+	.listing,
+	.orphans {
+		display: grid;
+		gap: var(--space-2);
+		justify-items: start;
+	}
+
+	.composer > *,
+	.thread > *,
+	.listing > *,
+	.orphans > * {
+		width: 100%;
+	}
+
+	label {
+		display: grid;
+		gap: var(--space-1);
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+	}
+
 	.actions {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		flex-wrap: wrap;
 	}
 
+	/*
+	 * `app-navigation`: who wrote a thing is on the screen that shows it,
+	 * rendered exactly as the system produced it — *"rafa, via
+	 * blender-agent"*. Quiet ink, never absent, never reassembled here.
+	 */
 	.attribution {
-		opacity: 0.8;
-		margin: 0.125rem 0 0;
+		margin: 0;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
 	}
 
+	.text {
+		margin: 0;
+		font-size: var(--text-h5);
+		line-height: var(--leading-body);
+	}
+
+	/*
+	 * The thread's state, as a tag. The design's two: an open thread is the
+	 * outline tag — white, black edge, nothing filled in, because it is not
+	 * finished — and a resolved one is the neutral fill, because it is.
+	 */
+	.state {
+		justify-self: start;
+		margin: 0;
+		display: inline-block;
+		background: var(--color-surface);
+		color: var(--color-text);
+		border: var(--border-thin) solid var(--color-divider);
+		border-radius: var(--radius-sm);
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		padding: 0 var(--space-1);
+		width: auto;
+	}
+
+	.state[data-state='resolved'] {
+		background: var(--color-neutral-200);
+	}
+
+	/*
+	 * A write that did not land. This is the one thing in the panel that IS
+	 * an error, and it takes the second accent at its stronger step so that
+	 * nothing else in this column can be mistaken for it — the orphan block
+	 * below is deliberately lighter for exactly that reason.
+	 */
 	.failure {
-		border: 1px solid currentColor;
-		border-radius: 0.25rem;
-		padding: 0.5rem;
+		margin: 0;
+		background: var(--color-accent-2-200);
+		color: var(--color-text);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
+		padding: var(--space-2) var(--space-3);
+		font-weight: var(--font-weight-medium);
 	}
 
+	/* The replies, hung off the design's heavy rule rather than off a
+	   bullet: this is one conversation indented under its opening, and a
+	   list marker would make it a list of separate things. */
 	.replies {
-		padding-inline-start: 1rem;
+		list-style: none;
+		margin: 0;
+		padding: 0 0 0 var(--space-3);
+		display: grid;
+		gap: var(--space-3);
+		border-inline-start: var(--border-heavy) solid var(--color-divider);
+	}
+
+	/*
+	 * PROMOTE AND RESOLVE ARE TWO DIFFERENT ACTS AND THEY CARRY TWO
+	 * DIFFERENT WEIGHTS.
+	 *
+	 * Resolving closes one thread and leaves nothing behind; it is an
+	 * ordinary control in the row of exits above. Promoting WRITES A DURABLE
+	 * RULE into this asset's contract, it retires the thread, and only an art
+	 * director is offered it — so it is not a fourth button in that row. It
+	 * is its own block, on the page's ground inside the heavy edge, with the
+	 * destination stated before the act and the one affirmative control in
+	 * the spot yellow the design reserves for it.
+	 *
+	 * The offer is a courtesy and not the guarantee: the component's comment
+	 * says so, and the system refuses a submitted promotion from anybody who
+	 * may not make one whatever this stylesheet does.
+	 */
+	.promotion {
+		display: grid;
+		gap: var(--space-2);
+		background: var(--color-bg);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-lg);
+		padding: var(--space-3);
+	}
+
+	.destination {
+		margin: 0;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
+	}
+
+	.destination code {
+		font-family: var(--font-mono);
+		color: var(--color-text);
+	}
+
+	.promotion button {
+		justify-self: start;
+		background: var(--color-highlight);
+	}
+
+	.promotion button:hover:not(:disabled) {
+		background: var(--color-highlight-hover);
 	}
 
 	.listing ul,
@@ -248,20 +401,99 @@
 		padding: 0;
 		margin: 0;
 		display: grid;
-		gap: 0.25rem;
+		gap: var(--space-1);
+	}
+
+	/*
+	 * A thread in the list is a line of its own text, not a control with a
+	 * box: a column of six bordered buttons is a column with no hierarchy
+	 * left. The selected one takes the spot yellow, which is how the design
+	 * marks the row a panel is currently about.
+	 */
+	.listing button,
+	.orphans button {
+		display: block;
+		width: 100%;
+		text-align: start;
+		font-family: var(--font-body);
+		font-weight: 400;
+		font-size: var(--text-small);
+		line-height: var(--leading-body);
+		background: none;
+		border: 0;
+		box-shadow: none;
+		padding: var(--space-1) var(--space-2);
+		color: var(--color-text);
+	}
+
+	.listing button:hover:not(:disabled),
+	.orphans button:hover:not(:disabled) {
+		transform: none;
+		box-shadow: none;
+		background: var(--color-neutral-100);
+	}
+
+	.listing button:active:not(:disabled),
+	.orphans button:active:not(:disabled) {
+		transform: none;
+		box-shadow: none;
 	}
 
 	.listing button.selected {
-		outline: 2px solid currentColor;
+		background: var(--color-highlight);
 	}
 
 	.kind {
-		font-weight: 600;
-		margin-inline-end: 0.25rem;
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		margin-inline-end: var(--space-1);
+		color: var(--color-neutral-700);
+	}
+
+	/*
+	 * ORPHANS ARE A DECISION, NOT A BREAKAGE.
+	 *
+	 * An orphaned annotation is a thread somebody wrote, still readable,
+	 * still repliable, which cannot be drawn because the thing it was
+	 * anchored to is not in this revision. Nothing failed — the anchor is
+	 * doing its job by refusing to point at the wrong part. So this block is
+	 * the design's own orphan treatment: the second accent's LIGHTEST tint
+	 * behind the ordinary black edge, a heading in its deep step, and the
+	 * reason printed under each thread so the reader knows what decision is
+	 * being asked of them. It is deliberately lighter than `.failure` above
+	 * and it sits on a surface rather than shouting, because *this needs a
+	 * decision* and *this broke* must not look alike.
+	 */
+	.orphans {
+		background: var(--color-accent-2-100);
+		border: var(--border-thick) solid var(--color-divider);
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-sm);
+		padding: var(--space-3);
+	}
+
+	.orphans h3 {
+		color: var(--color-accent-2-800);
+	}
+
+	.orphans button:hover:not(:disabled) {
+		background: var(--color-accent-2-200);
 	}
 
 	.reason {
 		margin: 0;
-		opacity: 0.8;
+		padding-inline: var(--space-2);
+		font-size: var(--text-small);
+		color: var(--color-accent-2-800);
+	}
+
+	.marks {
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
 	}
 </style>

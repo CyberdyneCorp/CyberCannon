@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "sync": "svelte-kit sync",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "adherence": "node scripts/adherence.mjs"
   },
   "dependencies": {
     "three": "0.180.0"

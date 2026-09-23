@@ -76,7 +76,11 @@
 </script>
 
 <section class="sheet">
-	<AnnotationFilters {model} />
+	<!-- The filter bar spans the sheet: what a filter is hiding is a fact
+	     about the whole surface, not about the views column alone. -->
+	<div class="bar">
+		<AnnotationFilters {model} />
+	</div>
 
 	{#if model.views.length === 0}
 		<p class="no-views" data-empty="views">{SHEET_EMPTY}</p>
@@ -98,26 +102,53 @@
 </section>
 
 <style>
+	/*
+	 * The sheet's arrangement: the views under their filter bar, the panel
+	 * beside them. The design's own sheet is three columns — rail, stage,
+	 * panel — and this is that shape with the rail's contents (kind and
+	 * state) sitting in the filter bar across the top instead, because
+	 * `AnnotationFilters` is shared with the 3D viewer and the viewer has no
+	 * rail to put it in.
+	 *
+	 * The filter bar spans both columns deliberately: what is being hidden is
+	 * a fact about the whole surface, not about the left-hand half of it.
+	 */
 	.sheet {
 		display: grid;
-		gap: 1rem;
-		grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+		gap: var(--space-6);
+		grid-template-columns: minmax(0, 2fr) minmax(20rem, 1fr);
 		align-items: start;
+	}
+
+	.bar {
+		grid-column: 1 / -1;
 	}
 
 	.views {
 		display: grid;
-		gap: 1rem;
-		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+		gap: var(--space-6);
+		grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
 	}
 
+	/*
+	 * An asset with no views. `model-sheet-2d` keeps the sheet open for one —
+	 * an annotation anchored to a view that has gone is still a thread
+	 * somebody owes an exit — so the sentence is stated on the page's ground
+	 * rather than drawn as an empty frame, which would have read as a view
+	 * that failed to load.
+	 */
 	.no-views {
 		margin: 0;
+		font-size: var(--text-h5);
+		color: var(--color-neutral-700);
 	}
 
+	/* One column on a narrow screen, panel under the views. A sheet is read
+	   on an iPad as often as on a desk. */
 	@media (max-width: 60rem) {
 		.sheet {
 			grid-template-columns: minmax(0, 1fr);
+			gap: var(--space-4);
 		}
 	}
 </style>

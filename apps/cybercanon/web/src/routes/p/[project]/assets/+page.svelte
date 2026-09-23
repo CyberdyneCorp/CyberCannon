@@ -32,7 +32,8 @@
 	{#snippet content(view: BrowserView)}
 		{#if view.searched}
 			<p class="searched">
-				<span class="group">exact matches</span>: {view.rows.length} of {view.total}
+				<span class="group">exact matches</span>: <span class="count">{view.rows.length}</span> of
+				<span class="count">{view.total}</span>
 				result(s) for “{view.query}”, in the order the canon ranks them.
 			</p>
 		{/if}
@@ -49,13 +50,42 @@
 </RouteScreen>
 
 <style>
+	/*
+	 * The exact group’s label, and it is a requirement rather than a caption.
+	 * `semantic-search-delegation` puts the results in two labelled groups with
+	 * the exact one first; this is that label, and `SemanticResults` carries
+	 * the other. The two are set alike — the same small caps, the same quiet
+	 * ink — so neither reads as the heading of the answer and the other as a
+	 * footnote to it.
+	 */
 	.searched {
-		margin: 0 0 0.75rem;
-		font-size: 0.875rem;
+		margin: 0 0 var(--space-3);
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
 	}
 
 	.group {
-		text-transform: lowercase;
-		font-weight: 600;
+		font-family: var(--font-heading);
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-fine);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--color-text);
+	}
+
+	/*
+	 * The counts are Space Mono. They are figures read against each other —
+	 * *this many of that many* — and the mono’s tabular figures keep them the
+	 * same width, so the sentence does not reflow as a search narrows.
+	 */
+	.count {
+		font-family: var(--font-mono);
+		color: var(--color-text);
+	}
+
+	/* The way out of a filtered screen, offered inside the route state’s own
+	   panel, so it carries that panel’s emphasis rather than its own. */
+	.clear {
+		font-weight: var(--font-weight-strong);
 	}
 </style>

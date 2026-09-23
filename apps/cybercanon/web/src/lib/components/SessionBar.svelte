@@ -36,7 +36,7 @@
 			Signed in as {acting.label}
 			{#if acting.expired}<em>(session expired)</em>{/if}
 		</span>
-		<button type="button" onclick={signOut}>Sign out</button>
+		<button class="quiet" type="button" onclick={signOut}>Sign out</button>
 	{:else}
 		<a class="sign-in" href={signIn}>Sign in</a>
 	{/if}
@@ -46,8 +46,34 @@
 	.session {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		align-items: baseline;
 		margin-inline-start: auto;
+		font-size: var(--text-small);
+	}
+
+	/* Attribution is the point of this row, so the name is the loudest thing
+	   in it — `web-session` wants it read, not found. */
+	.acting {
+		font-weight: var(--font-weight-strong);
+		font-size: var(--text-h5);
+	}
+
+	/* An expired session is stated in the second accent, which this system
+	   spends on exactly this kind of thing. */
+	.acting em {
+		font-style: normal;
+		font-size: var(--text-small);
+		color: var(--color-accent-2-700);
+	}
+
+	.sign-in {
+		font-weight: var(--font-weight-strong);
+		border-block-end: var(--border-thin) solid var(--color-accent-700);
+	}
+
+	.sign-in:hover {
+		text-decoration: none;
+		border-block-end-color: var(--color-accent-600);
 	}
 </style>

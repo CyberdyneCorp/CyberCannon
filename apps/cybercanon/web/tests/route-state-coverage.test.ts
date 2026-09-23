@@ -506,6 +506,10 @@ describe('each route resolves to the state it declares, and renders it', () => {
 			return;
 		}
 		expect(markup).toContain(`data-state="${kind}"`);
-		expect(markup).toMatch(/<h2>[^<]+<\/h2>/);
+		// A heading with words in it. The tag may carry attributes — Svelte's
+		// scoped styling adds a class to every element a component styles — so
+		// what is asserted is the heading and its text, not the way it is
+		// dressed.
+		expect(markup).toMatch(/<h2\b[^>]*>[^<]+<\/h2>/);
 	});
 });

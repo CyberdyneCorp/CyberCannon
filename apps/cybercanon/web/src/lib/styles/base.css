@@ -1,0 +1,219 @@
+/*
+ * The base layer: what every element is before any component says anything.
+ *
+ * Broadsheet's readme is explicit that these are *themed, not restyled per
+ * page* — "hovers and pressed states come from the accent ramp, keyboard focus
+ * is the 2px accent `:focus-visible` ring, `::selection` is an accent tint, and
+ * disabled controls drop to 45% opacity. Don't restyle them per page." So they
+ * are written once, here, and a component that sets its own focus ring is
+ * disagreeing with the system rather than extending it.
+ *
+ * Every value in this file comes from `tokens.css`. That is not a style
+ * preference: `scripts/adherence.mjs` fails the build over a literal here, for
+ * the same reason it does in a component.
+ */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-family: var(--font-body);
+	font-size: var(--text-body);
+	line-height: var(--leading-body);
+	font-weight: 400;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family: var(--font-heading);
+	font-weight: var(--font-heading-weight);
+	line-height: var(--leading-heading);
+	letter-spacing: var(--tracking-heading);
+	margin: 0 0 var(--space-2);
+}
+
+h1 {
+	font-size: var(--text-h1);
+}
+h2 {
+	font-size: var(--text-h2);
+}
+h3 {
+	font-size: var(--text-h3);
+}
+h4 {
+	font-size: var(--text-h4);
+}
+h5 {
+	font-size: var(--text-h5);
+}
+h6 {
+	font-size: var(--text-h6);
+	letter-spacing: var(--tracking-caps);
+	text-transform: uppercase;
+}
+
+p {
+	margin: 0 0 var(--space-3);
+}
+
+/* Links take the deep accent step rather than the accent itself: the accent to
+   ground pair is tuned for chrome and large text, and this is body copy. */
+a {
+	color: var(--color-accent-700);
+	text-decoration: none;
+	text-underline-offset: var(--focus-ring-offset);
+}
+
+a:hover {
+	color: var(--color-accent-600);
+	text-decoration: underline;
+	text-decoration-thickness: var(--border-thin);
+}
+
+img {
+	display: block;
+	max-width: 100%;
+}
+
+figure {
+	margin: 0;
+}
+
+/* Controls inherit the page's voice; a browser's own is somebody else's. */
+button,
+input,
+select,
+textarea {
+	font-family: inherit;
+	font-size: inherit;
+}
+
+/* Focus is themed, never the browser default — and the mouse never sees it. */
+:focus {
+	outline: none;
+}
+
+:focus-visible {
+	outline: var(--focus-ring-width) solid var(--color-accent);
+	outline-offset: var(--focus-ring-offset);
+}
+
+::selection {
+	background: color-mix(in srgb, var(--color-accent) var(--selection-strength), transparent);
+}
+
+:disabled,
+[aria-disabled='true'] {
+	opacity: var(--opacity-disabled);
+	cursor: not-allowed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Controls.
+
+   This application writes its controls as plain elements with semantic class
+   names — there is no `.btn` here, because there is no component library here.
+   So the system's control treatment is the element default: a heavy black
+   edge, a hard offset shadow, and a press that travels into its own shadow.
+   ───────────────────────────────────────────────────────────────────────── */
+
+button {
+	font-family: var(--font-heading);
+	font-weight: var(--font-weight-strong);
+	font-size: var(--text-small);
+	background: var(--color-surface);
+	color: var(--color-text);
+	border: var(--border-thick) solid var(--color-divider);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-md);
+	padding: var(--space-1) var(--space-3);
+	cursor: pointer;
+	transition: var(--transition-press);
+}
+
+button:hover:not(:disabled) {
+	transform: translate(calc(-1 * var(--lift-travel)), calc(-1 * var(--lift-travel)));
+	box-shadow: var(--shadow-raised);
+}
+
+/* Pressed, the control travels exactly `--shadow-md`'s offset, which is why
+   the shadow vanishes underneath it rather than sliding out from behind. */
+button:active:not(:disabled) {
+	transform: translate(var(--press-travel), var(--press-travel));
+	box-shadow: var(--shadow-pressed);
+}
+
+/* The one affirmative action on a screen takes the spot yellow. */
+button.primary {
+	background: var(--color-highlight);
+}
+
+button.primary:hover:not(:disabled) {
+	background: var(--color-highlight-hover);
+}
+
+/* A control that is a link in disguise — `Dismiss`, `switch`, `Sign out` —
+   carries no box, because a page of boxes has no hierarchy left. */
+button.quiet {
+	background: none;
+	border: 0;
+	box-shadow: none;
+	padding: 0;
+	color: var(--color-accent-700);
+	text-decoration: underline;
+	text-decoration-thickness: var(--border-thin);
+	text-underline-offset: var(--focus-ring-offset);
+}
+
+button.quiet:hover:not(:disabled) {
+	transform: none;
+	box-shadow: none;
+	color: var(--color-accent-600);
+}
+
+button.quiet:active:not(:disabled) {
+	transform: none;
+	box-shadow: none;
+}
+
+input,
+select,
+textarea {
+	background: var(--color-surface);
+	color: var(--color-text);
+	border: var(--border-thick) solid var(--color-divider);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-field);
+	padding: var(--space-1) var(--space-2);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+	box-shadow: none;
+	accent-color: var(--color-accent);
+}
+
+/* The press is decoration. Somebody who has asked for less motion still gets
+   the hover tint, the focus ring and the pressed state's own colour — they
+   just do not get the travel. */
+@media (prefers-reduced-motion: reduce) {
+	button {
+		transition: none;
+	}
+
+	button:hover:not(:disabled),
+	button:active:not(:disabled) {
+		transform: none;
+	}
+}

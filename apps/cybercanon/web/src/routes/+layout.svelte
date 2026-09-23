@@ -23,6 +23,20 @@
 	 * to be able to appear without unmounting the screen holding somebody's
 	 * unsaved text.
 	 */
+	/**
+	 * The token layer is imported here and nowhere else. `openspec/project.md`
+	 * ("Visual language — neo-brutalism") puts the tokens in exactly one file;
+	 * the root layout is the one place that file can be loaded from and still
+	 * reach every screen, so it is loaded here and every other stylesheet in the
+	 * application is a component's own scoped block.
+	 *
+	 * The faces are vendored rather than linked from a CDN — see
+	 * `src/lib/styles/fonts.css` and `scripts/vendor_fonts.py`.
+	 */
+	import '$lib/styles/tokens.css';
+	import '$lib/styles/fonts.css';
+	import '$lib/styles/base.css';
+
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { invalidate } from '$app/navigation';
@@ -77,16 +91,34 @@
 </main>
 
 <style>
+	/*
+	 * The masthead. The heavy rule under it is the design's front-page
+	 * furniture — in this system a rule is structure at full-strength ink, not
+	 * a hairline tint, and it is the one divider the page is allowed.
+	 */
 	header {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 1rem;
+		gap: var(--space-4);
 		align-items: baseline;
-		padding: 0.75rem 1rem;
-		border-block-end: 1px solid currentColor;
+		padding: var(--space-4) var(--space-4) var(--space-2);
+		border-block-end: var(--border-heavy) solid var(--color-divider);
+	}
+
+	.home {
+		font-family: var(--font-heading);
+		font-weight: var(--font-heading-weight);
+		font-size: var(--text-h3);
+		letter-spacing: var(--tracking-heading);
+		color: var(--color-text);
+		text-decoration: none;
+	}
+
+	.home:hover {
+		color: var(--color-accent-700);
 	}
 
 	main {
-		padding: 1rem;
+		padding: var(--space-4);
 	}
 </style>

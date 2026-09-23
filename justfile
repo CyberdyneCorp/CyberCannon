@@ -36,10 +36,10 @@ setup:
 # traceability gates, and `openspec validate`. E2E is not here by design (D6) —
 # `just test-e2e`.
 #
-# Measured runtime: ~423 s on a warm checkout — earlier timed runs of a smaller
-# tree gave 319 s, 345 s, 375 s and 397 s, which is the spread a laptop gives
-# and the reason this is a record rather than a budget — 4538 Python tests
-# (4507 passed, 31 skipped, 0 xfailed, 122 e2e deselected) plus 757 frontend
+# Measured runtime: ~420 s on a warm checkout — earlier timed runs of a smaller
+# tree gave 319 s, 345 s, 375 s, 397 s and 423 s, which is the spread a laptop
+# gives and the reason this is a record rather than a budget — 4553 Python tests
+# (4522 passed, 31 skipped, 0 xfailed, 122 e2e deselected) plus 757 frontend
 # tests across 37 files, 657 scenarios (536 executing, 121 pending), 0 absent —
 # of which the frontend's own suites (`web-check`) are ~5 s including the build
 # the code-splitting assertion reads. The skips are the
@@ -160,6 +160,12 @@ setup:
 # Re-measure and update that line when `check` grows a recipe;
 # tests/tooling/test_recipes_and_ci.py fails the build if the record disappears.
 #
+# The neo-brutal restyle added `adherence` — the design-system gate — and
+# tests/tooling/test_design_tokens.py, which runs it against files written to
+# fail it. Both are instant: the gate reads the frontend's own source and needs
+# no install and no build, which is why it can run before `web-check` rather
+# than inside it.
+#
 # `web-check` runs **before** `test`, and that order is asserted rather than
 # left to habit (tests/tooling/test_justfile.py): its vitest run builds the
 # application, and tests/integration/test_web_readiness_process.py starts that
@@ -175,7 +181,7 @@ setup:
 # node and nothing else. The structural constraints that must bite even when
 # node is absent — D1's ViewModel boundary, D4's design-system rule, D7's import
 # boundary — are in tests/tooling/test_web_structure.py and run under `test`.
-check: lint imports complexity features web-check test spec
+check: lint imports complexity features adherence web-check test spec
 
 # ruff — style and formatting.
 lint:
@@ -373,6 +379,17 @@ web *args:
 web-build:
     cd {{ web_dir }} && {{ pnpm }} install --frozen-lockfile
     cd {{ web_dir }} && {{ pnpm }} run build
+
+# The design-system adherence gate — the repointed D4 (openspec/project.md,
+# "Visual language — neo-brutalism"). Every colour, font, border width, radius
+# and shadow in the frontend comes from src/lib/styles/tokens.css, and a
+# component that writes one inline fails the build rather than a review. It
+# needs node and nothing else — no install, no build — so it runs before
+# `web-check` and costs well under a second. tests/tooling/test_design_tokens.py
+# runs it against files written to fail it, because a gate nobody has watched
+# fail is a gate nobody knows works.
+adherence:
+    node {{ web_dir }}/scripts/adherence.mjs
 
 # The frontend's own checks: svelte-check over the whole application, then its
 # unit suites — the address scheme (D3), the closed route-state set (D6), the
