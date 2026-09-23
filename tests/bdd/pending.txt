@@ -85,6 +85,8 @@ viewer-3d :: Isolation leaves no trace in the specification
 viewer-3d :: No rendering support
 viewer-3d :: Rendering context lost mid-session
 viewer-3d :: Selecting names the part
+web-session :: A credential silent about git identity raises no warning
+web-session :: A credential stating no git identity still raises the warning
 web-session :: A discovery document for another issuer is refused
 web-session :: A duplicated tab does not spend a rotated refresh token
 web-session :: A hung identity service is an outage, not a hang

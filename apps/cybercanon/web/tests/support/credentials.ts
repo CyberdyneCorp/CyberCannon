@@ -33,7 +33,7 @@ export function mappedPerson(overrides: TestClaims = {}): string {
 
 /** A person whose claims carry no git identity: the early warning's subject. */
 export function unmappedPerson(overrides: TestClaims = {}): string {
-	return credential({ sub: 'auth|newcomer', name: 'Newcomer', ...overrides });
+	return credential({ sub: 'auth|newcomer', name: 'Newcomer', git_emails: [], ...overrides });
 }
 
 function base64Url(text: string): string {

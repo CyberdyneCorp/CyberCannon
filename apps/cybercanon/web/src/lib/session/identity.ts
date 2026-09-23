@@ -21,12 +21,15 @@
  * CyberdyneAuth can; otherwise `.canon/actors.yaml` maps `sub` → git emails"*.
  * This application can read the first and has no way to read the second: no
  * endpoint on the `http-api` surface states whether the acting person is mapped
- * in a project's working copy. So the warning below is raised from the claim
- * alone, and a person mapped *only* through the file is warned although they
- * could in fact write. That is a gap in `http-api`, recorded here rather than
- * papered over, and `add-web-app-shell`'s proposal says what to do with it:
- * *"if a screen needs something the API does not expose, that is a gap in those
- * capabilities, not work for this change"*.
+ * in a project's working copy. CyberdyneAuth emits no `git_emails` claim at
+ * all, so for a real credential the answer is **not known here** — and an
+ * unknown mapping is not an unmapped one. The warning below is raised only when
+ * the credential itself says the person has no git identity (the claim present
+ * and empty); an absent claim warns nobody, and the domain's refusal still
+ * names the missing mapping if there is one. Asking instead of reading a claim
+ * needs an `http-api` endpoint, and `add-web-app-shell`'s proposal says what to
+ * do with that: *"if a screen needs something the API does not expose, that is
+ * a gap in those capabilities, not work for this change"*.
  */
 
 /** The claims this application reads. Everything else in the token is ignored. */
@@ -43,9 +46,17 @@ export interface Identity {
 	readonly subject: string;
 	/** What a person recognises themselves by: a name, else an email, else the subject. */
 	readonly display: string;
-	/** The git author a write would be committed as, or `null` when unknown. */
+	/** The git author a write would be committed as, or `null` when there is none. */
 	readonly gitIdentity: string | null;
+	/**
+	 * Whether the credential states a git identity at all: `unknown` when it
+	 * carries no `git_emails` claim, which is every CyberdyneAuth credential.
+	 */
+	readonly mapping: GitMapping;
 }
+
+/** What the credential says about the person's git identity. */
+export type GitMapping = 'mapped' | 'unmapped' | 'unknown';
 
 /**
  * What an unmapped person cannot do, named rather than implied.
@@ -73,7 +84,7 @@ export const UNMAPPED_HEADLINE = 'Your credential carries no git identity';
  * somebody on the project can add.
  */
 export function unmappedNotice(identity: Identity | null): string | null {
-	if (!identity || identity.gitIdentity) return null;
+	if (identity?.mapping !== 'unmapped') return null;
 	return (
 		`${UNMAPPED_HEADLINE}, so CyberCanon has nobody to commit as on your behalf. ` +
 		`Until one is recorded for ${identity.subject} in .canon/actors.yaml, these ` +
@@ -82,7 +93,7 @@ export function unmappedNotice(identity: Identity | null): string | null {
 }
 
 export function isMapped(identity: Identity | null): boolean {
-	return Boolean(identity?.gitIdentity);
+	return identity?.mapping === 'mapped';
 }
 
 /**
@@ -96,11 +107,20 @@ export function isMapped(identity: Identity | null): boolean {
 export function identityFrom(claims: Claims, profile: Claims = {}): Identity | null {
 	const subject = text(claims.sub);
 	if (!subject) return null;
+	const gitIdentity = firstEmail(claims.git_emails) ?? firstEmail(profile.git_emails);
 	return {
 		subject,
 		display: displayName(profile) ?? displayName(claims) ?? subject,
-		gitIdentity: firstEmail(claims.git_emails) ?? firstEmail(profile.git_emails)
+		gitIdentity,
+		mapping: gitMapping(gitIdentity, claims, profile)
 	};
+}
+
+/** `unmapped` only when a credential carries the claim and it names nobody. */
+function gitMapping(gitIdentity: string | null, claims: Claims, profile: Claims): GitMapping {
+	if (gitIdentity) return 'mapped';
+	const stated = claims.git_emails !== undefined || profile.git_emails !== undefined;
+	return stated ? 'unmapped' : 'unknown';
 }
 
 function displayName(claims: Claims): string | null {
