@@ -127,8 +127,12 @@ It is a separate decision from `CANON_WORKER_CLIENT_ID` below, and the two are
 easy to set half of. That one says which client *this* deployment's worker signs
 in as; this one says which clients are trusted when they present a credential.
 Set the worker pair without listing that same client here and the worker's own
-credential is refused — the scheduled pass still runs, recorded as plain
-`automation`, which is a quiet degradation rather than an outage.
+credential would be refused by this deployment's own verifier. **That mismatch
+now refuses the boot**, naming both variables, rather than degrading quietly:
+the scheduled pass would otherwise keep running and be recorded as plain
+`automation`, which nobody notices until they need the attribution and find it
+was never written. A deployment that names no worker at all is unaffected —
+that is an ordinary shape, not half a configuration.
 
 `CANON_AUTH_KEY_CACHE_TTL_S` is the one number D8 leaves to a deployment: the
 identity provider's signing keys are cached for that long, so an outage of
@@ -141,7 +145,7 @@ outage is not honoured until the window ends.
 |---|---|:--:|---|---|
 | `CANON_AUTH_KEY_CACHE_TTL_S` | a whole number of seconds | | 900 | how long cached signing keys keep verifying while CyberdyneAuth is unreachable (D8) |
 | `CANON_AUTH_SERVICE_CLIENTS` | `client-id,client-id` | | — | the service clients whose background work this deployment admits. A `type: service` credential is accepted **only** when the client it names — the id inside `sub`'s `client:<id>` form, which is also the subject the admitted actor is recorded as — is on this list. A `client_id` claim is a cross-check and not a second source: a credential whose two claims name two different clients is refused outright, because a check that read one claim while the record kept the other would admit one client and write down another. Entries are matched **exactly**: surrounding space is trimmed as this variable is read, and case is not, because two client ids differing in case are two clients. Unset is the empty list and admits **nothing**; every service credential is then refused with a reason naming this variable. Membership claims cannot stand in for it: a service token carries no `orgs`, no `org` and no `roles` |
-| `CANON_WORKER_CLIENT_ID` | the client background work signs in as | | — | the client-credentials client scheduled work obtains its own credential for. A **pair** with the row below: set both, and background work exchanges them for a service credential at the issuer's discovered token endpoint; set neither, and it runs as it does today. Either way it is recorded as automation, and half a pair behaves like the absence rather than failing once per run |
+| `CANON_WORKER_CLIENT_ID` | the client background work signs in as | | — | the client-credentials client scheduled work obtains its own credential for. A **pair** with the row below: set both, and background work exchanges them for a service credential at the issuer's discovered token endpoint; set neither, and it runs as it does today. Either way it is recorded as automation, and half a pair behaves like the absence rather than failing once per run. When it **is** set it must also appear in `CANON_AUTH_SERVICE_CLIENTS`, or the service refuses to start naming both: a worker its own deployment does not admit is a silent misattribution, not a working system |
 | `CANON_WORKER_CLIENT_SECRET` | that client's secret | ● | — | held as a secret everywhere, so it reaches the exchange and never a log line, a refusal or a traceback |
 | `CANON_WORKING_COPIES` | a directory on the working-copy volume | | `/data/worktrees` | where the persistent working copies live; the manifest mounts the volume there |
 | `CANON_WEB_ORIGINS` | `scheme://host,scheme://host` | | — | the browser origins permitted to read this API. Absent grants none, and `*` is refused: the API and the web application are on different hosts, so the application's origin has to be named |
