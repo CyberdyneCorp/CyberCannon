@@ -20,7 +20,7 @@ import { render } from 'svelte/server';
 import SessionNotices from '../src/lib/components/SessionNotices.svelte';
 import { REPOSITORY_ACTIONS, UNMAPPED_HEADLINE } from '../src/lib/session/identity';
 import { sessionStore } from '../src/lib/session/session';
-import { mappedPerson, unmappedPerson } from './support/credentials';
+import { cyberdyneAccessToken, mappedPerson, unmappedPerson } from './support/credentials';
 
 function notices(verification: string | null = null): string {
 	return render(SessionNotices, { props: { verification } }).body;
@@ -69,6 +69,12 @@ describe('a person with no mapped git identity is warned early', () => {
 	});
 
 	it('warns nobody who is not signed in', () => {
+		expect(notices()).not.toContain('data-notice="unmapped"');
+	});
+
+	it('warns nobody whose credential does not state a git identity either way', () => {
+		sessionStore.signIn(cyberdyneAccessToken());
+
 		expect(notices()).not.toContain('data-notice="unmapped"');
 	});
 });

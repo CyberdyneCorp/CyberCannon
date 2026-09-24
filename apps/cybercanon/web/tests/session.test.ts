@@ -38,7 +38,13 @@ import {
 	identityProviderDown,
 	verificationNotice
 } from '../src/lib/session/verification';
-import { credential, mappedPerson, unmappedPerson } from './support/credentials';
+import {
+	credential,
+	cyberdyneAccessToken,
+	cyberdyneIdToken,
+	mappedPerson,
+	unmappedPerson
+} from './support/credentials';
 
 const NOW = 1_700_000_000_000;
 
@@ -53,7 +59,8 @@ describe('the identity a credential describes', () => {
 		expect(identity).toEqual({
 			subject: 'auth|rafa',
 			display: 'Rafa',
-			gitIdentity: 'rafa@cyberdyne.com'
+			gitIdentity: 'rafa@cyberdyne.com',
+			mapping: 'mapped'
 		});
 	});
 
@@ -229,6 +236,22 @@ describe('a person with no mapped git identity', () => {
 
 	it('is not warned before there is anyone to warn', () => {
 		expect(unmappedNotice(null)).toBeNull();
+	});
+});
+
+describe('a credential that says nothing about a git identity', () => {
+	// Regression: CyberdyneAuth emits no `git_emails` claim, so every signed-in
+	// person was told they had no git identity — including people mapped in
+	// `.canon/actors.yaml`, who can write.
+	const identity = identityFrom(claimsOf(cyberdyneAccessToken()), claimsOf(cyberdyneIdToken()));
+
+	it('is an unknown mapping, not an unmapped one', () => {
+		expect(identity?.mapping).toBe('unknown');
+		expect(isMapped(identity)).toBe(false);
+	});
+
+	it('warns nobody, because nothing is known to warn about', () => {
+		expect(unmappedNotice(identity)).toBeNull();
 	});
 });
 
