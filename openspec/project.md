@@ -391,7 +391,7 @@ discovering later.
 
 ## Testing — three layers, and the specs are the source
 
-The spec deltas hold **672 GIVEN/WHEN/THEN scenarios**. They are not documentation:
+The spec deltas hold **687 GIVEN/WHEN/THEN scenarios**. They are not documentation:
 they are the BDD suite, generated into Gherkin and executed.
 
 | Layer | Tool | Covers |
@@ -603,6 +603,7 @@ load costs the page its voice and never its layout.
 | 8 | `add-cyberarche-integration` | document-platform, semantic-search-delegation | specified |
 | 9 | `add-mcp-writes` | mcp-write-surface | specified |
 | 10 | `add-coolify-deployment` | deployment-operations | specified |
+| 11 | `add-project-registry` | project-registry | specified |
 
 Milestones, the reasoning behind this order, the decisions that gate each one, and
 the product boundary live in [`ROADMAP.md`](../ROADMAP.md).
