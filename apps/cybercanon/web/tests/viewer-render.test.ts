@@ -297,6 +297,27 @@ describe('6.5 — orphans are visible, listed and countable', () => {
 });
 
 describe('6.7 — the two surfaces agree, because they are the same ViewModel', () => {
+	it('shows one reference image card for path and slot aliases with both pins', () => {
+		const listing = aListing({
+			view_names: ['concept/front.png', 'front'],
+			annotations: [
+				anAnnotation('an_old', { anchor: viewAnchor('concept/front.png', { u: 0.2, v: 0.2 })! }),
+				anAnnotation('an_new', { anchor: viewAnchor('front', { u: 0.8, v: 0.8 })! })
+			]
+		});
+		const html = render(ModelSheet, {
+			props: {
+				model: aModel(listing), listing,
+				images: { front: { source: 'data:image/png;base64,cG5n', reason: null } }
+			}
+		}).body;
+
+		expect(html.match(/data-view="front"/g)).toHaveLength(1);
+		expect(html).toContain('src="data:image/png;base64,cG5n"');
+		expect(html).toContain('data-annotation="an_old"');
+		expect(html).toContain('data-annotation="an_new"');
+	});
+
 	it('filters out in the viewer exactly what the sheet filters out', () => {
 		const listing = aListing({
 			annotations: [

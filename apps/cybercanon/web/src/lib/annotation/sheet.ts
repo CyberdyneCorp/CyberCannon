@@ -29,6 +29,12 @@ export function pinsOn(view: string, annotations: readonly Annotation[]): readon
 	return annotations.filter((annotation) => viewOf(annotation) === view && pointOf(annotation));
 }
 
+/** Preserve the recorded order when legacy path and canonical slot anchors share a card. */
+export function pinsOnAny(views: readonly string[], annotations: readonly Annotation[]): readonly Annotation[] {
+	const aliases = new Set(views);
+	return annotations.filter((annotation) => aliases.has(viewOf(annotation) ?? '') && pointOf(annotation));
+}
+
 /**
  * Which view has to be brought into presentation for this annotation.
  *

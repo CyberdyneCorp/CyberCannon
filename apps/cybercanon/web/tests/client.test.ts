@@ -91,6 +91,20 @@ describe('addresses the versioned surface', () => {
 
 		expect(calls[0].url).toContain('/assets/a%2Fb');
 	});
+
+	it('reads view revisions with the bearer and escapes slot and revision segments', async () => {
+		const { calls, fetcher } = recording(200, { version: SURFACE_VERSION, data: {} });
+		const api = client(fetcher);
+
+		await api.readViewHistory('atlas', 'mech_scout', 'front/view');
+		await api.readViewRevision('atlas', 'mech_scout', 'front/view', 'rev/1');
+
+		expect(calls.map((call) => call.url)).toEqual([
+			`https://canon.example/${SURFACE_VERSION}/projects/atlas/assets/mech_scout/views/front%2Fview/revisions`,
+			`https://canon.example/${SURFACE_VERSION}/projects/atlas/assets/mech_scout/views/front%2Fview/revisions/rev%2F1`
+		]);
+		expect((calls[1].init.headers as Record<string, string>).Authorization).toBe('Bearer tok');
+	});
 });
 
 describe('reads the envelope the surface writes', () => {

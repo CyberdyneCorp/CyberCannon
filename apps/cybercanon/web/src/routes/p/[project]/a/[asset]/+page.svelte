@@ -33,6 +33,7 @@
 			model={annotationViewModel}
 			annotation={data.address.annotation ?? null}
 			viewer={data.viewer ?? null}
+			sheetImages={data.sheetImages ?? {}}
 			onReanchor={data.reanchor}
 			onRetryPreview={data.retryPreview}
 		/>

@@ -29,6 +29,8 @@ export const SCOPES = [
 	'triage',
 	'preview',
 	'preview-content',
+	'view-history',
+	'view-image',
 	'resolutions'
 ] as const;
 export type Scope = (typeof SCOPES)[number];
@@ -165,6 +167,12 @@ export const resources = {
 	},
 	previewContent(project: string, asset: string): ResourceKey {
 		return key('preview-content', project, asset);
+	},
+	viewHistory(project: string, asset: string, slot: string): ResourceKey {
+		return key('view-history', project, asset, slot);
+	},
+	viewImage(project: string, asset: string, slot: string, revision: string): ResourceKey {
+		return key('view-image', project, asset, slot, revision);
 	},
 	resolutions(project: string, asset: string): ResourceKey {
 		return key('resolutions', project, asset);

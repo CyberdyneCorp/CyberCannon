@@ -440,6 +440,61 @@ describe('what the route reads for the 3D viewer, and when', () => {
 	});
 });
 
+describe('reference images for the model sheet', () => {
+	function references(failSide = false) {
+		const { asked, reads: base } = surface({});
+		const reads = {
+			...base,
+			async annotations() {
+				asked.push('annotations');
+				return ok({
+					project: PROJECT, asset: ASSET, path: 'assets/mech_scout/asset.yaml',
+					revision: 'rev-1', annotations: [], hidden: 0, orphans: [],
+					view_names: ['concept/front.png', 'front', 'side'], actor: 'auth|rafa',
+					may_promote: false
+				});
+			},
+			async viewHistory(_project: string, _asset: string, slot: string) {
+				asked.push(`history:${slot}`);
+				return ok({
+					asset: ASSET, slot, path: `assets/mech_scout/concept/${slot}.png`,
+					removed: false,
+					revisions: [{ revision: 'rev-1', current: true, removed: false }]
+				});
+			},
+			async viewRevision(_project: string, _asset: string, slot: string) {
+				asked.push(`image:${slot}`);
+				return failSide && slot === 'side'
+					? refusal('unavailable', 'image read failed')
+					: ok({ asset: ASSET, slot, revision: 'rev-1', content: 'cG5n' });
+			}
+		};
+		return { asked, reads };
+	}
+
+	it('loads one image per slot and keeps a failed image local to its card', async () => {
+		const { asked, reads } = references(true);
+		const screen = await assetScreen(reads, PROJECT, ASSET, address('?surface=sheet'));
+
+		expect(asked.filter((call) => call === 'history:front')).toHaveLength(1);
+		expect(screen.sheetImages?.front.source).toBe('data:image/png;base64,cG5n');
+		expect(screen.sheetImages?.side.source).toBeNull();
+		expect(screen.sheetImages?.side.reason).toContain('could not be loaded');
+		expect(screen.state.kind).toBe('content');
+	});
+
+	it('does not download references for other surfaces or server rendering', async () => {
+		for (const query of ['', '?surface=viewer', '?surface=sheet']) {
+			const { asked, reads } = references();
+			await assetScreen(reads, PROJECT, ASSET, address(query), { viewImages: false });
+			expect(asked.some((call) => call.startsWith('history:') || call.startsWith('image:'))).toBe(false);
+		}
+		const { asked, reads } = references();
+		await assetScreen(reads, PROJECT, ASSET, address());
+		expect(asked.some((call) => call.startsWith('history:'))).toBe(false);
+	});
+});
+
 
 describe("the asset's linked documents, and what happens when they cannot be read", () => {
 	it('reads the link list and carries it onto the screen', async () => {

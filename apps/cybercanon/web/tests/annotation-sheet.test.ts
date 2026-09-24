@@ -29,7 +29,7 @@ import {
 	viewAnchor
 } from '../src/lib/annotation';
 import { NEW_SESSION, afterGesture, gestureFrom, intentOf } from '../src/lib/annotation';
-import { fanned, focusedView, pinsOn, pointOf, viewOf } from '../src/lib/annotation/sheet';
+import { fanned, focusedView, pinsOn, pinsOnAny, pointOf, viewOf } from '../src/lib/annotation/sheet';
 import type { Annotation } from '../src/lib/api';
 
 const VIEW = 'front';
@@ -259,6 +259,17 @@ describe('pins stay reachable however they fall (5.5)', () => {
 
 		expect(pinsOn('front', mixed).map((entry) => entry.id)).toEqual(['an_1']);
 		expect(viewOf(mixed[2])).toBeNull();
+	});
+
+	it('keeps pins from both a declared path and its slot in recorded order', () => {
+		const mixed = [
+			anAnnotation('an_old', viewAnchor('concept/front.png', { u: 0.2, v: 0.2 })!),
+			anAnnotation('an_other', viewAnchor('side', { u: 0.2, v: 0.2 })!),
+			anAnnotation('an_new', viewAnchor('front', { u: 0.8, v: 0.8 })!)
+		];
+		expect(pinsOnAny(['concept/front.png', 'front'], mixed).map((entry) => entry.id)).toEqual([
+			'an_old', 'an_new'
+		]);
 	});
 
 	it('brings the view a selected annotation lives on into presentation', () => {

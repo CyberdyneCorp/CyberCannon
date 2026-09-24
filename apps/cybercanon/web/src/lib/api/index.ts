@@ -28,6 +28,8 @@ import type {
 	Page,
 	PreviewContent,
 	PreviewDescriptor,
+	ViewHistory,
+	ViewRevisionImage,
 	SearchHit,
 	StatusReport,
 	TriageQueue,
@@ -154,6 +156,23 @@ export class CanonApi {
 	previewContent(project: string, asset: string): Promise<ApiResult<PreviewContent>> {
 		return this.cache.read(resources.previewContent(project, asset), () =>
 			this.client.readPreviewContent(project, asset)
+		);
+	}
+
+	viewHistory(project: string, asset: string, slot: string): Promise<ApiResult<ViewHistory>> {
+		return this.cache.read(resources.viewHistory(project, asset, slot), () =>
+			this.client.readViewHistory(project, asset, slot)
+		);
+	}
+
+	viewRevision(
+		project: string,
+		asset: string,
+		slot: string,
+		revision: string
+	): Promise<ApiResult<ViewRevisionImage>> {
+		return this.cache.read(resources.viewImage(project, asset, slot, revision), () =>
+			this.client.readViewRevision(project, asset, slot, revision)
 		);
 	}
 

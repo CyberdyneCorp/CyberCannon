@@ -22,7 +22,7 @@
 	 * and the person has already been told why.
 	 */
 	import type { Surface } from '$lib/address';
-	import type { AssetPage, ViewerReads } from '$lib/asset';
+	import type { AssetPage, SheetImage, ViewerReads } from '$lib/asset';
 	import type { Anchor, AnnotationListing, DocumentListing } from '$lib/api';
 	import type { AnnotationViewModel } from '$lib/annotation';
 	import type { SceneFactory } from '$lib/viewer/contract';
@@ -52,6 +52,7 @@
 		annotation?: string | null;
 		/** What the route read for the viewer: descriptor, orphan count and bytes. */
 		viewer?: ViewerReads | null;
+		sheetImages?: Readonly<Record<string, SheetImage>>;
 		/** Rescue an orphan. The route supplies it, so no view reaches the API. */
 		onReanchor?: (annotation: string, anchor: Anchor) => Promise<boolean>;
 		/** Read the preview again after a failure. Supplied by the route, like the write. */
@@ -66,6 +67,7 @@
 		model = null,
 		annotation = null,
 		viewer = null,
+		sheetImages = {},
 		onReanchor = async () => false,
 		onRetryPreview = () => {}
 	}: Props = $props();
@@ -96,6 +98,7 @@
 		<ModelSheet
 			{model}
 			listing={annotations}
+			images={sheetImages}
 			mayPromote={annotations.may_promote}
 			actor={annotations.actor}
 			selected={annotation}

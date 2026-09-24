@@ -501,6 +501,27 @@ export interface PreviewContent {
 	readonly content: string;
 }
 
+/** The repository's revision list for one concept-view slot. */
+export interface ViewHistory {
+	readonly asset: string;
+	readonly slot: string;
+	readonly path: string;
+	readonly removed: boolean;
+	readonly revisions: readonly {
+		readonly revision: string;
+		readonly current: boolean;
+		readonly removed: boolean;
+	}[];
+}
+
+/** Pixels of one view revision, served only to an authorized reader. */
+export interface ViewRevisionImage {
+	readonly asset: string;
+	readonly slot: string;
+	readonly revision: string;
+	readonly content: string;
+}
+
 export interface AnchorResolutionRow {
 	readonly id: string;
 	readonly outcome: 'resolved' | 'partial' | 'orphaned';

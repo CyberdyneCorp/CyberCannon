@@ -48,6 +48,7 @@ import {
 	type Object3D
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Anchor } from '$lib/api';
 import type { CameraState, Pick } from './anchor';
@@ -84,13 +85,19 @@ export function partNamesOf(preview: LoadedPreview): readonly string[] {
  */
 export function parsePreview(bytes: ArrayBuffer): Promise<LoadedPreview> {
 	return new Promise((resolve, reject) => {
-		new GLTFLoader().parse(
+		previewLoader().parse(
 			bytes,
 			'',
 			(gltf) => resolve(describe(gltf.scene, gltf.animations ?? [])),
 			(error) => reject(error)
 		);
 	});
+}
+
+const draco = new DRACOLoader().setDecoderPath('/draco/');
+
+function previewLoader(): GLTFLoader {
+	return new GLTFLoader().setDRACOLoader(draco);
 }
 
 function describe(root: Object3D, animations: readonly AnimationClip[]): LoadedPreview {
@@ -220,7 +227,7 @@ export function mountScene(
 		async load(bytes) {
 			const loaded = await parsePreview(bytes);
 			const gltf = await new Promise<Object3D>((done, fail) => {
-				new GLTFLoader().parse(
+				previewLoader().parse(
 					bytes,
 					'',
 					(parsed) => {

@@ -11,3 +11,4 @@
 export * from './compiled';
 export * from './page';
 export * from './load';
+export * from './media';

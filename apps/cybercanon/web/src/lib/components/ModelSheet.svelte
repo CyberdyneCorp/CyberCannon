@@ -20,9 +20,9 @@
 	 *   there is no state to get out of step.
 	 */
 	import type { AnnotationListing } from '$lib/api';
-	import { SHEET_EMPTY } from '$lib/asset';
+	import { SHEET_EMPTY, canonicalView, sheetViews, type SheetImage } from '$lib/asset';
 	import type { AnnotationViewModel } from '$lib/annotation';
-	import { focusedView, pinsOn } from '$lib/annotation/sheet';
+	import { focusedView, pinsOnAny } from '$lib/annotation/sheet';
 	import AnnotationFilters from './AnnotationFilters.svelte';
 	import SheetView from './SheetView.svelte';
 	import ThreadPanel from './ThreadPanel.svelte';
@@ -31,8 +31,8 @@
 		model: AnnotationViewModel;
 		/** What the route read. The sheet never asks for it itself (D2). */
 		listing: AnnotationListing;
-		/** Where a view's mirrored image is served from, by view name. */
-		sources?: Readonly<Record<string, string>>;
+		/** Current image or a local failure, keyed by canonical slot. */
+		images?: Readonly<Record<string, SheetImage>>;
 		mayPromote?: boolean;
 		actor?: string;
 		/** The thread the address opens on, when the pass linked straight to one. */
@@ -42,7 +42,7 @@
 	let {
 		model,
 		listing,
-		sources = {},
+		images = {},
 		mayPromote = false,
 		actor = '',
 		selected = null
@@ -72,7 +72,8 @@
 	hydrate();
 	$effect(hydrate);
 
-	const focused = $derived(focusedView(model.selected, model.views));
+	const views = $derived(sheetViews(model.views));
+	const focused = $derived(canonicalView(focusedView(model.selected, model.views) ?? ''));
 </script>
 
 <section class="sheet">
@@ -82,17 +83,18 @@
 		<AnnotationFilters {model} />
 	</div>
 
-	{#if model.views.length === 0}
+	{#if views.length === 0}
 		<p class="no-views" data-empty="views">{SHEET_EMPTY}</p>
 	{:else}
 		<div class="views">
-			{#each model.views as view (view)}
+			{#each views as group (group.slot)}
 				<SheetView
-					{view}
-					source={sources[view] ?? null}
-					annotations={pinsOn(view, model.placeable)}
+					view={group.slot}
+					source={images[group.slot]?.source ?? null}
+					reason={images[group.slot]?.reason ?? null}
+					annotations={pinsOnAny(group.aliases, model.placeable)}
 					{model}
-					focused={focused === view}
+					focused={focused === group.slot}
 				/>
 			{/each}
 		</div>

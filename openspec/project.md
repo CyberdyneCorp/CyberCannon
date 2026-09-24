@@ -391,7 +391,7 @@ discovering later.
 
 ## Testing — three layers, and the specs are the source
 
-The spec deltas hold **692 GIVEN/WHEN/THEN scenarios**. They are not documentation:
+The spec deltas hold **698 GIVEN/WHEN/THEN scenarios**. They are not documentation:
 they are the BDD suite, generated into Gherkin and executed.
 
 | Layer | Tool | Covers |

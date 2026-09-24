@@ -39,6 +39,12 @@ app-navigation :: Project is always visible
 app-navigation :: Return from viewer to overview
 app-navigation :: Switching with an asset open
 app-navigation :: Unrestorable state degrades
+asset-media-presentation :: Compressed preview opens
+asset-media-presentation :: Declared path and discovered slot refer to one image
+asset-media-presentation :: Decoder failure is actionable
+asset-media-presentation :: No image exists for a declared view
+asset-media-presentation :: One image read fails
+asset-media-presentation :: Overview and viewer avoid image downloads
 asset-browser :: A filtered listing is shareable
 asset-browser :: Active filters are visible and removable
 asset-browser :: Alias match is disclosed

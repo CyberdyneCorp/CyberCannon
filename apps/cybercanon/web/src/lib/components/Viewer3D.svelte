@@ -132,6 +132,7 @@
 	let selectedPart = $state<string | null>(null);
 	let isolated = $state<string | null>(null);
 	let placementNotice = $state('');
+	let decodeFailure = $state<string | null>(null);
 	/** Where the pointer went down, so a drag reads as navigation rather than a pin. */
 	let pressedAt: Point | null = null;
 	/**
@@ -195,6 +196,7 @@
 
 	$effect(() => {
 		if (!canvas || !mount || !bytes || !renders) return;
+		decodeFailure = null;
 		const built = mount(canvas, descriptor.parts);
 		scene = built;
 		built
@@ -207,6 +209,7 @@
 				built.render();
 			})
 			.catch(() => {
+				decodeFailure = 'The preview could not be decoded. Retry to load it again.';
 				session = unloadable(session);
 			});
 		return () => built.dispose();
@@ -372,6 +375,7 @@
 	}
 
 	function retry(): void {
+		decodeFailure = null;
 		session = retrying(session);
 		onRetry();
 	}
@@ -403,7 +407,7 @@
 		<p class="no-preview">{absence}</p>
 	{:else if unloadableNow}
 		<p class="unloadable">{UNLOADABLE}</p>
-		{#if unretrievable}<p class="unloadable-reason">{unretrievable}</p>{/if}
+		{#if unretrievable || decodeFailure}<p class="unloadable-reason">{unretrievable ?? decodeFailure}</p>{/if}
 		<button type="button" onclick={retry}>Retry</button>
 	{:else}
 		<div class="stage">

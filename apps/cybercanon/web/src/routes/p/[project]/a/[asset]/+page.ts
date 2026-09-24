@@ -42,7 +42,8 @@ export const load: PageLoad = async ({ params, url, fetch }) => {
 	// The preview's bytes are read in the browser only: the mesh is handed to a
 	// renderer the server does not have, and this `load` runs again there.
 	const screen = await assetScreen(api, params.project, params.asset, url, {
-		previewBytes: browser
+		previewBytes: browser,
+		viewImages: browser
 	});
 	return {
 		...screen,

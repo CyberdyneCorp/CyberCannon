@@ -40,17 +40,21 @@
 	interface Props {
 		/** The name an anchor keys on. Never a file name, never a position. */
 		view: string;
-		/** Where the image is served from, when the deployment mirrors one. */
+		/** Current reference image read from the asset's repository history. */
 		source?: string | null;
+		reason?: string | null;
 		annotations: readonly Annotation[];
 		model: AnnotationViewModel;
 		/** Whether this view is the one a selected annotation lives on. */
 		focused?: boolean;
 	}
 
-	let { view, source = null, annotations, model, focused = false }: Props = $props();
+	let { view, source = null, reason = null, annotations, model, focused = false }: Props = $props();
 
 	let image: HTMLElement | null = $state(null);
+	let imageRatio: number | null = $state(null);
+	let failedSource = $state<string | null>(null);
+	const imageFailed = $derived(Boolean(source && failedSource === source));
 
 	const pins = $derived(fanned(annotations));
 	const composing = $derived(model.isComposing && model.draft.anchor?.view === view);
@@ -98,7 +102,7 @@
 
 <figure class="view" class:focused data-view={view}>
 	<figcaption>{view}</figcaption>
-	<div class="frame">
+	<div class="frame" style:aspect-ratio={imageRatio ?? 4 / 3}>
 		<div
 			class="image"
 			bind:this={image}
@@ -109,10 +113,20 @@
 			onpointerup={up}
 			onpointercancel={up}
 		>
-			{#if source}
-				<img src={source} alt={`the ${view} view`} />
+			{#if source && !imageFailed}
+				<img
+					src={source}
+					alt={`the ${view} view`}
+					onload={(event) => {
+						const image = event.currentTarget as HTMLImageElement;
+						imageRatio = image.naturalWidth / image.naturalHeight;
+					}}
+					onerror={() => (failedSource = source)}
+				/>
 			{:else}
-				<p class="absent">no image is mirrored for this view yet</p>
+				<p class="absent">
+					{imageFailed ? 'The reference image could not be displayed.' : reason ?? 'Loading reference image…'}
+				</p>
 			{/if}
 
 			<svg class="marks" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -217,7 +231,7 @@
 		display: block;
 	}
 
-	/* A view with no image mirrored still takes gestures and still shows its
+	/* A view with no readable image still takes gestures and still shows its
 	   pins — so the sentence sits on the surface rather than replacing it. */
 	.absent {
 		margin: 0;

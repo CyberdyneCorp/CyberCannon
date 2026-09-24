@@ -41,6 +41,8 @@ import {
 	type TriageQueue,
 	type UnreadItems,
 	type ValidationOutcome,
+	type ViewHistory,
+	type ViewRevisionImage,
 	type WriteOutcome,
 	type AssetRequest
 } from './types';
@@ -171,6 +173,19 @@ export class CanonClient {
 
 	readPreviewContent(project: string, asset: string): Promise<ApiResult<PreviewContent>> {
 		return this.#get(`${preview(project, asset)}/content`);
+	}
+
+	readViewHistory(project: string, asset: string, slot: string): Promise<ApiResult<ViewHistory>> {
+		return this.#get(`${views(project, asset, slot)}/revisions`);
+	}
+
+	readViewRevision(
+		project: string,
+		asset: string,
+		slot: string,
+		revision: string
+	): Promise<ApiResult<ViewRevisionImage>> {
+		return this.#get(`${views(project, asset, slot)}/revisions/${enc(revision)}`);
 	}
 
 	readAnchorResolutions(project: string, asset: string): Promise<ApiResult<AnchorResolutions>> {
@@ -475,6 +490,10 @@ function enc(segment: string): string {
 
 function preview(project: string, asset: string): string {
 	return `/projects/${enc(project)}/assets/${enc(asset)}/preview`;
+}
+
+function views(project: string, asset: string, slot: string): string {
+	return `/projects/${enc(project)}/assets/${enc(asset)}/views/${enc(slot)}`;
 }
 
 function documents(project: string, asset: string): string {

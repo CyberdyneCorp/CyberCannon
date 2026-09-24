@@ -31,6 +31,8 @@ import type {
 	LocationAnswer,
 	PreviewContent,
 	PreviewDescriptor,
+	ViewHistory,
+	ViewRevisionImage,
 	ValidationOutcome
 } from '$lib/api';
 import { routeStateFor } from '$lib/api';
@@ -38,6 +40,7 @@ import { degraded, type RouteState } from '$lib/route-state';
 import { screenFor } from '$lib/screen';
 import type { AssetPage } from './page';
 import { VALIDATED_EXPORT, assetPage, availableSurfaces } from './page';
+import { imageType, isViewSlot, sheetViews, type SheetImage } from './media';
 
 /** What the asset screen needs from the Model — one client and one cache behind it. */
 export interface AssetReads {
@@ -49,6 +52,13 @@ export interface AssetReads {
 	preview?(project: string, asset: string): Promise<ApiResult<PreviewDescriptor>>;
 	previewContent?(project: string, asset: string): Promise<ApiResult<PreviewContent>>;
 	anchorResolutions?(project: string, asset: string): Promise<ApiResult<AnchorResolutions>>;
+	viewHistory?(project: string, asset: string, slot: string): Promise<ApiResult<ViewHistory>>;
+	viewRevision?(
+		project: string,
+		asset: string,
+		slot: string,
+		revision: string
+	): Promise<ApiResult<ViewRevisionImage>>;
 }
 
 /**
@@ -106,6 +116,8 @@ export interface AssetScreen {
 	readonly documents?: DocumentListing | null;
 	/** What the 3D viewer needs, read only when the viewer is what is being opened. */
 	readonly viewer?: ViewerReads;
+	/** Current reference images, read only for the browser's model sheet. */
+	readonly sheetImages?: Readonly<Record<string, SheetImage>>;
 }
 
 /** The surfaces an asset has before anything has been read about it. */
@@ -113,6 +125,8 @@ export const BEFORE_READING: readonly Surface[] = ['overview'];
 
 /** What a caller can ask the asset screen to leave out. One entry, for one reason. */
 export interface AssetOptions {
+	/** Keep image bytes out of server-rendered page data. */
+	readonly viewImages?: boolean;
 	/**
 	 * Whether to read the preview's bytes.
 	 *
@@ -149,11 +163,13 @@ export async function assetScreen(
 		{ ok: true, data: page, freshness: locations.freshness },
 		{ unavailable: disclosures(address.notice, locations.data) }
 	);
+	const annotations = await threads(api, project, asset, address.surface);
 	return {
 		address,
 		available,
 		state,
-		annotations: await threads(api, project, asset, address.surface),
+		annotations,
+		sheetImages: await sheetImages(api, project, asset, address.surface, annotations, options),
 		documents: await links(api, project, asset),
 		viewer: await viewerReads(api, project, asset, address.surface, options)
 	};
@@ -219,6 +235,49 @@ function decode(base64: string): ArrayBuffer {
 	const bytes = new Uint8Array(binary.length);
 	for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
 	return bytes.buffer;
+}
+
+async function sheetImages(
+	api: AssetReads,
+	project: string,
+	asset: string,
+	surface: Surface,
+	annotations: AnnotationListing | null,
+	options: AssetOptions
+): Promise<Readonly<Record<string, SheetImage>>> {
+	if (surface !== 'sheet' || !annotations || options.viewImages === false) return {};
+	if (!api.viewHistory || !api.viewRevision) return {};
+	const groups = sheetViews(annotations.view_names);
+	const images = await Promise.all(groups.map(async ({ slot }) => ({
+		slot,
+		image: await currentImage(api, project, asset, slot)
+	})));
+	return Object.fromEntries(images.map(({ slot, image }) => [slot, image]));
+}
+
+async function currentImage(
+	api: AssetReads,
+	project: string,
+	asset: string,
+	slot: string
+): Promise<SheetImage> {
+	const missing = { source: null, reason: 'No reference image is recorded for this view.' };
+	if (!isViewSlot(slot) || !api.viewHistory || !api.viewRevision) return missing;
+	try {
+		const history = await api.viewHistory(project, asset, slot);
+		if (!history.ok) return missing;
+		const current = history.data.revisions.find((entry) => entry.current && !entry.removed);
+		if (!current) return missing;
+		const type = imageType(history.data.path);
+		if (!type) return { source: null, reason: 'This reference image format cannot be displayed.' };
+		const image = await api.viewRevision(project, asset, slot, current.revision);
+		if (!image.ok || !image.data.content) {
+			return { source: null, reason: 'The reference image could not be loaded. Reload to retry.' };
+		}
+		return { source: `data:${type};base64,${image.data.content}`, reason: null };
+	} catch {
+		return { source: null, reason: 'The reference image could not be loaded. Reload to retry.' };
+	}
 }
 
 /** The asset's threads, when the sheet is what is being opened, and never otherwise. */
