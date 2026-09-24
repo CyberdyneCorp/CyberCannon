@@ -169,6 +169,7 @@
 	const absence = $derived(absenceOf(descriptor));
 	const orphans = $derived(orphanCount(resolutions));
 	const placeable = $derived(canPlaceAnchor(session));
+	const modelAnnotations = $derived(model.visible.filter((annotation) => Boolean(annotation.anchor.part)));
 	/**
 	 * Whether there is a preview that could not be loaded.
 	 *
@@ -471,7 +472,7 @@
 						{isolated ? 'Show all parts' : 'Isolate part'}
 					</button>
 				</div>
-				<p class="gesture-help">Drag to orbit · Right drag to pan · Scroll or pinch to zoom</p>
+				<p class="gesture-help">Click a part to annotate · Drag to orbit · Right drag to pan · Scroll or pinch to zoom</p>
 			</div>
 			{#if placementNotice}<p class="placement">{placementNotice}</p>{/if}
 		{/if}
@@ -492,6 +493,30 @@
 				</ul>
 			{/if}
 			{#if selectedPart}<p class="selected-part">Selected: {selectedPart}</p>{/if}
+		</section>
+
+		<section class="model-annotations" aria-label="model annotations">
+			<h3>On model <span class="annotation-count">{modelAnnotations.length}</span></h3>
+			{#if modelAnnotations.length === 0}
+				<p class="absence">Click a part in the model to start an annotation.</p>
+			{:else}
+				<ul>
+					{#each modelAnnotations as annotation (annotation.id)}
+						<li>
+							<button
+								type="button"
+								class:selected={annotation.id === model.selectedId}
+								data-annotation={annotation.id}
+								onclick={() => open(annotation.id)}
+							>
+								<span class="annotation-part">{annotation.anchor.part}</span>
+								<span class="annotation-summary">{annotation.text}</span>
+								<span class="annotation-state">{annotation.anchor_state === 'orphaned' ? 'orphaned' : annotation.state}</span>
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		</section>
 
 		<AnimationTransport
@@ -618,6 +643,7 @@
 
 	.figures,
 	.parts ul,
+	.model-annotations ul,
 	.thread-list {
 		list-style: none;
 		margin: 0;
@@ -838,6 +864,55 @@
 		margin: var(--space-2) 0 0;
 		font-family: var(--font-mono);
 		font-size: var(--text-small);
+	}
+
+	.model-annotations ul {
+		display: grid;
+		gap: var(--space-1);
+	}
+
+	.annotation-count {
+		font-family: var(--font-mono);
+		font-size: var(--text-small);
+	}
+
+	.model-annotations li button {
+		display: grid;
+		width: 100%;
+		gap: 0;
+		text-align: start;
+		font-family: var(--font-body);
+		font-weight: 400;
+		font-size: var(--text-small);
+		line-height: var(--leading-body);
+		padding: var(--space-1) var(--space-2);
+		background: none;
+		border: 0;
+		box-shadow: none;
+		color: var(--color-text);
+	}
+
+	.model-annotations li button:hover:not(:disabled),
+	.model-annotations li button.selected {
+		transform: none;
+		box-shadow: none;
+		background: var(--color-highlight);
+	}
+
+	.annotation-part {
+		font-family: var(--font-mono);
+		font-size: var(--text-fine);
+		font-weight: var(--font-weight-strong);
+		overflow-wrap: anywhere;
+	}
+
+	.annotation-summary {
+		overflow-wrap: anywhere;
+	}
+
+	.annotation-state {
+		font-size: var(--text-fine);
+		color: var(--color-neutral-700);
 	}
 
 	.threads {

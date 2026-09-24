@@ -48,6 +48,17 @@
 	const offersPromotion = $derived(
 		Boolean(mayPromote && selected?.exits.includes('promote'))
 	);
+	const draftAnchor = $derived(model.draft.anchor);
+	const isImageDraft = $derived(Boolean(draftAnchor?.view));
+	const placement = $derived(
+		draftAnchor?.view ? `Image view · ${draftAnchor.view.split('/').at(-1)?.replace(/\.[^.]+$/, '')}` :
+			draftAnchor?.part ? `Model part · ${draftAnchor.part}` : 'Choose a placement'
+	);
+	const saving = $derived(model.writeState === 'pending');
+
+	function focusDraft(node: HTMLTextAreaElement): void {
+		queueMicrotask(() => node.focus({ preventScroll: true }));
+	}
 
 	async function submitDraft(): Promise<void> {
 		await model.submit(newId());
@@ -83,10 +94,12 @@
 	{#if model.isComposing}
 		<section class="composer">
 			<h3>New annotation</h3>
+			<p class="placement">{placement}</p>
 			<label>
 				Kind
 				<select
 					value={model.draft.kind}
+					disabled={saving}
 					onchange={(event) =>
 						model.setDraftKind(event.currentTarget.value as Annotation['kind'])}
 				>
@@ -97,14 +110,17 @@
 			</label>
 			<textarea
 				aria-label="what this annotation says"
+				use:focusDraft
 				value={model.draft.text}
+				disabled={saving}
 				oninput={(event) => model.setDraftText(event.currentTarget.value)}
 			></textarea>
-			<p class="marks">{model.draft.strokes.length} stroke(s) drawn</p>
+			{#if isImageDraft}<p class="marks">{model.draft.strokes.length} stroke(s) drawn</p>{/if}
+			{#if saving}<p class="save-status" role="status">Saving annotation…</p>{/if}
 			<div class="actions">
-				<button type="button" onclick={submitDraft}>Save</button>
-				<button type="button" onclick={() => model.undoStroke()}>Undo stroke</button>
-				<button type="button" onclick={() => model.discard()}>Discard</button>
+				<button type="button" onclick={submitDraft} disabled={!model.draft.text.trim() || saving}>{saving ? 'Saving…' : 'Save'}</button>
+				{#if isImageDraft}<button type="button" onclick={() => model.undoStroke()} disabled={model.draft.strokes.length === 0 || saving}>Undo stroke</button>{/if}
+				<button type="button" onclick={() => model.discard()} disabled={saving}>Discard</button>
 			</div>
 		</section>
 	{/if}
@@ -275,6 +291,19 @@
 		display: flex;
 		gap: var(--space-2);
 		flex-wrap: wrap;
+	}
+
+	.placement,
+	.save-status,
+	.marks {
+		margin: 0;
+		font-size: var(--text-small);
+	}
+
+	.placement {
+		font-family: var(--font-mono);
+		font-weight: var(--font-weight-strong);
+		overflow-wrap: anywhere;
 	}
 
 	/*

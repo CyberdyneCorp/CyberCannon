@@ -318,6 +318,20 @@ describe('6.5 — orphans are visible, listed and countable', () => {
 		expect(html).toContain('orphaned — expected');
 		expect(html).toContain(SHOULDER);
 	});
+
+	it('keeps part-anchored notes in the model rail and excludes image notes', () => {
+		const flat = anAnnotation('an_flat', {
+			anchor: viewAnchor('front', { u: 0.2, v: 0.2 })!
+		});
+		const orphan = anAnnotation('an_orphan', { anchor_state: 'orphaned' });
+		const html = viewerHtml(aListing({ annotations: [flat, orphan] }));
+		const rail = html.split('aria-label="model annotations"')[1].split('</section>')[0];
+
+		expect(rail).toContain('finding an_orphan');
+		expect(rail).toContain(SHOULDER);
+		expect(rail).toContain('orphaned');
+		expect(rail).not.toContain('finding an_flat');
+	});
 });
 
 describe('6.7 — the two surfaces agree, because they are the same ViewModel', () => {

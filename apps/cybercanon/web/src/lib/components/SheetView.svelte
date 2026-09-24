@@ -155,6 +155,7 @@
 					data-annotation={pin.annotation.id}
 					style={`left: ${pin.at.u * 100}%; top: ${pin.at.v * 100}%`}
 					title={pin.annotation.text}
+					aria-label={`${pin.annotation.kind} annotation, ${pin.annotation.state}: ${pin.annotation.text}`}
 					onpointerdown={(event) => event.stopPropagation()}
 					onclick={(event) => {
 						event.stopPropagation();
@@ -174,6 +175,7 @@
 			{/if}
 		</div>
 	</div>
+	<p class="view-help">Click to place · Drag to draw after placing · Select a pin to open</p>
 </figure>
 
 <style>
@@ -189,6 +191,12 @@
 		font-size: var(--text-fine);
 		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
+		color: var(--color-neutral-700);
+	}
+
+	.view-help {
+		margin: 0;
+		font-size: var(--text-fine);
 		color: var(--color-neutral-700);
 	}
 

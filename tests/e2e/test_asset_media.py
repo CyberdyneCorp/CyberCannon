@@ -114,6 +114,9 @@ def test_sheet_annotation_stroke_saves_and_reopens(page: Any) -> None:
         position={"x": box["width"] * 0.80, "y": box["height"] * y_by_width[page.viewport_size["width"]]}
     )
     page.get_by_role("heading", name="New annotation").wait_for()
+    composer = page.locator(".composer")
+    assert f"Image view · mech_scout_front" in composer.inner_text()
+    assert page.get_by_role("button", name="Save", exact=True).is_disabled()
     x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
     page.mouse.move(x, y)
     page.mouse.down()
@@ -123,10 +126,12 @@ def test_sheet_annotation_stroke_saves_and_reopens(page: Any) -> None:
 
     text = f"Browser check: 2D annotation with stroke at {page.viewport_size['width']}px"
     page.get_by_role("textbox", name="what this annotation says").fill(text)
+    assert page.get_by_role("button", name="Save", exact=True).is_enabled()
     page.get_by_role("button", name="Save", exact=True).click()
     page.get_by_role("heading", name="New annotation").wait_for(state="detached")
     pin = page.locator(f'figure[data-view="mech_scout_front"] .pin[title="{text}"]')
     pin.wait_for()
+    assert pin.get_attribute("aria-label") == f"art-direction annotation, open: {text}"
     page.reload()
     pin.wait_for()
     pin.click()
@@ -221,13 +226,24 @@ def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
         if page.get_by_role("heading", name="New annotation").count():
             break
     page.get_by_role("heading", name="New annotation").wait_for()
+    composer = page.locator(".composer")
+    assert "Model part ·" in composer.inner_text()
+    placed_part = composer.locator(".placement").inner_text().split(" · ", 1)[1]
+    assert composer.get_by_role("button", name="Undo stroke").count() == 0
+    assert composer.get_by_role("button", name="Save", exact=True).is_disabled()
     text = f"Browser check: 3D annotation at {page.viewport_size['width']}px"
     page.get_by_role("textbox", name="what this annotation says").fill(text)
     page.get_by_role("button", name="Save", exact=True).click()
     page.get_by_role("heading", name="New annotation").wait_for(state="detached")
     assert text in page.locator('[aria-label="annotations"]').inner_text()
+    model_note = page.locator('[aria-label="model annotations"] button', has_text=text)
+    model_note.wait_for()
+    assert placed_part in model_note.inner_text()
+    model_note.click()
+    assert text in page.locator(".thread .text").first.inner_text()
     page.reload()
     assert text in page.locator('[aria-label="annotations"]').inner_text()
+    assert page.locator('[aria-label="model annotations"] button', has_text=text).count() == 1
 
     page.goto(ASSET)
     sections = page.locator(".asset-page [data-section]")

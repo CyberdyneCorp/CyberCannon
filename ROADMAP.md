@@ -1,13 +1,15 @@
 # CyberCanon — Roadmap
 
-**Status:** 19 changes specified, M0–M3 implemented. 36 capabilities · 323 requirements ·
-709 scenarios (578 executing, 131 pending) · **603 of 636 tasks**.
+**Status:** 20 changes specified, M0–M3 implemented. 39 capabilities · 326 requirements ·
+715 scenarios (578 executing, 137 pending) · **608 of 642 tasks**.
 Detail lives in `openspec/changes/<change>/`. This file is the ordering, the slicing, and the reasoning behind both.
 
 The current post-M3 asset workspace pass caps the desktop 3D viewer height,
 keeps tools and discussion beside the work, and condenses asset facts without
 changing the established visual language. Browser checks now cover saving and
 reopening 2D strokes and 3D anchors across phone, tablet, laptop, and desktop widths.
+The annotation workspace now names the draft placement, makes 2D pins accessible,
+and lists model notes by part beside the 3D viewer.
 
 ---
 
