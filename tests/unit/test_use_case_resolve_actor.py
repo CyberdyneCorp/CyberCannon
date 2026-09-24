@@ -27,6 +27,7 @@ from cybercanon.application.use_cases.resolve_actor import (
     IDENTITY_CLAIM_PARAMETERS,
     UNVERIFIABLE,
     ActorResolver,
+    GitIdentity,
     GitIdentitySource,
     IdentityCache,
     IdentitySource,
@@ -35,6 +36,7 @@ from cybercanon.application.use_cases.resolve_actor import (
     may_read,
     resolve_git_identity,
     strip_identity_claims,
+    verified_as,
 )
 from cybercanon.domain.actor_checks import RULE_PROVIDER_DISAGREEMENT, RULE_UNPARSEABLE
 from cybercanon.domain.actors import ActorBinding, ActorMapping
@@ -397,3 +399,49 @@ def test_unmapped_authors_carry_the_mapping_violations(store: InMemorySpecStore)
 
     assert found.emails == (WORK_EMAIL,)
     assert [violation.rule_id for violation in found.violations] == [RULE_UNPARSEABLE]
+
+
+# --------------------------------------------------------------------------
+# The name and the address come from the same place
+# --------------------------------------------------------------------------
+
+
+def test_a_mapped_identity_is_authored_under_the_name_the_mapping_gives_it() -> None:
+    """The defect the first real deployment wrote into history.
+
+    CyberdyneAuth sends no `name` claim, so an actor resolved from one of its
+    credentials falls back to its subject — a UUID. Taking the address from
+    `.canon/actors.yaml` and the name from that actor produced commits reading
+    `968a70af-8b4c-413c-… <leotest@test.com>`: an address everybody recognises
+    beside a name nobody does, in the one file `git blame` reads.
+    """
+    mapping = ActorMapping(
+        (
+            ActorBinding(
+                subject="968a70af-8b4c-413c-a502-fe0fbe9ce3ad",
+                display_name="Leo Test",
+                emails=("leotest@test.com",),
+            ),
+        )
+    )
+    from_token = Actor(id=ActorId("968a70af-8b4c-413c-a502-fe0fbe9ce3ad"), display_name="")
+    resolved = resolve_git_identity(verified_as(from_token), mapping)
+
+    author = resolved.author
+
+    assert author is not None
+    assert author.name == "Leo Test"
+    assert author.email == "leotest@test.com"
+
+
+def test_an_unmapped_identity_still_authors_under_whatever_named_it() -> None:
+    """Empty `name` means *use the actor's*, which is all there is here."""
+    actor = Actor(id=ActorId("auth|rafa"), display_name="Rafa")
+    resolved = GitIdentity(
+        actor=actor, emails=("rafa@cyberdyne.com",), source=GitIdentitySource.PROVIDER
+    )
+
+    author = resolved.author
+
+    assert author is not None
+    assert author.name == "Rafa"
