@@ -9,4 +9,4 @@
 ## 2. Verification
 
 - [x] 2.1 Add layout regression coverage for desktop and narrow widths; run web checks and targeted browser tests.
-- [ ] 2.2 Update roadmap/spec counts and verify the deployed asset viewer after pushing and redeploying web.
+- [x] 2.2 Update roadmap/spec counts and verify the deployed asset viewer after pushing and redeploying web.
