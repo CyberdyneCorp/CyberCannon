@@ -3,16 +3,6 @@
 # step definition yet, and that is a reviewed exception rather than an accident.
 #
 # Format: <capability> :: <scenario name>, exactly as the spec delta names them.
-#
-# Rules the build enforces (tests/bdd/test_traceability.py):
-#   * a generated scenario that is neither executing nor listed here FAILS;
-#   * a line naming a scenario that now executes FAILS — delete the line;
-#   * a line naming a scenario no spec contains FAILS — the spec moved.
-#
-# This list only ever shrinks. Regenerate it from scratch with
-# `python scripts/gen_features.py --bootstrap-pending`, which is a one-time
-# bootstrap, never part of `just check`.
-
 anchor-resolution :: Hint lands on the named part, not the nearest surface
 anchor-resolution :: Large displacement is flagged
 anchor-resolution :: No saved camera falls back to framing the part
@@ -63,7 +53,6 @@ asset-validation :: Reporting a result is separable and non-blocking
 deployment-operations :: Promotion preserves the digest
 deployment-operations :: Rollback selects a previously built artifact
 deployment-operations :: The web application does not require the API to become ready
-
 model-sheet-2d :: Asset with no views
 model-sheet-2d :: Combined filter
 model-sheet-2d :: Failed write removes the pin
@@ -78,6 +67,21 @@ model-sheet-2d :: Thread to pin across views
 model-sheet-2d :: Two pins at nearly the same coordinate
 model-sheet-2d :: Views listed by anchor name
 model-sheet-2d :: Zoom does not move a pin
+project-registry :: A credential is replaced without being read
+project-registry :: A lost registry is not recoverable from a repository
+project-registry :: A member holding none of the roles is refused
+project-registry :: A registered project is served
+project-registry :: A removed project is not resurrected
+project-registry :: A role holder from another organisation is refused
+project-registry :: An existing deployment keeps working untouched
+project-registry :: An unregistered project is not found
+project-registry :: Dropping the index leaves every project registered
+project-registry :: Exporting needs no key
+project-registry :: Importing where the key differs says so
+project-registry :: No read returns a credential
+project-registry :: Registering a project leaves the others serving
+project-registry :: Registering a repository is reserved to a person
+project-registry :: The repository is untouched
 viewer-3d :: Frame restores a known view
 viewer-3d :: Framing a part
 viewer-3d :: Isolation is reversible
