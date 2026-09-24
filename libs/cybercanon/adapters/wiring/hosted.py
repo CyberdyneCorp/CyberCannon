@@ -56,7 +56,11 @@ from cybercanon.adapters.outbound.minio.blob_store import S3BlobStore
 from cybercanon.adapters.outbound.postgres.dismissals import PostgresDismissals
 from cybercanon.adapters.outbound.postgres.idempotency import PostgresIdempotencyStore
 from cybercanon.adapters.outbound.postgres.search_index import PostgresSearchIndex
-from cybercanon.adapters.wiring.background import BackgroundWork, Ticker, validation_job
+from cybercanon.adapters.wiring.background import (
+    BackgroundWork,
+    Ticker,
+    validation_job,
+)
 from cybercanon.adapters.wiring.build import (
     arche_settings,
     document_platform,

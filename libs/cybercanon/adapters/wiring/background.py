@@ -34,6 +34,11 @@ from datetime import timedelta
 from cybercanon.adapters.wiring.container import Container
 from cybercanon.application.ports.repository_host import RepositoryHost
 from cybercanon.application.results import Result
+from cybercanon.application.use_cases.deployment_status import (
+    DeploymentJournal,
+    indexed_revision_of,
+    rebuild_and_record,
+)
 from cybercanon.application.use_cases.validation_worker import (
     WorkerReport,
     validate_changed_exports,
@@ -244,6 +249,56 @@ class Ticker:
         while not self._stopped.is_set():
             self.tick_once()
             self._stopped.wait(self._interval)
+
+
+def indexed_first(
+    job: Job,
+    *,
+    container: Container,
+    repository_host: RepositoryHost,
+    journal: DeploymentJournal,
+) -> Job:
+    """Bring the index up to the served revision, then run `job`.
+
+    **The index had no way to be built at all.** `rebuild_project_index` is the
+    operation `hosted-repository` requires — *"the service SHALL provide an
+    operation that discards the entire index and rebuilds it from the working
+    copy"* — and until this function nothing in any adapter called it. A hosted
+    deployment cloned its repository, validated exports against it, and served
+    an empty asset list for ever, because the rows the read surface lists from
+    were never written. The first real deployment reported exactly that: an
+    asset in the repository, and "this project has no assets yet" in the
+    browser.
+
+    It runs **here**, on the background pass a sync queues, rather than on a
+    read. `hosted-repository` is explicit that *"an ordinary read SHALL NOT
+    trigger a full index rebuild"*, and that rule is what makes an index build
+    an operation rather than a surprise in somebody's request. A pass the
+    scheduler queued after a fetch is not an ordinary read.
+
+    The condition is the same comparison `/status` publishes, which is what
+    makes the two agree by construction rather than by coincidence: rebuild when
+    the revision the index was built from is not the revision now served. That
+    covers the three cases that matter — a working copy that has just been
+    cloned and has no index at all, a fetch that brought new commits, and a
+    process that restarted and cannot know what a previous one built. The third
+    costs one pass over an unchanged tree, which `container.fingerprints` makes
+    cheap: a row whose file has not moved is not rewritten.
+    """
+
+    def run(project: str) -> object:
+        if indexed_revision_of(journal, project, repository_host) is None:
+            rebuild_and_record(
+                project,
+                repository_host=repository_host,
+                spec_store=container.spec_store,
+                search_index=container.search_index,
+                fingerprints=container.fingerprints,
+                journal=journal,
+            )
+        return job(project)
+
+    return run
 
 
 def validation_job(

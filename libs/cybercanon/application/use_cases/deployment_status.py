@@ -224,6 +224,22 @@ def rebuild_and_record(
     return outcome
 
 
+def indexed_revision_of(
+    journal: DeploymentJournal, project: str, repository_host: RepositoryHost
+) -> str | None:
+    """The revision this project's index is current for, or ``None`` when it is not.
+
+    The same comparison :class:`IndexFreshness` publishes on `/status`, named
+    once so the decision to rebuild and the report of freshness cannot drift
+    apart. ``None`` is "not current", which covers an index nobody has built, an
+    index built from an older revision, and a process that has restarted and
+    holds no record of what a previous one did.
+    """
+    indexed = journal.indexed_revision(project)
+    served = _revision_of(project, repository_host)
+    return indexed if indexed and indexed == served else None
+
+
 def _revision_of(project: str, repository_host: RepositoryHost) -> str:
     """The revision a rebuild is reading, or nothing when it cannot be resolved."""
     try:
@@ -373,6 +389,7 @@ __all__ = [
     "WorkingCopyStatus",
     "describe_project",
     "index_freshness",
+    "indexed_revision_of",
     "note_refresh",
     "rebuild_and_record",
     "rebuilding",

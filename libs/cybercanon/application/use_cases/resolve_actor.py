@@ -393,19 +393,36 @@ class GitIdentity:
 
     `emails` is empty only for the unmapped case, which is an answer and never a
     failure: the actor is still here, carrying whatever identified it.
+
+    `name` is the name a commit is authored under, and it is carried rather than
+    taken from the actor because the two can come from different places. An
+    identity resolved from `.canon/actors.yaml` takes its addresses from that
+    file, and the name has to come from the same entry: an actor resolved from a
+    credential CyberdyneAuth issues has no display name at all — that service
+    sends no `name` claim — so its `display_name` falls back to the subject, and
+    authoring with it produced commits reading `968a70af-8b4c-… <leo@…>`. A
+    commit whose address is the file's and whose name is the token's describes
+    nobody. Empty means *use the actor's*, which is right for the provider and
+    unmapped cases, where the actor is the only source there is.
     """
 
     actor: Actor
     emails: tuple[str, ...]
     source: GitIdentitySource
     violations: tuple[SpecViolation, ...] = ()
+    name: str = ""
 
     @property
     def author(self) -> GitAuthor | None:
-        """The identity a change is committed with — the first listed address."""
+        """The identity a change is committed with — the first listed address.
+
+        Name and address come from the same source. Where they did not, `git
+        blame` answered with a subject nobody recognises beside an address
+        everybody does.
+        """
         if not self.emails:
             return None
-        return GitAuthor(name=self.actor.display_name, email=self.emails[0])
+        return GitAuthor(name=self.name or self.actor.display_name, email=self.emails[0])
 
     @property
     def is_unmapped(self) -> bool:
@@ -433,6 +450,7 @@ def resolve_git_identity(resolution: Resolution, mapping: ActorMapping) -> GitId
             actor=resolution.actor,
             emails=tuple(binding.emails),
             source=GitIdentitySource.MAPPING,
+            name=binding.display_name,
         )
     return GitIdentity(actor=resolution.actor, emails=(), source=GitIdentitySource.UNMAPPED)
 
