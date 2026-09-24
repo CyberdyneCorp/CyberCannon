@@ -1,7 +1,7 @@
 # CyberCanon — Roadmap
 
-**Status:** 12 changes specified, M0–M3 implemented. 32 capabilities · 300 requirements ·
-657 scenarios (446 executing, 211 pending) · **442 of 566 tasks**.
+**Status:** 14 changes specified, M0–M3 implemented. 32 capabilities · 306 requirements ·
+672 scenarios (578 executing, 94 pending) · **575 of 585 tasks**.
 Detail lives in `openspec/changes/<change>/`. This file is the ordering, the slicing, and the reasoning behind both.
 
 ---
