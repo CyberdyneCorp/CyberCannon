@@ -14,4 +14,4 @@
 ## 3. Release checks
 
 - [x] 3.1 Regenerate OpenSpec features, update roadmap counts, and verify OpenSpec and repository gates.
-- [ ] 3.2 Check responsive sheet and viewer presentation, then verify the deployed asset's image and 3D preview if the release is authorized.
+- [x] 3.2 Check responsive sheet and viewer presentation, then verify the deployed asset's image and 3D preview if the release is authorized.

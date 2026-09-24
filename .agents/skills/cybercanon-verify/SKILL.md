@@ -59,11 +59,11 @@ UUID. Expected latency ≈ 2.5–3 s including the push to GitHub (budget 20 s).
 
 ## Known state (update when it changes)
 
-* The Model sheet shows "no image is mirrored for this view yet": the web never
-  requests view images (frontend gap), not a deploy fault.
-* Content that arrives by git push is not mirrored to MinIO, so the 3D preview
-  is empty.
-* Each concept view is listed twice on the Model sheet (two keys for one view).
+* Since web commit `6964541`, the Model sheet reads current reference images
+  from repository view revisions and groups path/slot aliases into one card.
+  `mech_scout` showed both images in production on 2026-09-24.
+* Since web commit `6964541`, the viewer loads Draco-compressed previews.
+  `mech_scout` rendered its model in production on 2026-09-24.
 * A concept-view upload race exists (two concurrent ingestions can both commit).
 
 Report anything new to the cannon-team session with the request id and the
