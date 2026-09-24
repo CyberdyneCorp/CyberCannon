@@ -14,4 +14,4 @@
 ## 3. Verification
 
 - [x] 3.1 Generate features, update roadmap/spec counts, run focused web and Python tests, E2E browser cases, complexity checks, and strict OpenSpec validation.
-- [ ] 3.2 Check the production `mech_scout` viewer after a validated release, if deployment is authorized.
+- [x] 3.2 Check the production `mech_scout` viewer after a validated release, if deployment is authorized.
