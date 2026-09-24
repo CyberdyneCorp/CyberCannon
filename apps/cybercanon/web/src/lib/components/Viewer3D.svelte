@@ -706,6 +706,7 @@
 	canvas {
 		display: block;
 		width: 100%;
+		aspect-ratio: 16 / 9;
 		height: auto;
 		touch-action: none;
 	}
@@ -972,6 +973,14 @@
 
 		.tool-rail {
 			grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+		}
+	}
+
+	@media (min-width: 60.001rem) {
+		canvas {
+			/* Keep the model usable while bringing annotations into the first screen. */
+			height: clamp(20rem, 46vh, 32rem);
+			aspect-ratio: auto;
 		}
 	}
 </style>

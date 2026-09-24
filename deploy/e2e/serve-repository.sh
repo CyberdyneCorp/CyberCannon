@@ -18,12 +18,26 @@ mkdir -p /srv/git/ronin
 cp -R /seed/ronin/. /srv/git/ronin/
 cd /srv/git/ronin
 
+# The browser's fixture subject needs a repository-owned git identity to
+# exercise annotation writes through the real API.
+mkdir -p .canon
+cat > .canon/actors.yaml <<'YAML'
+schema_version: 1
+actors:
+  - subject: auth|rafa
+    display_name: Rafa
+    emails: [rafa@cybercanon.invalid]
+    default_role: ARTIST
+YAML
+
 git config --global user.email "e2e@cybercanon.invalid"
 git config --global user.name "CyberCanon end-to-end"
 git config --global init.defaultBranch main
 git init --quiet
 git add --all
 git commit --quiet --message "The worked example, as the end-to-end stack finds it"
+git config daemon.receivepack true
+git config receive.denyCurrentBranch updateInstead
 
 exec git daemon \
     --verbose \

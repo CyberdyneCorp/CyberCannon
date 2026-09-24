@@ -101,6 +101,40 @@ def test_sheet_displays_one_current_reference_image(page: Any) -> None:
     assert 0.98 <= ratio <= 1.02
 
 
+def test_sheet_annotation_stroke_saves_and_reopens(page: Any) -> None:
+    _signed_in(page)
+    page.goto(f"{ASSET}?surface=sheet")
+
+    image = page.locator('figure[data-view="mech_scout_front"] .image')
+    image.wait_for()
+    box = image.bounding_box()
+    assert box is not None
+    y_by_width = {1920: 0.30, 1280: 0.45, 390: 0.60, 834: 0.75}
+    image.click(
+        position={"x": box["width"] * 0.80, "y": box["height"] * y_by_width[page.viewport_size["width"]]}
+    )
+    page.get_by_role("heading", name="New annotation").wait_for()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 30, y + 20, steps=4)
+    page.mouse.up()
+    assert "1 stroke(s) drawn" in page.locator(".composer").inner_text()
+
+    text = f"Browser check: 2D annotation with stroke at {page.viewport_size['width']}px"
+    page.get_by_role("textbox", name="what this annotation says").fill(text)
+    page.get_by_role("button", name="Save", exact=True).click()
+    page.get_by_role("heading", name="New annotation").wait_for(state="detached")
+    pin = page.locator(f'figure[data-view="mech_scout_front"] .pin[title="{text}"]')
+    pin.wait_for()
+    page.reload()
+    pin.wait_for()
+    pin.click()
+    assert page.get_by_role("heading", name="New annotation").count() == 0
+    assert text in page.locator(".thread .text").first.inner_text()
+    assert page.locator('figure[data-view="mech_scout_front"] svg.marks polyline').count() >= 1
+
+
 def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
     _signed_in(page)
     mesh.write_rigged_glb(tmp_path / "rigged.glb")
@@ -143,6 +177,7 @@ def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
     if width > 960:
         assert canvas_box["width"] > width / 2
         assert parts_box["x"] > canvas_box["x"] + canvas_box["width"]
+        assert canvas_box["height"] <= min(512, page.viewport_size["height"] * 0.46) + 2
     else:
         assert parts_box["y"] >= canvas_box["y"] + canvas_box["height"]
     thread_index = page.locator('[aria-label="annotations"] .thread-index').bounding_box()
@@ -153,6 +188,15 @@ def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
     else:
         assert discussion["y"] >= thread_index["y"] + thread_index["height"]
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+
+    page.set_viewport_size({"width": width - 80, "height": page.viewport_size["height"]})
+    page.wait_for_function(
+        """() => {
+            const canvas = document.querySelector('[aria-label="3D viewer"] canvas');
+            return canvas && Math.abs(canvas.width - canvas.clientWidth) <= 1
+                && Math.abs(canvas.height - canvas.clientHeight) <= 1;
+        }"""
+    )
 
     before = canvas.screenshot()
     box = canvas.bounding_box()
@@ -169,6 +213,21 @@ def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
     page.get_by_role("button", name="Zoom in").click()
     assert canvas.screenshot() != before_zoom
     page.get_by_role("button", name="Frame asset").click()
+
+    current_box = canvas.bounding_box()
+    assert current_box is not None
+    for u, v in ((0.48, 0.44), (0.52, 0.48), (0.46, 0.54), (0.54, 0.56)):
+        canvas.click(position={"x": current_box["width"] * u, "y": current_box["height"] * v})
+        if page.get_by_role("heading", name="New annotation").count():
+            break
+    page.get_by_role("heading", name="New annotation").wait_for()
+    text = f"Browser check: 3D annotation at {page.viewport_size['width']}px"
+    page.get_by_role("textbox", name="what this annotation says").fill(text)
+    page.get_by_role("button", name="Save", exact=True).click()
+    page.get_by_role("heading", name="New annotation").wait_for(state="detached")
+    assert text in page.locator('[aria-label="annotations"]').inner_text()
+    page.reload()
+    assert text in page.locator('[aria-label="annotations"]').inner_text()
 
     page.goto(ASSET)
     sections = page.locator(".asset-page [data-section]")

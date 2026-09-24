@@ -16,6 +16,18 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+	let attached = '';
+
+	function attachAnnotations(): void {
+		if (!data.annotationModel || !['content', 'degraded'].includes(data.state.kind)) return;
+		const key = `${data.address.project}/${data.address.asset}`;
+		if (attached === key) return;
+		annotationViewModel.attach(data.annotationModel, data.address.project, data.address.asset);
+		attached = key;
+	}
+
+	attachAnnotations();
+	$effect(attachAnnotations);
 </script>
 
 <h1>{data.address.asset}</h1>

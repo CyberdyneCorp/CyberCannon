@@ -90,6 +90,7 @@
 			{#each views as group (group.slot)}
 				<SheetView
 					view={group.slot}
+					anchorView={group.aliases[0]}
 					source={images[group.slot]?.source ?? null}
 					reason={images[group.slot]?.reason ?? null}
 					annotations={pinsOnAny(group.aliases, model.placeable)}

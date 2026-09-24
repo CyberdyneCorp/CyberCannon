@@ -224,6 +224,8 @@ export function mountScene(
 		renderer.render(scene, camera);
 	};
 	controls.addEventListener('change', draw);
+	const resize = new ResizeObserver(draw);
+	resize.observe(canvas);
 
 	const state: SceneState = {
 		root: null,
@@ -354,6 +356,7 @@ export function mountScene(
 
 		dispose() {
 			state.mixer?.stopAllAction();
+			resize.disconnect();
 			controls.removeEventListener('change', draw);
 			controls.dispose();
 			renderer.dispose();

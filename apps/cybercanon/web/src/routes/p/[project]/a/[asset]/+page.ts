@@ -32,6 +32,7 @@ export const load: PageLoad = async ({ params, url, fetch }) => {
 			available: BEFORE_READING,
 			state: signedOut,
 			annotations: null,
+			annotationModel: null,
 			viewer: NO_VIEWER,
 			reanchor: async () => false,
 			retryPreview: async () => {}
@@ -47,6 +48,7 @@ export const load: PageLoad = async ({ params, url, fetch }) => {
 	});
 	return {
 		...screen,
+		annotationModel: threads,
 		// Handed down as a bound function so the view performs the write without
 		// ever holding a client: re-anchoring is an operation on an *anchor*, and
 		// the anchor is the view's half of the 2D/3D boundary (D2).

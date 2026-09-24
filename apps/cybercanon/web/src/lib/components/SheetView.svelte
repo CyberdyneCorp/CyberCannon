@@ -38,8 +38,10 @@
 	import type { AnnotationViewModel } from '$lib/annotation';
 
 	interface Props {
-		/** The name an anchor keys on. Never a file name, never a position. */
+		/** Short slot label used for display and image lookup. */
 		view: string;
+		/** Exact view identity from the asset specification, accepted by the API. */
+		anchorView?: string;
 		/** Current reference image read from the asset's repository history. */
 		source?: string | null;
 		reason?: string | null;
@@ -49,7 +51,7 @@
 		focused?: boolean;
 	}
 
-	let { view, source = null, reason = null, annotations, model, focused = false }: Props = $props();
+	let { view, anchorView = view, source = null, reason = null, annotations, model, focused = false }: Props = $props();
 
 	let image: HTMLElement | null = $state(null);
 	let imageRatio: number | null = $state(null);
@@ -57,7 +59,7 @@
 	const imageFailed = $derived(Boolean(source && failedSource === source));
 
 	const pins = $derived(fanned(annotations));
-	const composing = $derived(model.isComposing && model.draft.anchor?.view === view);
+	const composing = $derived(model.isComposing && model.draft.anchor?.view === anchorView);
 
 	/** Where this gesture landed in the image's own space, or nothing at all. */
 	function imagePoint(event: PointerEvent): ImagePoint | null {
@@ -95,7 +97,7 @@
 	}
 
 	function place(at: ImagePoint): void {
-		const anchor = viewAnchor(view, at);
+		const anchor = viewAnchor(anchorView, at);
 		if (anchor) model.compose(anchor);
 	}
 </script>
@@ -153,6 +155,7 @@
 					data-annotation={pin.annotation.id}
 					style={`left: ${pin.at.u * 100}%; top: ${pin.at.v * 100}%`}
 					title={pin.annotation.text}
+					onpointerdown={(event) => event.stopPropagation()}
 					onclick={(event) => {
 						event.stopPropagation();
 						model.select(pin.annotation.id);
