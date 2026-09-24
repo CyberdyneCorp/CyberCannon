@@ -24,10 +24,13 @@ them, and that `/status` then agrees.
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
-from cybercanon.adapters.wiring.background import indexed_first
+from cybercanon.adapters.wiring import hosted
 from cybercanon.adapters.wiring.container import Container
+from cybercanon.adapters.wiring.hosted import background_pass
 from cybercanon.application.ports.repository_host import ProjectState
 from cybercanon.application.testing.mesh_inspector import InMemoryMeshInspector
 from cybercanon.application.testing.repository_host import InMemoryRepositoryHost
@@ -85,10 +88,16 @@ def container(store: InMemorySpecStore, index: InMemorySearchIndex) -> Container
 
 
 def _pass(container: Container, host: InMemoryRepositoryHost, journal: DeploymentJournal) -> None:
-    """One background pass, with nothing after the index step."""
-    indexed_first(lambda project: None, container=container, repository_host=host, journal=journal)(
-        PROJECT
-    )
+    """One background pass, built the way the deployment builds it.
+
+    Through `background_pass`, which is what the composition root calls, rather
+    than through `indexed_first` directly. That distinction is the whole point
+    of this file's shape now: the first version of these tests called
+    `indexed_first` itself, they passed, and the line that was supposed to call
+    it from `hosted.py` had never made it into the file. Production served an
+    index nothing built while the suite reported the build working.
+    """
+    background_pass(container, host, journal, attributed_to=lambda: "automation")(PROJECT)
 
 
 def test_a_pass_over_a_cloned_project_leaves_the_asset_where_a_read_will_find_it(
@@ -160,3 +169,32 @@ def test_a_process_that_holds_no_record_rebuilds_rather_than_assuming(
     _pass(container, host, DeploymentJournal())
 
     assert [entry.asset_id for entry in index.list_assets(project=PROJECT)] == ["mech_scout"]
+
+
+# --------------------------------------------------------------------------
+# The composition root, because that is where it actually went wrong
+# --------------------------------------------------------------------------
+
+
+def test_the_deployments_background_pass_is_the_one_that_indexes() -> None:
+    """The defect was not a wrong behaviour. It was a call never written.
+
+    Every unit below this passed while production served an index nothing had
+    built, because the tests constructed their own job instead of asking the
+    deployment for its one. A test that builds its own job cannot see a missing
+    call, however thorough it is about what the job does.
+    """
+    assert "indexed_first(" in inspect.getsource(background_pass), (
+        "the deployment's background pass no longer wraps the index build; "
+        "a project whose index was never built stays invisible for ever"
+    )
+
+
+def test_the_hosted_builder_hands_over_the_background_pass() -> None:
+    """The line that went missing, pinned where it went missing.
+
+    `validation_job` alone only ever updates rows that already exist, so a
+    deployment wired straight to it serves an empty asset list whatever is in
+    the repository. That is what shipped.
+    """
+    assert "BackgroundWork(\n        background_pass(" in inspect.getsource(hosted)

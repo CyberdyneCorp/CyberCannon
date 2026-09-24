@@ -58,7 +58,9 @@ from cybercanon.adapters.outbound.postgres.idempotency import PostgresIdempotenc
 from cybercanon.adapters.outbound.postgres.search_index import PostgresSearchIndex
 from cybercanon.adapters.wiring.background import (
     BackgroundWork,
+    Job,
     Ticker,
+    indexed_first,
     validation_job,
 )
 from cybercanon.adapters.wiring.build import (
@@ -348,10 +350,13 @@ def build_deployment(
     container = _container(root, index=index, blobs=blobs, project=project, environment=environment)
     journal = DeploymentJournal()
     work = BackgroundWork(
-        validation_job(
+        background_pass(
             container,
             host,
-            background_identity(worker, provider=identity.provider if identity else None),
+            journal,
+            attributed_to=background_identity(
+                worker, provider=identity.provider if identity else None
+            ),
         )
     )
     sync = _sync(host, journal, work)
@@ -384,6 +389,36 @@ def build_deployment(
         journal=journal,
         repository_host=host,
         sync=sync,
+    )
+
+
+def background_pass(
+    container: Container,
+    host: GitRepositoryHost,
+    journal: DeploymentJournal,
+    *,
+    attributed_to: Callable[[], str],
+) -> Job:
+    """The whole of what a deployment does off the request path, as one value.
+
+    A named function rather than an expression inside the builder, because the
+    builder is where this went wrong and an expression nested three deep inside
+    a hundred-line constructor is not reachable by any test. The index build was
+    written, tested and exported, and the line that was supposed to call it
+    never made it into the file -- so the unit tests passed against a shape
+    production did not have, which is the failure this branch has now produced
+    twice in other people's code and once in mine.
+
+    Two steps, in this order: bring the index up to the served revision, then
+    validate whatever moved. Indexing first matters because the validation pass
+    only ever *updates* rows that already exist, so a project whose index was
+    never built has nothing for it to update and stays invisible for ever.
+    """
+    return indexed_first(
+        validation_job(container, host, attributed_to),
+        container=container,
+        repository_host=host,
+        journal=journal,
     )
 
 
