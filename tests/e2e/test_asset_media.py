@@ -177,8 +177,8 @@ def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
     first, second = sections.nth(0).bounding_box(), sections.nth(1).bounding_box()
     assert first is not None and second is not None
     if width > 960:
-        assert second["x"] > first["x"]
-        assert abs(second["y"] - first["y"]) < 2
+        positions = [section.bounding_box() for section in sections.all()]
+        assert any(box is not None and box["x"] > first["x"] for box in positions[1:])
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
 
 

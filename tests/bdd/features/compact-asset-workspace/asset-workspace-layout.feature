@@ -18,7 +18,7 @@ Feature: asset-workspace-layout
 
     Scenario: Wide asset overview
       When a reviewer opens an asset overview on a wide screen
-      Then its fact sections occupy a responsive multi-column grid
+      Then its fact sections occupy responsive balanced columns
 
     Scenario: Viewer discussion
       When a reviewer opens a thread in the wide viewer

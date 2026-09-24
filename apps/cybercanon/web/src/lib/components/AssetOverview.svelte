@@ -45,14 +45,15 @@
 <style>
 	/* Every section stays visible even when it has no recorded content. */
 	.asset-page {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
-		gap: var(--space-4) var(--space-6);
+		columns: 24rem;
+		column-gap: var(--space-6);
 	}
 
 	/* The sections, in the order `$lib/asset` fixed. The rule over each one is
 	   the design's thick-thin pair, which is how this system opens a block. */
 	.section {
+		break-inside: avoid;
+		margin-block-end: var(--space-4);
 		border-block-start: var(--border-heavy) solid var(--color-divider);
 		padding-block-start: var(--space-3);
 	}

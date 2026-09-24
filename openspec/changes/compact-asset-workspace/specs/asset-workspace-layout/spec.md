@@ -23,7 +23,7 @@ The asset page SHALL use available width to place short overview sections and vi
 #### Scenario: Wide asset overview
 
 - **WHEN** a reviewer opens an asset overview on a wide screen
-- **THEN** its fact sections occupy a responsive multi-column grid
+- **THEN** its fact sections occupy responsive balanced columns
 
 #### Scenario: Viewer discussion
 
