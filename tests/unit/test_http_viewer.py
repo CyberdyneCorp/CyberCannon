@@ -16,6 +16,7 @@ import pytest
 from http_world import PROJECT, SCOUT, SCOUT_SPEC, a_surface
 
 from cybercanon.adapters.inbound.http.versioning import PREFIX
+from cybercanon.application.ports.mesh_inspector import SourceTexture, SourceVisuals
 from cybercanon.application.ports.preview import PreviewMesh
 from cybercanon.application.ports.repository_host import FileChange
 from cybercanon.application.use_cases.validation_records import path_for, to_document
@@ -36,7 +37,9 @@ BASE = f"{PREFIX}/projects/{PROJECT}/assets/{SCOUT}/preview"
 AUTOMATION = GitAuthor(name="canon automation", email="automation@cybercanon.invalid")
 
 
-def a_viewer_surface(*, validated: bool = True, preview: bool = True):
+def a_viewer_surface(
+    *, validated: bool = True, preview: bool = True, visuals: SourceVisuals | None = None
+):
     """The wired surface with an export, an outcome document and a stored preview."""
     wired = a_surface()
     wired.fakes["mesh_inspector"].add(
@@ -48,6 +51,7 @@ def a_viewer_surface(*, validated: bool = True, preview: bool = True):
             materials=("M_Body",),
             clips=(ClipFacts(name=WALK, duration_s=1.2),),
         ),
+        visuals=visuals,
     )
     if validated:
         wired.repository_host.commit(
@@ -96,6 +100,17 @@ def test_the_descriptor_states_the_export_the_revision_and_the_counts() -> None:
     assert body["counts"] == {"triangles": 14310, "objects": 2, "materials": 1}
     assert body["parts"] == list(PARTS)
     assert body["clips"] == [WALK]
+    assert body["source_visuals"] is None
+
+
+def test_the_descriptor_reports_texture_dimensions_and_channels_without_pixels() -> None:
+    visuals = SourceVisuals((SourceTexture("Armor", "normal", 1024, 1024),))
+    body = a_viewer_surface(visuals=visuals).get(BASE).json()["data"]
+
+    assert body["source_visuals"] == {
+        "textures": [{"material": "Armor", "channel": "normal", "width": 1024, "height": 1024}]
+    }
+    assert "content" not in str(body["source_visuals"])
 
 
 def test_an_asset_with_no_preview_answers_a_descriptor_with_its_reason() -> None:

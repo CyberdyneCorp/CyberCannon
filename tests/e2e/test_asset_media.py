@@ -51,6 +51,9 @@ def _descriptor(size: int, parts: list[str], triangles: int) -> dict[str, Any]:
         "latest_validated_export": "rigged.glb",
         "derived_from_latest": True,
         "counts": {"triangles": triangles, "objects": 2, "materials": 1},
+        "source_visuals": {
+            "textures": [{"material": "Armor", "channel": "normal", "width": 1024, "height": 1024}]
+        },
         "parts": parts,
         "clips": [],
         "coverage": {"states": [], "unclaimed": []},
@@ -128,6 +131,25 @@ def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
     page.get_by_text("Triangles (preview)").wait_for(timeout=30_000)
     assert page.locator('[aria-label="3D viewer"] canvas').count() == 1
     assert page.get_by_text("SM_MechScout_Shoulder_L").count() >= 1
+    assert "Armor · normal: 1024 \u00d7 1024 px" in page.locator("main").inner_text()
+    assert "Preview vertex normals" in page.locator("main").inner_text()
+
+    canvas = page.locator('[aria-label="3D viewer"] canvas')
+    before = canvas.screenshot()
+    box = canvas.bounding_box()
+    assert box is not None
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 110, y + 45, steps=8)
+    page.mouse.up()
+    assert canvas.screenshot() != before
+    assert page.get_by_role("heading", name="New annotation").count() == 0
+
+    before_zoom = canvas.screenshot()
+    page.get_by_role("button", name="Zoom in").click()
+    assert canvas.screenshot() != before_zoom
+    page.get_by_role("button", name="Frame asset").click()
 
 
 def test_viewer_explains_decode_failure_and_keeps_threads(page: Any) -> None:

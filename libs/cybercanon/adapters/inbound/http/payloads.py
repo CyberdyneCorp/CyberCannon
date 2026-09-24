@@ -713,11 +713,29 @@ def preview_descriptor(descriptor: PreviewDescriptor) -> dict[str, Any]:
         # away from comparing it against a budget, and the guard in
         # `tests/tooling/test_rule_logic_stays_in_the_domain.py` says so.
         "counts": dict(descriptor.counts.reported),
+        "source_visuals": _source_visuals(descriptor),
         "parts": list(descriptor.parts),
         "clips": list(descriptor.clips),
         "coverage": _coverage(descriptor.coverage),
         "absent": descriptor.absent.name.lower() if descriptor.absent else None,
         "reason": descriptor.reason or None,
+    }
+
+
+def _source_visuals(descriptor: PreviewDescriptor) -> dict[str, Any] | None:
+    visuals = descriptor.source_visuals
+    if visuals is None:
+        return None
+    return {
+        "textures": [
+            {
+                "material": texture.material,
+                "channel": texture.channel,
+                "width": texture.width,
+                "height": texture.height,
+            }
+            for texture in visuals.textures
+        ]
     }
 
 

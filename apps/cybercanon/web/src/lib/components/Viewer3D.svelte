@@ -128,6 +128,8 @@
 	let transport = $state<Transport>(STOPPED);
 	let clips = $state<readonly Clip[]>([]);
 	let previewTriangles = $state<number | null>(null);
+	let previewPrimitives = $state<number | null>(null);
+	let previewNormalPrimitives = $state<number | null>(null);
 	let partNames = $state<readonly string[]>([]);
 	let selectedPart = $state<string | null>(null);
 	let isolated = $state<string | null>(null);
@@ -204,6 +206,8 @@
 			.then((preview) => {
 				clips = preview.clips;
 				previewTriangles = preview.triangles;
+				previewPrimitives = preview.primitives;
+				previewNormalPrimitives = preview.normalPrimitives;
 				partNames = preview.parts.map((part) => part.name);
 				session = sessionLoaded(session);
 				built.render();
@@ -328,6 +332,16 @@
 		scene?.render();
 	}
 
+	function zoomIn(): void {
+		scene?.zoomIn();
+		scene?.render();
+	}
+
+	function zoomOut(): void {
+		scene?.zoomOut();
+		scene?.render();
+	}
+
 	function toggleIsolation(): void {
 		if (isolated) {
 			isolated = null;
@@ -398,6 +412,29 @@
 				</li>
 			{/each}
 		</ul>
+		<div class="inspection" aria-label="source and preview details">
+			<p><strong>Latest validated source textures</strong></p>
+			{#if !descriptor.source_visuals}
+				<p>Source texture details are unavailable.</p>
+			{:else if descriptor.source_visuals.textures.length === 0}
+				<p>No texture channels are recorded in this source export.</p>
+			{:else}
+				<ul>
+					{#each descriptor.source_visuals.textures as texture, index (`${texture.material}-${texture.channel}-${index}`)}
+						<li>
+							{texture.material} · {texture.channel}:
+							{texture.width && texture.height ? `${texture.width} × ${texture.height} px` : 'dimensions unavailable'}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			<p>Texture pixels are omitted from the lightweight preview.</p>
+			<p><strong>Preview vertex normals</strong>:
+				{#if previewPrimitives === null || previewNormalPrimitives === null}unavailable
+				{:else if previewNormalPrimitives === 0}absent
+				{:else}{previewNormalPrimitives} of {previewPrimitives} mesh primitives{/if}
+			</p>
+		</div>
 	</header>
 
 	{#if session.state === 'degraded'}
@@ -425,6 +462,8 @@
 				></canvas>
 			</div>
 			<div class="navigation" role="group" aria-label="framing">
+				<button type="button" onclick={zoomIn} disabled={!scene} aria-label="Zoom in">Zoom +</button>
+				<button type="button" onclick={zoomOut} disabled={!scene} aria-label="Zoom out">Zoom −</button>
 				<button type="button" onclick={frameEverything}>Frame asset</button>
 				<button type="button" onclick={frameThePart} disabled={!selectedPart}>
 					Frame part
@@ -433,6 +472,7 @@
 					{isolated ? 'Show all parts' : 'Isolate part'}
 				</button>
 			</div>
+			<p class="gesture-help">Drag to orbit · Right drag to pan · Scroll or pinch to zoom</p>
 		</div>
 		{#if placementNotice}<p class="placement">{placementNotice}</p>{/if}
 	{/if}
@@ -581,6 +621,20 @@
 		color: var(--color-neutral-700);
 	}
 
+	.inspection {
+		margin-block-start: var(--space-3);
+		font-size: var(--text-small);
+	}
+
+	.inspection p {
+		margin: var(--space-1) 0;
+	}
+
+	.inspection ul {
+		margin: var(--space-1) 0;
+		padding-inline-start: var(--space-4);
+	}
+
 	/*
 	 * A figure the export does not record. *"Not recorded"* is a statement
 	 * about the file, not a number, so it drops out of the mono into the
@@ -618,6 +672,13 @@
 	canvas {
 		display: block;
 		width: 100%;
+		touch-action: none;
+	}
+
+	.gesture-help {
+		margin: 0;
+		font-size: var(--text-small);
+		color: var(--color-neutral-700);
 	}
 
 	.navigation {

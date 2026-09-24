@@ -20,6 +20,7 @@ from annotations_world import (
     a_part_anchor,
     an_anchor,
 )
+from cybercanon.application.ports.mesh_inspector import SourceTexture, SourceVisuals
 from cybercanon.application.testing.outcomes import ran, refused
 from cybercanon.application.use_cases.viewer import (
     NoPreview,
@@ -69,6 +70,17 @@ def test_the_descriptor_reports_the_source_export_counts() -> None:
     assert descriptor.counts.materials == 2
 
 
+def test_the_descriptor_carries_source_texture_facts_without_image_bytes() -> None:
+    viewer = a_viewer()
+    visuals = SourceVisuals((SourceTexture("Armor", "normal", 1024, 1024),))
+    viewer.mesh.add(EXPORT, an_export(), visuals=visuals)
+
+    descriptor = ran(viewer.descriptor())
+
+    assert descriptor.source_visuals == visuals
+    assert descriptor.preview is not None
+
+
 def test_an_unrecorded_count_is_unavailable_rather_than_zero() -> None:
     viewer = a_viewer()
     viewer.record_export(EXPORT, _without(FactKind.MATERIALS))
@@ -87,6 +99,7 @@ def test_an_unreadable_export_leaves_the_counts_unavailable_and_the_asset_open()
     descriptor = ran(viewer.descriptor())
 
     assert descriptor.counts.triangles is None
+    assert descriptor.source_visuals is None
     assert descriptor.has_preview, "the preview is still stored and still loadable"
 
 

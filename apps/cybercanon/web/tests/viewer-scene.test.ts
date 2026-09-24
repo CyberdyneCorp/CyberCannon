@@ -75,6 +75,18 @@ describe('4.2 — a loaded preview reports what it holds', () => {
 		const preview = await parse(anExport());
 
 		expect(preview.triangles).toBe(2);
+		expect(preview.primitives).toBe(2);
+		expect(preview.normalPrimitives).toBe(0);
+	});
+
+	it('reports which preview primitives carry vertex normals', async () => {
+		const preview = await parse(buildGlb([
+			{ name: SHOULDER, positions: triangleAt(0), normals: [0, 0, 1, 0, 0, 1, 0, 0, 1], indices: FLAT },
+			{ name: TORSO, positions: triangleAt(5), indices: FLAT }
+		]));
+
+		expect(preview.primitives).toBe(2);
+		expect(preview.normalPrimitives).toBe(1);
 	});
 
 	it('says a preview carries no clips rather than inventing one', async () => {

@@ -46,6 +46,7 @@ from cybercanon.adapters.outbound.mesh import (
     fbx_gltf,
     gltf_facts,
     gltf_preview,
+    gltf_visuals,
     obj_facts,
 )
 from cybercanon.adapters.outbound.mesh.fbx_document import FbxDocument, FbxUnreadable
@@ -113,7 +114,9 @@ class TrimeshInspector:
             facts = gltf_facts.read_facts(document, source_format)
         except (GltfUnreadable, ValueError, KeyError, IndexError) as error:
             raise MeshUnreadable(export, str(error) or type(error).__name__) from error
-        return InspectedMesh(facts=facts, handle=document)
+        return InspectedMesh(
+            facts=facts, handle=document, visuals=gltf_visuals.read_visuals(document)
+        )
 
     def _read_fbx(self, export: str, path: Path) -> InspectedMesh:
         """The parsed FBX is the handle, and `fbx_gltf` turns it into a preview.

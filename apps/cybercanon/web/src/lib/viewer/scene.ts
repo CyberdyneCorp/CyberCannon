@@ -68,6 +68,8 @@ export interface LoadedPreview {
 	readonly bones: readonly string[];
 	readonly clips: readonly Clip[];
 	readonly triangles: number;
+	readonly primitives: number;
+	readonly normalPrimitives: number;
 	readonly bounds: Bounds;
 }
 
@@ -104,12 +106,14 @@ function describe(root: Object3D, animations: readonly AnimationClip[]): LoadedP
 	const parts: PartGeometry[] = [];
 	const bones: string[] = [];
 	let triangles = 0;
+	let normalPrimitives = 0;
 	root.updateMatrixWorld(true);
 	root.traverse((node) => {
 		if (node.type === 'Bone') bones.push(node.name);
 		const mesh = node as Mesh;
 		if (!mesh.isMesh || !mesh.geometry) return;
 		const part = geometryOf(mesh);
+		if (mesh.geometry.getAttribute('normal')) normalPrimitives += 1;
 		triangles += Math.floor(part.indices.length / 3);
 		parts.push(part);
 	});
@@ -118,6 +122,8 @@ function describe(root: Object3D, animations: readonly AnimationClip[]): LoadedP
 		bones,
 		clips: animations.map((clip) => ({ name: clip.name, duration: clip.duration })),
 		triangles,
+		primitives: parts.length,
+		normalPrimitives,
 		bounds: boundsOfParts(parts)
 	};
 }
@@ -164,6 +170,8 @@ export interface Viewer3DScene {
 	playClip(name: string, t: number): void;
 	frameAll(): void;
 	frameSelected(): void;
+	zoomIn(): void;
+	zoomOut(): void;
 	select(part: string | null): void;
 	selected(): string | null;
 	isolate(part: string | null): void;
@@ -209,6 +217,13 @@ export function mountScene(
 	controls.enableRotate = true;
 	controls.enablePan = true;
 	controls.enableZoom = true;
+	const draw = () => {
+		renderer.setSize(canvas.clientWidth || 1, canvas.clientHeight || 1, false);
+		camera.aspect = aspectOf(canvas);
+		camera.updateProjectionMatrix();
+		renderer.render(scene, camera);
+	};
+	controls.addEventListener('change', draw);
 
 	const state: SceneState = {
 		root: null,
@@ -298,6 +313,14 @@ export function mountScene(
 			);
 		},
 
+		zoomIn() {
+			zoom(camera, controls.target, controls, 0.8);
+		},
+
+		zoomOut() {
+			zoom(camera, controls.target, controls, 1.25);
+		},
+
 		select(part) {
 			state.selected = part;
 		},
@@ -325,19 +348,22 @@ export function mountScene(
 		},
 
 		render() {
-			renderer.setSize(canvas.clientWidth || 1, canvas.clientHeight || 1, false);
-			camera.aspect = aspectOf(canvas);
-			camera.updateProjectionMatrix();
 			controls.update();
-			renderer.render(scene, camera);
+			draw();
 		},
 
 		dispose() {
 			state.mixer?.stopAllAction();
+			controls.removeEventListener('change', draw);
 			controls.dispose();
 			renderer.dispose();
 		}
 	};
+}
+
+function zoom(camera: PerspectiveCamera, target: Vector3, controls: OrbitControls, factor: number): void {
+	camera.position.sub(target).multiplyScalar(factor).add(target);
+	controls.update();
 }
 
 interface SceneState {

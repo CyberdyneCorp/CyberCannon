@@ -484,6 +484,14 @@ export interface PreviewDescriptor {
 		readonly objects: number | null;
 		readonly materials: number | null;
 	};
+	readonly source_visuals?: {
+		readonly textures: readonly {
+			readonly material: string;
+			readonly channel: string;
+			readonly width: number | null;
+			readonly height: number | null;
+		}[];
+	} | null;
 	readonly parts: readonly string[];
 	readonly clips: readonly string[];
 	readonly coverage: ClipCoverage;

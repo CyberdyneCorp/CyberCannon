@@ -37,7 +37,7 @@ from enum import Enum
 
 from cybercanon.application.errors import FailureKind, OperationFailed
 from cybercanon.application.ports.blob_store import BlobStore
-from cybercanon.application.ports.mesh_inspector import MeshInspector
+from cybercanon.application.ports.mesh_inspector import InspectedMesh, MeshInspector, SourceVisuals
 from cybercanon.application.ports.preview import StoredPreview
 from cybercanon.application.ports.repository_host import RepositoryHost
 from cybercanon.application.ports.spec_store import SpecStore
@@ -187,6 +187,7 @@ class PreviewDescriptor:
     source_export: str = ""
     latest_validated_export: str = ""
     counts: SourceCounts = SourceCounts()
+    source_visuals: SourceVisuals | None = None
     parts: tuple[str, ...] = ()
     clips: tuple[str, ...] = ()
     coverage: ClipCoverage = ClipCoverage()
@@ -281,7 +282,8 @@ def get_preview_descriptor(
     if path is None:
         raise AssetNotFound(project, asset_id)
     record = recorded_validation(project, path, repository_host=repository_host, revision=revision)
-    facts = _facts_of(record, mesh_inspector)
+    inspected = _inspection_of(record, mesh_inspector)
+    facts = inspected.facts if inspected else None
     preview = _preview_of(record, asset_id, blob_store)
     return PreviewDescriptor(
         project=project,
@@ -292,6 +294,7 @@ def get_preview_descriptor(
         source_export=preview.source_export if preview else "",
         latest_validated_export=record.export if record and record.passed else "",
         counts=counts_of(facts),
+        source_visuals=inspected.visuals if inspected else None,
         parts=_names(facts, FactKind.OBJECTS),
         clips=facts.clip_names if facts and facts.has(FactKind.CLIPS) else (),
         coverage=coverage_of(_states(pinned, path), _required(pinned, path), _clips(facts)),
@@ -319,9 +322,9 @@ def _preview_of(
     return blob_store.preview_for(asset_id)
 
 
-def _facts_of(
+def _inspection_of(
     record: ValidationRecord | None, mesh_inspector: MeshInspector | None
-) -> MeshFacts | None:
+) -> InspectedMesh | None:
     """What the source export is made of, read through the one inspector boundary.
 
     Guarded, and deliberately: an export that has been deleted since it was
@@ -332,7 +335,7 @@ def _facts_of(
     if record is None or mesh_inspector is None:
         return None
     try:
-        return mesh_inspector.inspect(record.export).facts
+        return mesh_inspector.inspect(record.export)
     except OperationFailed:
         return None
 

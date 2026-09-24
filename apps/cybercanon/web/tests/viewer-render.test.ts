@@ -216,6 +216,30 @@ describe('7.2 — the counts on screen are the source export’s', () => {
 	});
 });
 
+describe('viewer inspection', () => {
+	it('shows source normal-map resolution separately from preview vertex normals', () => {
+		const html = viewerHtml(aListing(), aDescriptor({
+			source_visuals: {
+				textures: [{ material: 'Armor', channel: 'normal', width: 1024, height: 512 }]
+			}
+		}));
+
+		expect(html).toContain('Armor · normal:');
+		expect(html).toContain('1024 × 512 px');
+		expect(html).toContain('Preview vertex normals');
+		expect(html).toContain('unavailable');
+	});
+
+	it('explains camera gestures and offers zoom controls', () => {
+		const html = viewerHtml(aListing());
+
+		expect(html).toContain('Drag to orbit');
+		expect(html).toContain('Right drag to pan');
+		expect(html).toContain('aria-label="Zoom in"');
+		expect(html).toContain('aria-label="Zoom out"');
+	});
+});
+
 describe('7.3 — an asset with no preview says so, and stays usable', () => {
 	it('states the reason and still presents the annotations', () => {
 		const html = viewerHtml(

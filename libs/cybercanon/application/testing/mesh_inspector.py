@@ -23,6 +23,7 @@ from __future__ import annotations
 from cybercanon.application.ports.mesh_inspector import (
     InspectedMesh,
     MeshUnreadable,
+    SourceVisuals,
     UnsupportedExport,
 )
 from cybercanon.application.ports.preview import PreviewMesh, PreviewUnavailable
@@ -37,6 +38,7 @@ class InMemoryMeshInspector:
 
     def __init__(self) -> None:
         self._facts: dict[str, MeshFacts] = {}
+        self._visuals: dict[str, SourceVisuals] = {}
         self._previews: dict[str, PreviewMesh] = {}
         self._preview_failures: dict[str, Exception] = {}
         self._unreadable: dict[str, str] = {}
@@ -46,9 +48,17 @@ class InMemoryMeshInspector:
 
     # -- seeding ---------------------------------------------------------
 
-    def add(self, export: str, facts: MeshFacts, preview: PreviewMesh | None = None) -> None:
+    def add(
+        self,
+        export: str,
+        facts: MeshFacts,
+        preview: PreviewMesh | None = None,
+        visuals: SourceVisuals | None = None,
+    ) -> None:
         """An export this inspector can read, and the preview it would emit."""
         self._facts[export] = facts
+        if visuals is not None:
+            self._visuals[export] = visuals
         self._previews[export] = preview if preview is not None else _preview_of(facts)
 
     def add_unreadable(self, export: str, reason: str) -> None:
@@ -78,7 +88,7 @@ class InMemoryMeshInspector:
         facts = self._facts.get(export)
         if facts is None:
             raise MeshUnreadable(export, "no such file")
-        return InspectedMesh(facts=facts, handle=export)
+        return InspectedMesh(facts=facts, handle=export, visuals=self._visuals.get(export))
 
     def emit_preview(self, mesh: InspectedMesh) -> PreviewMesh:
         self.previewed.append(mesh.handle)

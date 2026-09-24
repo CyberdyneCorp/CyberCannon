@@ -27,6 +27,8 @@ export interface PartSpec {
 	readonly name: string;
 	/** Vertex positions, three numbers per vertex. */
 	readonly positions: readonly number[];
+	/** Optional per-vertex normals for inspection tests. */
+	readonly normals?: readonly number[];
 	/** Triangle corners as indices into `positions`. */
 	readonly indices: readonly number[];
 }
@@ -106,6 +108,18 @@ export function buildGlb(parts: readonly PartSpec[], clips: readonly ClipSpec[] 
 			max: extreme(positions, Math.max)
 		});
 		const positionAccessor = accessors.length - 1;
+		let normalAccessor: number | undefined;
+		if (part.normals) {
+			const normals = Float32Array.from(part.normals);
+			const normalView = append(normals, ARRAY_BUFFER);
+			accessors.push({
+				bufferView: normalView,
+				componentType: FLOAT,
+				count: normals.length / 3,
+				type: 'VEC3'
+			});
+			normalAccessor = accessors.length - 1;
+		}
 		const indices = Uint32Array.from(part.indices);
 		const indexView = append(indices, ELEMENT_ARRAY_BUFFER);
 		accessors.push({
@@ -116,7 +130,10 @@ export function buildGlb(parts: readonly PartSpec[], clips: readonly ClipSpec[] 
 		});
 		return {
 			name: part.name,
-			primitives: [{ attributes: { POSITION: positionAccessor }, indices: accessors.length - 1 }]
+			primitives: [{
+				attributes: { POSITION: positionAccessor, ...(normalAccessor === undefined ? {} : { NORMAL: normalAccessor }) },
+				indices: accessors.length - 1
+			}]
 		};
 	});
 

@@ -22,6 +22,8 @@ import type { Resolution } from './resolution';
 export interface LoadedSummary {
 	readonly clips: readonly Clip[];
 	readonly triangles: number;
+	readonly primitives: number;
+	readonly normalPrimitives: number;
 	readonly parts: readonly { readonly name: string }[];
 }
 
@@ -36,6 +38,8 @@ export interface SceneLike {
 	playClip(name: string, t: number): void;
 	frameAll(): void;
 	frameSelected(): void;
+	zoomIn(): void;
+	zoomOut(): void;
 	select(part: string | null): void;
 	isolate(part: string | null): void;
 	restore(): void;

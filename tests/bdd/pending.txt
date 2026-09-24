@@ -100,6 +100,13 @@ viewer-3d :: Isolation leaves no trace in the specification
 viewer-3d :: No rendering support
 viewer-3d :: Rendering context lost mid-session
 viewer-3d :: Selecting names the part
+viewer-inspection :: Drag and zoom change the visible camera
+viewer-inspection :: Navigation does not place an annotation
+viewer-inspection :: Decimated preview has fewer triangles
+viewer-inspection :: Preview has no vertex normals
+viewer-inspection :: Embedded normal map has known dimensions
+viewer-inspection :: Texture reference cannot be inspected
+viewer-inspection :: Source export cannot be read
 web-session :: A credential silent about git identity raises no warning
 web-session :: A credential stating no git identity still raises the warning
 web-session :: A discovery document for another issuer is refused

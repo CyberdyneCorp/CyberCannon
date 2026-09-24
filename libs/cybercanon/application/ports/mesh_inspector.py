@@ -29,6 +29,23 @@ from cybercanon.domain.mesh_facts import MeshFacts, MeshFormat
 
 
 @dataclass(frozen=True)
+class SourceTexture:
+    """One material channel in a validated source; dimensions may be unreadable."""
+
+    material: str
+    channel: str
+    width: int | None = None
+    height: int | None = None
+
+
+@dataclass(frozen=True)
+class SourceVisuals:
+    """Texture references extracted from a source format we can inspect."""
+
+    textures: tuple[SourceTexture, ...] = ()
+
+
+@dataclass(frozen=True)
 class InspectedMesh:
     """One export, read once: the facts the rules see and the handle they do not.
 
@@ -40,6 +57,7 @@ class InspectedMesh:
 
     facts: MeshFacts
     handle: object = None
+    visuals: SourceVisuals | None = None
 
 
 class MeshUnreadable(OperationFailed):
@@ -95,5 +113,7 @@ __all__ = [
     "InspectedMesh",
     "MeshInspector",
     "MeshUnreadable",
+    "SourceTexture",
+    "SourceVisuals",
     "UnsupportedExport",
 ]
