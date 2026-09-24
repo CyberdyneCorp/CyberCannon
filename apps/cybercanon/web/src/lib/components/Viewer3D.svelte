@@ -437,95 +437,99 @@
 		</div>
 	</header>
 
-	{#if session.state === 'degraded'}
-		<p class="degraded">{NO_RENDERING}</p>
-		<p class="placement-unavailable">{ANCHOR_UNAVAILABLE}</p>
-	{:else if absence}
-		<p class="no-preview">{absence}</p>
-	{:else if unloadableNow}
-		<p class="unloadable">{UNLOADABLE}</p>
-		{#if unretrievable || decodeFailure}<p class="unloadable-reason">{unretrievable ?? decodeFailure}</p>{/if}
-		<button type="button" onclick={retry}>Retry</button>
-	{:else}
-		<div class="stage">
-			<!-- Neo-brutalism frames the canvas; it does not reach inside it. The
-			     edge, the hard offset and the ground are on this wrapper, and the
-			     canvas keeps the sizing it had, because `$lib/viewer/scene` reads
-			     `canvas.clientWidth` to size the renderer. -->
-			<div class="frame">
-				<canvas
-					bind:this={canvas}
-					width="640"
-					height="360"
-					onpointerdown={pressed}
-					onpointerup={released}
-				></canvas>
-			</div>
-			<div class="navigation" role="group" aria-label="framing">
-				<button type="button" onclick={zoomIn} disabled={!scene} aria-label="Zoom in">Zoom +</button>
-				<button type="button" onclick={zoomOut} disabled={!scene} aria-label="Zoom out">Zoom −</button>
-				<button type="button" onclick={frameEverything}>Frame asset</button>
-				<button type="button" onclick={frameThePart} disabled={!selectedPart}>
-					Frame part
-				</button>
-				<button type="button" onclick={toggleIsolation} disabled={!selectedPart && !isolated}>
-					{isolated ? 'Show all parts' : 'Isolate part'}
-				</button>
-			</div>
-			<p class="gesture-help">Drag to orbit · Right drag to pan · Scroll or pinch to zoom</p>
-		</div>
-		{#if placementNotice}<p class="placement">{placementNotice}</p>{/if}
-	{/if}
-
-	<section class="parts" aria-label="parts">
-		<h3>Parts</h3>
-		{#if partNames.length === 0}
-			<p class="absence">no part of this preview has been loaded</p>
+	<div class="model-area">
+		{#if session.state === 'degraded'}
+			<p class="degraded">{NO_RENDERING}</p>
+			<p class="placement-unavailable">{ANCHOR_UNAVAILABLE}</p>
+		{:else if absence}
+			<p class="no-preview">{absence}</p>
+		{:else if unloadableNow}
+			<p class="unloadable">{UNLOADABLE}</p>
+			{#if unretrievable || decodeFailure}<p class="unloadable-reason">{unretrievable ?? decodeFailure}</p>{/if}
+			<button type="button" onclick={retry}>Retry</button>
 		{:else}
-			<ul>
-				{#each partNames as part (part)}
-					<li class:selected={part === selectedPart}>
-						<button type="button" onclick={() => choosePart(part)}>{part}</button>
+			<div class="stage">
+				<!-- The frame belongs to the design system. The canvas fills it, and
+				     `$lib/viewer/scene` sizes the renderer from its rendered dimensions. -->
+				<div class="frame">
+					<canvas
+						bind:this={canvas}
+						width="640"
+						height="360"
+						onpointerdown={pressed}
+						onpointerup={released}
+					></canvas>
+				</div>
+				<div class="navigation" role="group" aria-label="framing">
+					<button type="button" onclick={zoomIn} disabled={!scene} aria-label="Zoom in">Zoom +</button>
+					<button type="button" onclick={zoomOut} disabled={!scene} aria-label="Zoom out">Zoom −</button>
+					<button type="button" onclick={frameEverything}>Frame asset</button>
+					<button type="button" onclick={frameThePart} disabled={!selectedPart}>
+						Frame part
+					</button>
+					<button type="button" onclick={toggleIsolation} disabled={!selectedPart && !isolated}>
+						{isolated ? 'Show all parts' : 'Isolate part'}
+					</button>
+				</div>
+				<p class="gesture-help">Drag to orbit · Right drag to pan · Scroll or pinch to zoom</p>
+			</div>
+			{#if placementNotice}<p class="placement">{placementNotice}</p>{/if}
+		{/if}
+	</div>
+
+	<div class="tool-rail">
+		<section class="parts" aria-label="parts">
+			<h3>Parts</h3>
+			{#if partNames.length === 0}
+				<p class="absence">no part of this preview has been loaded</p>
+			{:else}
+				<ul>
+					{#each partNames as part (part)}
+						<li class:selected={part === selectedPart}>
+							<button type="button" onclick={() => choosePart(part)}>{part}</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if selectedPart}<p class="selected-part">Selected: {selectedPart}</p>{/if}
+		</section>
+
+		<AnimationTransport
+			{clips}
+			coverage={descriptor.coverage}
+			{transport}
+			absence={clipAbsence(descriptor, clips)}
+			onSelect={select}
+			onToggle={transportToggled}
+			onScrub={scrub}
+			onLoop={(loop) => (transport = setLoop(transport, loop))}
+			onSpeed={(speed) => (transport = setSpeed(transport, speed))}
+		/>
+	</div>
+
+	<section class="threads" aria-label="annotations">
+		<div class="thread-index">
+			<AnnotationFilters {model} />
+			<p class="orphan-count">{orphans} orphaned on this export</p>
+			<ul class="thread-list">
+				{#each model.visible as annotation (annotation.id)}
+					<li class:orphaned={annotation.anchor_state === 'orphaned'}>
+						<button type="button" onclick={() => open(annotation.id)}>{annotation.text}</button>
+						{#if annotation.anchor_state === 'orphaned'}
+							<span class="orphan">orphaned — expected {annotation.anchor.durable_key}</span>
+						{/if}
 					</li>
 				{/each}
 			</ul>
-		{/if}
-		{#if selectedPart}<p class="selected-part">Selected: {selectedPart}</p>{/if}
-	</section>
-
-	<AnimationTransport
-		{clips}
-		coverage={descriptor.coverage}
-		{transport}
-		absence={clipAbsence(descriptor, clips)}
-		onSelect={select}
-		onToggle={transportToggled}
-		onScrub={scrub}
-		onLoop={(loop) => (transport = setLoop(transport, loop))}
-		onSpeed={(speed) => (transport = setSpeed(transport, speed))}
-	/>
-
-	<section class="threads" aria-label="annotations">
-		<AnnotationFilters {model} />
-		<p class="orphan-count">{orphans} orphaned on this export</p>
-		<ul class="thread-list">
-			{#each model.visible as annotation (annotation.id)}
-				<li class:orphaned={annotation.anchor_state === 'orphaned'}>
-					<button type="button" onclick={() => open(annotation.id)}>{annotation.text}</button>
-					{#if annotation.anchor_state === 'orphaned'}
-						<span class="orphan">orphaned — expected {annotation.anchor.durable_key}</span>
-					{/if}
-				</li>
+			{#each notices as notice (notice)}
+				<p class="restore-notice">{notice}</p>
 			{/each}
-		</ul>
-		{#each notices as notice (notice)}
-			<p class="restore-notice">{notice}</p>
-		{/each}
-		{#if model.selected?.anchor_state === 'orphaned'}
-			<button type="button" onclick={rescue} disabled={!selectedPart}>
-				Re-anchor to {selectedPart ?? 'a part'}
-			</button>
-		{/if}
+			{#if model.selected?.anchor_state === 'orphaned'}
+				<button type="button" onclick={rescue} disabled={!selectedPart}>
+					Re-anchor to {selectedPart ?? 'a part'}
+				</button>
+			{/if}
+		</div>
 		<ThreadPanel {model} {mayPromote} {actor} />
 	</section>
 </section>
@@ -537,9 +541,42 @@
 	 * the provenance above it, the parts beside it and the threads below.
 	 */
 	.viewer {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-6);
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+		gap: var(--space-4) var(--space-6);
+		align-items: start;
+	}
+
+	.provenance,
+	.threads {
+		grid-column: 1 / -1;
+	}
+
+	.provenance {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+		gap: var(--space-2) var(--space-6);
+		min-width: 0;
+	}
+
+	.provenance > p,
+	.superseded {
+		grid-column: 1 / -1;
+		overflow-wrap: anywhere;
+	}
+
+	.model-area,
+	.tool-rail,
+	.thread-index {
+		min-width: 0;
+	}
+
+	.tool-rail {
+		display: grid;
+		gap: var(--space-4);
+		align-content: start;
+		border-block-start: var(--border-heavy) solid var(--color-divider);
+		padding-block-start: var(--space-3);
 	}
 
 	h3 {
@@ -595,8 +632,8 @@
 	.figures {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--space-6);
-		margin-block-start: var(--space-3);
+		gap: var(--space-4);
+		margin-block-start: 0;
 	}
 
 	.figures li {
@@ -622,7 +659,7 @@
 	}
 
 	.inspection {
-		margin-block-start: var(--space-3);
+		margin-block-start: 0;
 		font-size: var(--text-small);
 	}
 
@@ -655,14 +692,11 @@
 	}
 
 	/*
-	 * THE FRAME AROUND THE CANVAS. Neo-brutalism frames the render; it does
-	 * not reach inside it. The canvas keeps the size it had — the scene
-	 * module sizes its renderer from `canvas.clientWidth` — and everything
-	 * this system draws is on the wrapper.
+	 * THE FRAME AROUND THE CANVAS. The preview fills the fluid main column,
+	 * while the scene sizes its renderer from the canvas's actual dimensions.
 	 */
 	.frame {
 		width: 100%;
-		max-width: 40rem;
 		background: var(--color-surface);
 		border: var(--border-thick) solid var(--color-divider);
 		border-radius: var(--radius-md);
@@ -672,6 +706,7 @@
 	canvas {
 		display: block;
 		width: 100%;
+		height: auto;
 		touch-action: none;
 	}
 
@@ -749,12 +784,12 @@
 	/* The one way forward out of an unloadable preview, so it takes the spot
 	   yellow the design reserves for the action a block is about. It is the
 	   only direct control this section has. */
-	.viewer > button {
+	.model-area > button {
 		justify-self: start;
 		background: var(--color-highlight);
 	}
 
-	.viewer > button:hover:not(:disabled) {
+	.model-area > button:hover:not(:disabled) {
 		background: var(--color-highlight-hover);
 	}
 
@@ -806,7 +841,16 @@
 
 	.threads {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+		gap: var(--space-6);
+		border-block-start: var(--border-heavy) solid var(--color-divider);
+		padding-block-start: var(--space-3);
+	}
+
+	.thread-index {
+		display: grid;
 		gap: var(--space-3);
+		align-content: start;
 	}
 
 	/*
@@ -903,12 +947,31 @@
 	 * design reserves for the one action a block is about, and it says which
 	 * part it will use, so nobody presses it hoping.
 	 */
-	.threads > button {
+	.thread-index > button {
 		justify-self: start;
 		background: var(--color-highlight);
 	}
 
-	.threads > button:hover:not(:disabled) {
+	.thread-index > button:hover:not(:disabled) {
 		background: var(--color-highlight-hover);
+	}
+
+	@media (max-width: 60rem) {
+		.viewer,
+		.provenance,
+		.threads {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.provenance > p,
+		.superseded,
+		.provenance,
+		.threads {
+			grid-column: 1;
+		}
+
+		.tool-rail {
+			grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+		}
 	}
 </style>

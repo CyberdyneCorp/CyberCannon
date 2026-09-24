@@ -51,8 +51,12 @@
 	 * in everywhere else — and the asset's display name beside it stays in
 	 * the body face, which is what tells the two apart at a glance.
 	 */
+	h1 {
+		margin-block-end: var(--space-1);
+	}
+
 	.belongs-to {
-		margin: 0 0 var(--space-4);
+		margin: 0 0 var(--space-3);
 		font-size: var(--text-h5);
 	}
 

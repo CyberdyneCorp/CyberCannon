@@ -37,13 +37,13 @@
 
 <style>
 	.surfaces {
-		margin-block-end: var(--space-6);
+		margin-block-end: var(--space-4);
 	}
 
 	.surfaces ul {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--space-3);
+		gap: var(--space-2);
 		list-style: none;
 		margin: 0;
 		padding: 0;
@@ -58,7 +58,7 @@
 		border: var(--border-thick) solid var(--color-divider);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-md);
-		padding: var(--space-2) var(--space-3);
+		padding: var(--space-1) var(--space-3);
 	}
 
 	.surface[data-current='true'] {

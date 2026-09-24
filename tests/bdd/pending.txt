@@ -39,6 +39,10 @@ app-navigation :: Project is always visible
 app-navigation :: Return from viewer to overview
 app-navigation :: Switching with an asset open
 app-navigation :: Unrestorable state degrades
+asset-workspace-layout :: Narrow asset viewer
+asset-workspace-layout :: Viewer discussion
+asset-workspace-layout :: Wide asset overview
+asset-workspace-layout :: Wide asset viewer
 asset-media-presentation :: Compressed preview opens
 asset-media-presentation :: Declared path and discovered slot refer to one image
 asset-media-presentation :: Decoder failure is actionable

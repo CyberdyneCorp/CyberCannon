@@ -46,7 +46,8 @@
 	/* Every section stays visible even when it has no recorded content. */
 	.asset-page {
 		display: grid;
-		gap: var(--space-6);
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+		gap: var(--space-4) var(--space-6);
 	}
 
 	/* The sections, in the order `$lib/asset` fixed. The rule over each one is
@@ -107,6 +108,7 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-small);
 		color: var(--color-text);
+		overflow-wrap: anywhere;
 	}
 
 	/*

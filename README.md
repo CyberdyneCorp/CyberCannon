@@ -53,7 +53,7 @@ Three properties hold everywhere, and everything else follows from them:
 |---|---|
 | [`ROADMAP.md`](ROADMAP.md) | Milestones, sprint slicing, the gate decisions, and what is deliberately deferred with the trigger that would revive each. |
 | [`openspec/project.md`](openspec/project.md) | The binding architecture, the golden rule for the `design` block, the testing strategy, and the gate decisions G1 to G4. |
-| [`openspec/changes/`](openspec/changes) | Twelve specified changes — proposal, spec deltas, design decisions and tasks for each. |
+| [`openspec/changes/`](openspec/changes) | Nineteen specified changes — proposal, spec deltas, design decisions and tasks for each. |
 | [`examples/ronin/`](examples/ronin) | A complete, validating game repository. |
 | [`deploy/README.md`](deploy/README.md) | What deploys, what deliberately does not, and the recovery procedures. |
 
@@ -831,7 +831,7 @@ Four layers, and the specifications are the source of two of them:
 
 ```mermaid
 graph LR
-    SPECS["Spec deltas - 705 scenarios"] --> GEN["Generator"]
+    SPECS["Spec deltas - 709 scenarios"] --> GEN["Generator"]
     GEN --> FEAT["Generated .feature files"]
     FEAT --> BDD["pytest-bdd"]
     UNIT["Unit - domain and application"] --> CHECK["just check"]

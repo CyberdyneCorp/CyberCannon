@@ -135,6 +135,25 @@ def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
     assert "Preview vertex normals" in page.locator("main").inner_text()
 
     canvas = page.locator('[aria-label="3D viewer"] canvas')
+    parts = page.locator('[aria-label="3D viewer"] [aria-label="parts"]')
+    canvas_box = canvas.bounding_box()
+    parts_box = parts.bounding_box()
+    assert canvas_box is not None and parts_box is not None
+    width = page.viewport_size["width"]
+    if width > 960:
+        assert canvas_box["width"] > width / 2
+        assert parts_box["x"] > canvas_box["x"] + canvas_box["width"]
+    else:
+        assert parts_box["y"] >= canvas_box["y"] + canvas_box["height"]
+    thread_index = page.locator('[aria-label="annotations"] .thread-index').bounding_box()
+    discussion = page.locator('[aria-label="annotations"] aside').bounding_box()
+    assert thread_index is not None and discussion is not None
+    if width > 960:
+        assert discussion["x"] > thread_index["x"] + thread_index["width"]
+    else:
+        assert discussion["y"] >= thread_index["y"] + thread_index["height"]
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+
     before = canvas.screenshot()
     box = canvas.bounding_box()
     assert box is not None
@@ -150,6 +169,17 @@ def test_viewer_decodes_a_real_draco_preview(page: Any, tmp_path: Path) -> None:
     page.get_by_role("button", name="Zoom in").click()
     assert canvas.screenshot() != before_zoom
     page.get_by_role("button", name="Frame asset").click()
+
+    page.goto(ASSET)
+    sections = page.locator(".asset-page [data-section]")
+    sections.first.wait_for()
+    assert sections.count() > 1
+    first, second = sections.nth(0).bounding_box(), sections.nth(1).bounding_box()
+    assert first is not None and second is not None
+    if width > 960:
+        assert second["x"] > first["x"]
+        assert abs(second["y"] - first["y"]) < 2
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
 
 
 def test_viewer_explains_decode_failure_and_keeps_threads(page: Any) -> None:
