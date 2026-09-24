@@ -371,6 +371,13 @@ mcp *args:
 fixtures directory:
     PYTHONPATH=tools uv run --locked python -m canon_fixtures {{ directory }}
 
+# Seed a game repository somebody can actually look at: the worked example's
+# source files, plus the export and concept views generated beside them. The
+# destination must be OUTSIDE this repository -- nothing binary lives in this
+# git history, and a game repository is where art belongs.
+seed destination:
+    PYTHONPATH=tools uv run --locked python -m canon_fixtures.seed {{ destination }}
+
 # Regenerate tests/bdd/features/ from the spec deltas. Nobody hand-writes a
 # .feature; this recipe overwrites any that somebody did.
 gen-features:
