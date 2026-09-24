@@ -83,7 +83,9 @@
 {#if described}
 	<section class="route-state" data-state={state.kind}>
 		<h2>{described.heading}</h2>
-		<p>{described.detail}</p>
+		{#if state.kind !== 'degraded' || !state.unavailable.includes(described.detail)}
+			<p>{described.detail}</p>
+		{/if}
 		{#if state.kind === 'degraded'}
 			<ul class="unavailable">
 				{#each state.unavailable as entry (entry)}
@@ -132,6 +134,16 @@
 
 	.route-state[data-state='degraded'] {
 		background: var(--color-highlight);
+		padding: var(--space-2) var(--space-3);
+	}
+
+	.route-state[data-state='degraded'] h2 {
+		font-size: var(--text-h5);
+		margin-block-end: var(--space-1);
+	}
+
+	.route-state[data-state='degraded'] .unavailable {
+		margin-block-start: 0;
 	}
 
 	.route-state[data-state='failed'] {

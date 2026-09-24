@@ -74,5 +74,6 @@ describe('a partial result is never presented as complete', () => {
 		expect(body).toContain('rebuilt');
 		expect(body).toContain('incomplete');
 		expect(body).toContain('<p>rows</p>');
+		expect(body.split(REBUILDING_NOTE)).toHaveLength(2);
 	});
 });
