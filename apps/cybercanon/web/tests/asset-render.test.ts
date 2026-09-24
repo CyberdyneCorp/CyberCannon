@@ -13,7 +13,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
-import AssetOverview from '../src/lib/components/AssetOverview.svelte';
+import AssetSurface from '../src/lib/components/AssetSurface.svelte';
+import AssetNavigation from '../src/lib/components/AssetNavigation.svelte';
 import RouteScreen from '../src/lib/components/RouteScreen.svelte';
 import { forbidden, notFound } from '../src/lib/route-state';
 import type { RouteState } from '../src/lib/route-state';
@@ -83,7 +84,7 @@ function built(recorded: boolean): AssetPage {
 }
 
 function body(page: AssetPage): string {
-	return render(AssetOverview, { props: { page } }).body;
+	return render(AssetSurface, { props: { page, surface: 'overview' } }).body;
 }
 
 describe('the asset page renders every section it has', () => {
@@ -123,6 +124,17 @@ describe('the ways out of the asset page', () => {
 
 		expect(rendered).toContain(`href="/p/${PROJECT}/a/${ASSET}?surface=sheet"`);
 		expect(rendered).toContain(`href="/p/${PROJECT}/a/${ASSET}?surface=viewer"`);
+		expect(rendered.match(/aria-label="Asset surfaces"/g)).toHaveLength(1);
+	});
+
+	it('identifies the active surface from Overview, Model sheet, and 3D viewer', () => {
+		const entries = built(true).surfaces;
+		for (const surface of ['overview', 'sheet', 'viewer'] as const) {
+			const rendered = render(AssetNavigation, { props: { entries, surface } }).body;
+			const active = entries.find((entry) => entry.surface === surface);
+			expect(rendered).toContain(`href="${active?.address.replaceAll('&', '&amp;')}" aria-current="page"`);
+			expect(rendered.match(/aria-current="page"/g)).toHaveLength(1);
+		}
 	});
 
 	it('offers the viewer even for an asset with no validated export', () => {

@@ -4,3 +4,4 @@
  */
 
 export * from './switch';
+export * from './work-areas';

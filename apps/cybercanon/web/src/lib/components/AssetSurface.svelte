@@ -27,6 +27,7 @@
 	import type { AnnotationViewModel } from '$lib/annotation';
 	import type { SceneFactory } from '$lib/viewer/contract';
 	import AssetOverview from './AssetOverview.svelte';
+	import AssetNavigation from './AssetNavigation.svelte';
 	import DocumentLinks from './DocumentLinks.svelte';
 	import ModelSheet from './ModelSheet.svelte';
 	import Viewer3D from './Viewer3D.svelte';
@@ -82,6 +83,8 @@
 		};
 	});
 </script>
+
+<AssetNavigation {surface} entries={page.surfaces} />
 
 {#if surface === 'overview'}
 	<AssetOverview {page} />

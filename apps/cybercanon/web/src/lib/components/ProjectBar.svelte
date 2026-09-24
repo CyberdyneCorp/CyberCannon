@@ -15,23 +15,30 @@
 	 * an address that never carried them cannot carry them across — there is no
 	 * state to clear, and therefore none to clear incorrectly.
 	 */
-	import { projectChoices } from '$lib/projects';
+	import { projectChoices, workAreaLinks } from '$lib/projects';
 
 	interface Props {
 		/** The project the current address names, or `null` outside a project. */
 		project: string | null;
+		pathname?: string;
 		/** The projects this person may open, as the surface named them. */
 		projects?: readonly string[];
 	}
 
-	let { project, projects = [] }: Props = $props();
+	let { project, pathname = '', projects = [] }: Props = $props();
 
 	const choices = $derived(projectChoices(projects, project));
 	const elsewhere = $derived(choices.filter((choice) => !choice.current));
+	const areas = $derived(project ? workAreaLinks(project, pathname) : []);
 </script>
 
 {#if project}
 	<span class="project" data-project={project}>Project: {project}</span>
+	<nav class="work-areas" aria-label="Project work areas">
+		{#each areas as area (area.area)}
+			<a href={area.address} aria-current={area.current ? 'page' : undefined}>{area.label}</a>
+		{/each}
+	</nav>
 {/if}
 
 {#if elsewhere.length > 0}
@@ -56,6 +63,29 @@
 	.project {
 		font-size: var(--text-h5);
 		font-style: italic;
+	}
+
+	.work-areas {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		align-items: center;
+	}
+
+	.work-areas a {
+		color: var(--color-text);
+		font-weight: var(--font-weight-strong);
+		padding: 0 var(--space-1);
+		border-block-end: var(--border-thin) solid transparent;
+	}
+
+	.work-areas a:hover,
+	.work-areas a[aria-current='page'] {
+		border-block-end-color: var(--color-divider);
+	}
+
+	.work-areas a[aria-current='page'] {
+		background: var(--color-highlight);
 	}
 
 	.switcher {

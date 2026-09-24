@@ -79,7 +79,7 @@
 
 <header>
 	<a class="home" href="/">CyberCanon</a>
-	<ProjectBar {project} projects={data.projects} />
+	<ProjectBar {project} projects={data.projects} pathname={page.url.pathname} />
 	<SessionBar />
 </header>
 

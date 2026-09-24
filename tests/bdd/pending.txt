@@ -28,10 +28,15 @@ app-navigation :: A link to a specific surface opens it
 app-navigation :: A shared link still resolves after a rename
 app-navigation :: Absent content is stated, not hidden
 app-navigation :: Address survives an index rebuild
+app-navigation :: Current surface is identified
+app-navigation :: Current work area is identified
 app-navigation :: Filters do not leak between projects
+app-navigation :: Move from sheet to viewer
+app-navigation :: Move from triage to the asset browser
 app-navigation :: Not found and not permitted are different screens
 app-navigation :: One page, everything recorded
 app-navigation :: Project is always visible
+app-navigation :: Return from viewer to overview
 app-navigation :: Switching with an asset open
 app-navigation :: Unrestorable state degrades
 asset-browser :: A filtered listing is shareable

@@ -831,7 +831,7 @@ Four layers, and the specifications are the source of two of them:
 
 ```mermaid
 graph LR
-    SPECS["Spec deltas - 687 scenarios"] --> GEN["Generator"]
+    SPECS["Spec deltas - 692 scenarios"] --> GEN["Generator"]
     GEN --> FEAT["Generated .feature files"]
     FEAT --> BDD["pytest-bdd"]
     UNIT["Unit - domain and application"] --> CHECK["just check"]

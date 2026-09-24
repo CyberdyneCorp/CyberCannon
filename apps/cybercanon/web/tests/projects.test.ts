@@ -23,7 +23,7 @@ import { queryCache } from '../src/lib/api/cache';
 import { sessionStore } from '../src/lib/session/session';
 import { mappedPerson } from './support/credentials';
 import ProjectBar from '../src/lib/components/ProjectBar.svelte';
-import { entitledProjects, projectChoices, switchedTo } from '../src/lib/projects';
+import { entitledProjects, projectChoices, switchedTo, workAreaLinks } from '../src/lib/projects';
 import { assetAddress, browserAddress, readBrowserAddress } from '../src/lib/address';
 import type { ApiResult, StatusReport } from '../src/lib/api';
 
@@ -127,8 +127,8 @@ describe('which projects a person may switch to', () => {
 });
 
 describe('the frame states which project is being shown', () => {
-	function bar(project: string | null, projects: readonly string[] = []): string {
-		return render(ProjectBar, { props: { project, projects } }).body;
+	function bar(project: string | null, projects: readonly string[] = [], pathname = ''): string {
+		return render(ProjectBar, { props: { project, projects, pathname } }).body;
 	}
 
 	it('identifies the project of the address', () => {
@@ -152,6 +152,27 @@ describe('the frame states which project is being shown', () => {
 
 	it('names no project at all outside a project', () => {
 		expect(bar(null)).not.toContain('data-project');
+	});
+
+	it('links every project screen to its asset browser and triage queue', () => {
+		const body = bar(IRONWOOD, [], `/p/${IRONWOOD}/triage`);
+		expect(body).toContain(`href="/p/${IRONWOOD}/assets"`);
+		expect(body).toContain(`href="/p/${IRONWOOD}/triage" aria-current="page"`);
+	});
+
+	it('identifies Assets as current while an asset surface is open', () => {
+		const body = bar(IRONWOOD, [], `/p/${IRONWOOD}/a/mech_scout`);
+		expect(body).toContain(`href="/p/${IRONWOOD}/assets" aria-current="page"`);
+	});
+});
+
+describe('project work area links', () => {
+	it('leave triage filters behind when opening Assets', () => {
+		const links = workAreaLinks(IRONWOOD, `/p/${IRONWOOD}/triage`);
+		expect(links.map((link) => link.address)).toEqual([
+		`/p/${IRONWOOD}/assets`,
+		`/p/${IRONWOOD}/triage`
+		]);
 	});
 });
 

@@ -9,9 +9,8 @@
 	 * hidden"*. A screen that decided for itself which sections were worth
 	 * showing would be the place that requirement quietly stopped holding.
 	 *
-	 * The surface entry points are the same rule applied to the ways out: a
-	 * surface this asset does not have is shown as unavailable with its reason,
-	 * rather than as a link that degrades once somebody follows it.
+	 * AssetNavigation renders the surface entry points on every asset surface;
+	 * this component only renders the overview's sections.
 	 */
 	import type { AssetPage } from '$lib/asset';
 
@@ -23,23 +22,6 @@
 </script>
 
 <div class="asset-page" data-asset={page.asset} data-project={page.project}>
-	<nav class="surfaces" aria-label="Surfaces">
-		<ul>
-			{#each page.surfaces as entry (entry.surface)}
-				<li class="surface" data-surface={entry.surface} data-available={entry.available}>
-					{#if entry.available}
-						<a class="to-surface" data-surface={entry.surface} href={entry.address}
-							>{entry.label}</a
-						>
-					{:else}
-						<span class="unavailable">{entry.label}</span>
-						<span class="absence">{entry.absence}</span>
-					{/if}
-				</li>
-			{/each}
-		</ul>
-	</nav>
-
 	{#each page.sections as section (section.id)}
 		<section class="section" data-section={section.id} data-empty={section.absence !== null}>
 			<h2>{section.heading}</h2>
@@ -61,84 +43,10 @@
 </div>
 
 <style>
-	/*
-	 * The asset page in the design's terms: the ways out set as a row of
-	 * boxes, then the sections down the page with their headings in the
-	 * system's heavy face.
-	 *
-	 * THE ONE RULE THIS STYLESHEET HAS TO KEEP is the one the component's own
-	 * comment states: *absent content is stated, not hidden*. So a section
-	 * with nothing in it and a surface this asset does not have are both
-	 * DRAWN — quieter, on the neutral tint, never removed and never faded to
-	 * the point of being skipped.
-	 */
+	/* Every section stays visible even when it has no recorded content. */
 	.asset-page {
 		display: grid;
 		gap: var(--space-6);
-	}
-
-	.surfaces ul,
-	.entries {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-
-	/*
-	 * The surface entry points. The design draws them as a segmented control
-	 * in a single black box; here each one is its own box, because an
-	 * unavailable surface carries a sentence saying why and a sentence does
-	 * not fit in a segment. The black edge and the hard offset are the
-	 * design's, and they are what make the row read as a control rather than
-	 * as a list of links.
-	 */
-	.surfaces ul {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-3);
-	}
-
-	.surface {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		max-width: 22rem;
-		background: var(--color-surface);
-		border: var(--border-thick) solid var(--color-divider);
-		border-radius: var(--radius-md);
-		box-shadow: var(--shadow-md);
-		padding: var(--space-2) var(--space-3);
-	}
-
-	.to-surface {
-		font-family: var(--font-heading);
-		font-weight: var(--font-weight-strong);
-		font-size: var(--text-h5);
-		color: var(--color-text);
-	}
-
-	.to-surface:hover {
-		color: var(--color-accent-700);
-		text-decoration-thickness: var(--border-thin);
-	}
-
-	/*
-	 * A surface this asset does not have. It keeps its box and loses its
-	 * lift: on the neutral tint, flat to the page, with the label in the same
-	 * face as the ones that work so the row still reads as one set of
-	 * choices. Fading it out would have made it the thing an eye skips, and
-	 * the sentence underneath is the whole point of drawing it.
-	 */
-	.surface[data-available='false'] {
-		background: var(--color-neutral-100);
-		box-shadow: none;
-	}
-
-	.unavailable {
-		font-family: var(--font-heading);
-		font-weight: var(--font-weight-strong);
-		font-size: var(--text-h5);
-		color: var(--color-neutral-700);
 	}
 
 	/* The sections, in the order `$lib/asset` fixed. The rule over each one is
